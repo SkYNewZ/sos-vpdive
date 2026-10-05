@@ -1,0 +1,17 @@
+# Committee accounts. Create the real file with
+#   mkdir -p admins && cp admins.example.yaml admins/admins.yaml
+# and mount the admins/ directory (not the file) read-only at /config, so that
+# editors saving by rename are picked up.
+# Hash each password with:
+#   docker run --rm -it sos-vpdive:local hash-password
+# Changes are picked up within 10 seconds. Removing an account or changing its
+# password ends its sessions. An invalid file is ignored and logged.
+admins:
+  - username: camille
+    name: Camille
+    role: Présidente
+    password_hash: "paste the output of hash-password here"
+  - username: dominique
+    name: Dominique
+    role: Trésorier
+    password_hash: "paste the output of hash-password here"

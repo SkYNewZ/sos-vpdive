@@ -1,0 +1,31 @@
+# AI crawlers refused (spec §11.8). Every name is listed in robots.txt; a
+# request whose user agent contains a name gets a 403, except for tokens
+# marked robots_txt_only, which never appear as a user agent.
+robots:
+  - name: GPTBot
+  - name: ChatGPT-User
+  - name: OAI-SearchBot
+  - name: ClaudeBot
+  - name: Claude-User
+  - name: Claude-SearchBot
+  - name: anthropic-ai
+  - name: CCBot
+  - name: PerplexityBot
+  - name: Perplexity-User
+  - name: Bytespider
+  - name: Amazonbot
+  - name: meta-externalagent
+  - name: Meta-ExternalFetcher
+  - name: FacebookBot
+  - name: Diffbot
+  - name: cohere-ai
+  - name: cohere-training-data-crawler
+  - name: MistralAI-User
+  - name: DuckAssistBot
+  - name: YouBot
+  - name: Timpibot
+  - name: ImagesiftBot
+  - name: Google-Extended
+    robots_txt_only: true
+  - name: Applebot-Extended
+    robots_txt_only: true

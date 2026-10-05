@@ -1,0 +1,15 @@
+# Links to VPDive pages (spec §7), appended to VPDIVE_BASE_URL. Adding a link
+# needs no code. Keys are stable; labels may change.
+links:
+  - key: paiements
+    label: Paiements, et export des paiements
+    path: /app/admin/vpdive/%2Ff%2Fpayment%2Findex?route=/f/payment/index
+  - key: membres
+    label: Liste des membres, et export des membres
+    path: /app/admin/vpdive/%2Ff%2Fuser%2Findex?route=/f/user/index
+  - key: messagerie
+    label: Messagerie
+    path: /app/messages
+  - key: support
+    label: Support de l'éditeur, nouveau ticket
+    path: /app/support/new

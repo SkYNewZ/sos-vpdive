@@ -1,0 +1,19 @@
+{{define "head"}}{{if .Data.SiteKey}}<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>{{end}}{{end}}
+{{define "main"}}
+<div class="mx-auto max-w-sm">
+<h1 class="text-2xl font-bold text-primary">Connexion du comité</h1>
+<form method="post" action="/connexion" class="mt-6 flex flex-col gap-4">
+<div class="flex flex-col gap-1">
+<label class="font-semibold" for="username">Identifiant</label>
+<input class="input w-full" id="username" name="username" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required value="{{.Data.Username}}">
+</div>
+<div class="flex flex-col gap-1">
+<label class="font-semibold" for="password">Mot de passe</label>
+<input class="input w-full" id="password" name="password" type="password" autocomplete="current-password" required>
+</div>
+{{if .Data.SiteKey}}<div class="cf-turnstile" data-sitekey="{{.Data.SiteKey}}" data-action="connexion"></div>
+<noscript><p class="text-sm">La connexion demande JavaScript pour le contrôle anti-robot. Active-le, ou écris au club : {{.ClubEmail}}.</p></noscript>{{end}}
+<button class="btn btn-primary min-h-11 w-full" type="submit">Se connecter</button>
+</form>
+</div>
+{{end}}

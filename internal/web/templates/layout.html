@@ -1,0 +1,41 @@
+{{define "layout"}}<!doctype html>
+<html lang="fr" data-theme="cpp">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow, noai, noimageai">
+<title>{{.Title}} · {{if .Admin}}SOS CPP Comité{{else}}SOS CPP{{end}}</title>
+<link rel="preload" href="/static/fonts/atkinson-hyperlegible-next-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="{{static "app.css"}}">
+{{block "head" .}}{{end}}
+</head>
+<body class="min-h-dvh bg-base-100 font-sans text-base-content antialiased">
+{{if .Account}}{{template "adminNav" .}}{{end}}
+<main class="mx-auto w-full px-4 pt-6 pb-12 {{if .Admin}}max-w-5xl{{else}}max-w-160{{end}}">
+{{range .Notices}}{{template "notice" .}}{{end}}
+{{template "main" .}}
+</main>
+</body>
+</html>{{end}}
+
+{{define "notice"}}<div role="{{if eq .Kind "error"}}alert{{else}}status{{end}}" class="alert alert-soft mb-4 {{if eq .Kind "error"}}alert-error{{else if eq .Kind "warning"}}alert-warning{{else if eq .Kind "success"}}alert-success{{else}}alert-info{{end}}">
+<span>{{.Text}}{{if .Link}} <a class="link font-semibold" href="{{.Link}}">{{.LinkText}}</a>{{end}}</span>
+</div>{{end}}
+
+{{define "adminNav"}}<header class="border-b border-base-300">
+<nav class="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-2" aria-label="Navigation du comité">
+<a class="inline-flex min-h-11 items-center text-lg font-bold text-primary" href="/">SOS CPP Comité</a>
+<ul class="flex gap-4">
+<li><a class="link link-hover inline-flex min-h-11 items-center" href="/">Demandes</a></li>
+<li><a class="link link-hover inline-flex min-h-11 items-center" href="/imports">Imports</a></li>
+</ul>
+<div class="ml-auto flex items-center gap-3">
+<img src="{{.Account.Avatar}}" alt="" width="32" height="32" class="size-8">
+<span class="text-sm"><span class="font-semibold">{{.Account.Name}}</span> · {{.Account.Role}}</span>
+<form method="post" action="/deconnexion">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<button class="btn btn-ghost btn-sm min-h-11" type="submit">Se déconnecter</button>
+</form>
+</div>
+</nav>
+</header>{{end}}

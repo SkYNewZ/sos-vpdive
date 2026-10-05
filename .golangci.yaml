@@ -6,7 +6,9 @@ linters:
     - depguard # no import allow-list in this project
     - err113 # wrapped dynamic errors carry the context we need
     - exhaustruct # zero values are meaningful in config and option structs
+    - exhaustruct_v5 # zero values are meaningful in config and option structs
     - funlen # see cyclop
+    - gomodguard # deprecated since v2.12, replaced by gomodguard_v2 (no module allow-list in this project)
     - gochecknoglobals # embed.FS values are package-level by design
     - gocognit # see cyclop
     - godox

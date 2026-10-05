@@ -1,0 +1,33 @@
+# Example deployment. Copy .env.example to .env and fill it in; write
+# admins/admins.yaml from admins.example.yaml (see README). A new named volume takes
+# the ownership of /data from the image (uid 65532).
+services:
+  app:
+    build: .
+    image: sos-vpdive:local
+    env_file: .env
+    ports:
+      # The reverse proxy on this host is the only entry point.
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - data:/data
+      # A directory, not a file: a single-file bind mount pins the inode, so an
+      # editor that saves by rename would never be seen by the hot reload.
+      - ./admins:/config:ro
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    # The server's graceful shutdown waits up to 30 s; Docker's default is 10 s.
+    stop_grace_period: 35s
+    restart: unless-stopped
+
+# Pinned so that TRUSTED_PROXIES can name the gateway: a proxy on the host that
+# connects to the published 127.0.0.1:8080 reaches the container from it.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.30.30.0/24
+
+volumes:
+  data:

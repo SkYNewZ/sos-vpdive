@@ -1,0 +1,15 @@
+.git
+.github
+.claude
+.local
+docs
+bin
+data
+testdata
+*.db
+*.db-*
+.env
+.env.*
+!.env.example
+admins.yaml
+internal/web/static/app.css
