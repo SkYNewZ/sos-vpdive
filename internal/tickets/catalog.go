@@ -38,30 +38,28 @@ type Option struct {
 
 // Field is a dedicated field of a category.
 type Field struct {
-	ID       string
-	Label    string
-	Hint     string
-	Type     FieldType
-	Required bool
-	Options  []Option // choice: inline options, or the products when Products is true
-	Products bool     // options_from: products
+	ID          string    `yaml:"id"`
+	Label       string    `yaml:"label"`
+	Hint        string    `yaml:"hint"`
+	Type        FieldType `yaml:"type"`
+	Required    bool      `yaml:"required"`
+	Options     []Option  `yaml:"options"`      // choice: inline options, or the products once built
+	OptionsFrom string    `yaml:"options_from"` // "products": Options is the product list
 }
 
 // Category groups requests and decides their dedicated fields.
 type Category struct {
-	ID            string
-	Label         string
-	Help          string
-	CommitteeOnly bool
-	Fields        []Field
+	ID            string  `yaml:"id"`
+	Label         string  `yaml:"label"`
+	Help          string  `yaml:"help"`
+	CommitteeOnly bool    `yaml:"committee_only"`
+	Fields        []Field `yaml:"fields"`
 }
 
 // Catalog is the content of config/categories.yaml and config/products.yaml.
 type Catalog struct {
 	Categories []Category // file order
 	Products   []Option
-
-	index map[string]int
 }
 
 // Fields is what a ticket stores, sealed as JSON.
@@ -87,31 +85,12 @@ const (
 	textMax     = 200
 	textareaMax = 2000
 	numberMax   = 9999
-	dateLayout  = "2006-01-02"
 	dateDisplay = "02/01/2006"
 )
 
 // Ids are stable and end up in form input names: lowercase letters, digits
 // and hyphens, so "_" can separate them in FieldName.
 var idPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`)
-
-type categoryYAML struct {
-	ID            string      `yaml:"id"`
-	Label         string      `yaml:"label"`
-	Help          string      `yaml:"help"`
-	CommitteeOnly bool        `yaml:"committee_only"`
-	Fields        []fieldYAML `yaml:"fields"`
-}
-
-type fieldYAML struct {
-	ID          string    `yaml:"id"`
-	Label       string    `yaml:"label"`
-	Hint        string    `yaml:"hint"`
-	Type        FieldType `yaml:"type"`
-	Required    bool      `yaml:"required"`
-	Options     []Option  `yaml:"options"`
-	OptionsFrom string    `yaml:"options_from"`
-}
 
 // LoadCatalog reads and validates the categories and products. Any problem
 // prevents the start, naming the file and the entry at fault.
@@ -126,25 +105,22 @@ func LoadCatalog(content fs.FS) (*Catalog, error) {
 		return nil, fmt.Errorf("%s: products: %w", productsPath, err)
 	}
 	var cf struct {
-		Categories []categoryYAML `yaml:"categories"`
+		Categories []Category `yaml:"categories"`
 	}
 	if err := config.DecodeYAML(content, categoriesPath, &cf); err != nil {
 		return nil, err
 	}
-	c := &Catalog{Products: pf.Products, index: map[string]int{}}
+	c := &Catalog{Products: pf.Products}
 	var errs []error
-	for i, raw := range cf.Categories {
-		cat, err := buildCategory(raw, pf.Products)
-		if err == nil {
-			if _, dup := c.index[cat.ID]; dup {
-				err = fmt.Errorf("duplicate id %q", cat.ID)
-			}
+	for i, cat := range cf.Categories {
+		err := buildCategory(&cat, pf.Products)
+		if _, dup := c.Category(cat.ID); err == nil && dup {
+			err = fmt.Errorf("duplicate id %q", cat.ID)
 		}
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: categories[%d]: %w", categoriesPath, i, err))
 			continue
 		}
-		c.index[cat.ID] = len(c.Categories)
 		c.Categories = append(c.Categories, cat)
 	}
 	if err := errors.Join(errs...); err != nil {
@@ -156,61 +132,58 @@ func LoadCatalog(content fs.FS) (*Catalog, error) {
 	return c, nil
 }
 
-func buildCategory(raw categoryYAML, products []Option) (Category, error) {
-	if !idPattern.MatchString(raw.ID) {
-		return Category{}, fmt.Errorf("id %q must match %s", raw.ID, idPattern)
+// buildCategory validates cat and fills the options of its product fields.
+func buildCategory(cat *Category, products []Option) error {
+	if !idPattern.MatchString(cat.ID) {
+		return fmt.Errorf("id %q must match %s", cat.ID, idPattern)
 	}
-	if strings.TrimSpace(raw.Label) == "" {
-		return Category{}, fmt.Errorf("category %q: empty label", raw.ID)
+	if strings.TrimSpace(cat.Label) == "" {
+		return fmt.Errorf("category %q: empty label", cat.ID)
 	}
-	if raw.CommitteeOnly && len(raw.Fields) > 0 {
-		return Category{}, fmt.Errorf("category %q: a committee-only category has no fields", raw.ID)
+	if cat.CommitteeOnly && len(cat.Fields) > 0 {
+		return fmt.Errorf("category %q: a committee-only category has no fields", cat.ID)
 	}
-	cat := Category{ID: raw.ID, Label: raw.Label, Help: strings.TrimSpace(raw.Help), CommitteeOnly: raw.CommitteeOnly}
+	cat.Help = strings.TrimSpace(cat.Help)
 	seen := map[string]bool{}
-	for j, rf := range raw.Fields {
-		f, err := buildField(rf, products)
+	for j := range cat.Fields {
+		f := &cat.Fields[j]
+		err := buildField(f, products)
 		if err == nil && seen[f.ID] {
 			err = fmt.Errorf("duplicate id %q", f.ID)
 		}
 		if err != nil {
-			return Category{}, fmt.Errorf("category %q: fields[%d]: %w", raw.ID, j, err)
+			return fmt.Errorf("category %q: fields[%d]: %w", cat.ID, j, err)
 		}
 		seen[f.ID] = true
-		cat.Fields = append(cat.Fields, f)
 	}
-	return cat, nil
+	return nil
 }
 
-func buildField(raw fieldYAML, products []Option) (Field, error) {
-	if !idPattern.MatchString(raw.ID) {
-		return Field{}, fmt.Errorf("id %q must match %s", raw.ID, idPattern)
+func buildField(f *Field, products []Option) error {
+	if !idPattern.MatchString(f.ID) {
+		return fmt.Errorf("id %q must match %s", f.ID, idPattern)
 	}
-	if strings.TrimSpace(raw.Label) == "" {
-		return Field{}, errors.New("empty label")
+	if strings.TrimSpace(f.Label) == "" {
+		return errors.New("empty label")
 	}
-	f := Field{ID: raw.ID, Label: raw.Label, Hint: raw.Hint, Type: raw.Type, Required: raw.Required}
-	switch raw.Type {
+	switch f.Type {
 	case FieldText, FieldTextarea, FieldDate, FieldNumber:
-		if len(raw.Options) > 0 || raw.OptionsFrom != "" {
-			return Field{}, errors.New("only a choice field takes options")
+		if len(f.Options) > 0 || f.OptionsFrom != "" {
+			return errors.New("only a choice field takes options")
 		}
 	case FieldChoice:
 		switch {
-		case raw.OptionsFrom == productsSource && len(raw.Options) == 0:
-			f.Options, f.Products = products, true
-		case raw.OptionsFrom == "" && len(raw.Options) > 0:
-			if err := validOptions(raw.Options); err != nil {
-				return Field{}, err
-			}
-			f.Options = raw.Options
+		case f.OptionsFrom == productsSource && len(f.Options) == 0:
+			f.Options = products
+		case f.OptionsFrom == "" && len(f.Options) > 0:
+			return validOptions(f.Options)
 		default:
-			return Field{}, fmt.Errorf("a choice field takes either options or options_from: %s", productsSource)
+			return fmt.Errorf("a choice field takes either options or options_from: %s", productsSource)
 		}
 	default:
-		return Field{}, fmt.Errorf("unknown type %q", raw.Type)
+		return fmt.Errorf("unknown type %q", f.Type)
 	}
-	return f, nil
+	return nil
 }
 
 func validOptions(opts []Option) error {
@@ -229,11 +202,10 @@ func validOptions(opts []Option) error {
 
 // Category returns the category of id.
 func (c *Catalog) Category(id string) (Category, bool) {
-	i, ok := c.index[id]
-	if !ok {
-		return Category{}, false
+	if i := slices.IndexFunc(c.Categories, func(cat Category) bool { return cat.ID == id }); i >= 0 {
+		return c.Categories[i], true
 	}
-	return c.Categories[i], true
+	return Category{}, false
 }
 
 // Public returns the categories offered on the form, in file order.
@@ -307,7 +279,7 @@ func (f Field) read(raw string) (value, msg string) {
 		}
 		return strconv.Itoa(n), ""
 	case FieldDate:
-		if _, err := time.Parse(dateLayout, raw); err != nil {
+		if _, err := time.Parse(time.DateOnly, raw); err != nil {
 			return "", "Indique une date valide."
 		}
 	case FieldChoice:
@@ -349,7 +321,7 @@ func (f Field) display(raw string) FieldValue {
 			v.Removed = true
 		}
 	case FieldDate:
-		if d, err := time.Parse(dateLayout, raw); err == nil {
+		if d, err := time.Parse(time.DateOnly, raw); err == nil {
 			v.Value = d.Format(dateDisplay)
 		}
 	case FieldText, FieldTextarea, FieldNumber:
@@ -366,7 +338,7 @@ func (c *Catalog) Product(f Fields) string {
 	}
 	for _, field := range cat.Fields {
 		raw, ok := f.Values[field.ID]
-		if !field.Products || !ok {
+		if field.OptionsFrom != productsSource || !ok {
 			continue
 		}
 		if label, ok := optionLabel(field.Options, raw); ok {

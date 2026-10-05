@@ -25,15 +25,6 @@ type Erasure struct {
 	Member  bool
 }
 
-// doomed is a request about to be deleted, with what the monthly stats need.
-type doomed struct {
-	id          int64
-	status      Status
-	category    string
-	submittedAt int64
-	closedAt    int64
-}
-
 // deleteCapture removes one screenshot, a CACI sent by mistake for instance.
 func (s *Store) deleteCapture(ctx context.Context, tx *sql.Tx, t ticketRow, cmd Command) (outcome, error) {
 	var key string
@@ -78,8 +69,7 @@ func (s *Store) deleteMessage(ctx context.Context, tx *sql.Tx, t ticketRow, cmd 
 // deleteTicket removes a whole request: messages, captures, journal and mails
 // cascade. Its tracking link stops working.
 func (s *Store) deleteTicket(ctx context.Context, tx *sql.Tx, t ticketRow) (outcome, error) {
-	keys, err := s.drop(ctx, tx, []doomed{{id: t.id, status: t.status, category: t.category,
-		submittedAt: t.submittedAt, closedAt: t.closedAt}})
+	keys, err := s.drop(ctx, tx, []ticketRow{t})
 	if err != nil {
 		return outcome{}, err
 	}
@@ -88,7 +78,7 @@ func (s *Store) deleteTicket(ctx context.Context, tx *sql.Tx, t ticketRow) (outc
 
 // drop deletes requests and returns their object keys. A done request is
 // counted in stats_monthly first (spec §8.3).
-func (s *Store) drop(ctx context.Context, tx *sql.Tx, list []doomed) ([]string, error) {
+func (s *Store) drop(ctx context.Context, tx *sql.Tx, list []ticketRow) ([]string, error) {
 	var keys []string
 	for _, d := range list {
 		k, err := objectKeys(ctx, tx, `SELECT object_key FROM attachments WHERE ticket_id = ?`, d.id)
@@ -109,7 +99,7 @@ func (s *Store) drop(ctx context.Context, tx *sql.Tx, list []doomed) ([]string, 
 }
 
 // addStats counts a closed request in its month (Europe/Paris) and category.
-func (s *Store) addStats(ctx context.Context, tx *sql.Tx, d doomed) error {
+func (s *Store) addStats(ctx context.Context, tx *sql.Tx, d ticketRow) error {
 	month := time.Unix(d.closedAt, 0).In(s.paris).Format("2006-01")
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO stats_monthly (month, category, closed_count, hours_to_close_total) VALUES (?, ?, 1, ?)
@@ -148,7 +138,7 @@ func (s *Store) Erase(ctx context.Context, email, actor string) (Erasure, error)
 	}
 	var (
 		e    Erasure
-		list []doomed
+		list []ticketRow
 		keys []string
 	)
 	err = s.tx(ctx, "erase", func(ctx context.Context, tx *sql.Tx) error {
@@ -181,40 +171,21 @@ func (s *Store) Erase(ctx context.Context, email, actor string) (Erasure, error)
 // ReleaseMissing returns to todo the open requests of accounts known() rejects
 // (spec §4.1): at startup and after each reload of the accounts file.
 func (s *Store) ReleaseMissing(ctx context.Context, known func(username string) bool) error {
-	ids, err := s.assignedTo(ctx, func(username string) bool { return !known(username) })
+	rows, err := s.DB.QueryContext(ctx, `SELECT id FROM tickets WHERE status IN ('in_progress', 'waiting')`)
+	ids, err := store.Collect(rows, err, func(rows *sql.Rows) (id int64, err error) {
+		if err = rows.Scan(&id); err != nil {
+			err = fmt.Errorf("scan assigned ticket: %w", err)
+		}
+		return id, err
+	})
 	if err != nil {
-		return err
+		return fmt.Errorf("assigned tickets: %w", err)
 	}
 	var errs []error
 	for _, id := range ids {
 		errs = append(errs, s.release(ctx, id, known))
 	}
 	return errors.Join(errs...)
-}
-
-// assignedTo lists the in-progress and waiting requests whose assignee matches.
-func (s *Store) assignedTo(ctx context.Context, match func(string) bool) ([]int64, error) {
-	type assigned struct {
-		id       int64
-		assignee string
-	}
-	rows, err := s.DB.QueryContext(ctx, `SELECT id, assignee FROM tickets WHERE status IN ('in_progress', 'waiting')`)
-	all, err := store.Collect(rows, err, func(rows *sql.Rows) (a assigned, err error) {
-		if err = rows.Scan(&a.id, &a.assignee); err != nil {
-			err = fmt.Errorf("scan assigned ticket: %w", err)
-		}
-		return a, err
-	})
-	if err != nil {
-		return nil, fmt.Errorf("assigned tickets: %w", err)
-	}
-	var ids []int64
-	for _, a := range all {
-		if match(a.assignee) {
-			ids = append(ids, a.id)
-		}
-	}
-	return ids, nil
 }
 
 func (s *Store) release(ctx context.Context, id int64, known func(string) bool) error {
@@ -246,9 +217,9 @@ func (s *Store) release(ctx context.Context, id int64, known func(string) bool) 
 }
 
 // listDoomed reads the requests a fixed query selects.
-func listDoomed(ctx context.Context, q store.Querier, query string, args ...any) ([]doomed, error) {
+func listDoomed(ctx context.Context, q store.Querier, query string, args ...any) ([]ticketRow, error) {
 	rows, err := q.QueryContext(ctx, query, args...)
-	out, err := store.Collect(rows, err, func(rows *sql.Rows) (d doomed, err error) {
+	out, err := store.Collect(rows, err, func(rows *sql.Rows) (d ticketRow, err error) {
 		var submitted, closed sql.NullInt64
 		if err = rows.Scan(&d.id, &d.status, &d.category, &submitted, &closed); err != nil {
 			return d, fmt.Errorf("scan ticket to delete: %w", err)

@@ -74,7 +74,7 @@ func TestLoadCatalogEmbedded(t *testing.T) {
 
 	refund, _ := c.Category("remboursement")
 	require.NotEmpty(t, refund.Fields)
-	assert.True(t, refund.Fields[0].Products)
+	assert.Equal(t, productsSource, refund.Fields[0].OptionsFrom)
 	assert.True(t, refund.Fields[0].Required)
 	assert.Len(t, refund.Fields[0].Options, len(c.Products))
 

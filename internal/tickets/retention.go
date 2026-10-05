@@ -23,7 +23,7 @@ func (s *Store) Purge(ctx context.Context) error {
 	now := s.Now()
 	retention := time.Duration(s.RetentionDays) * 24 * time.Hour
 	var (
-		list []doomed
+		list []ticketRow
 		keys []string
 	)
 	err := s.tx(ctx, "purge", func(ctx context.Context, tx *sql.Tx) error {
@@ -68,10 +68,7 @@ func (s *Store) SweepOrphans(ctx context.Context) error {
 	cutoff := s.Now().Add(-orphanGrace)
 	var errs []error
 	for _, o := range objects {
-		if o.Modified.After(cutoff) {
-			continue
-		}
-		if used[o.Key] {
+		if o.Modified.After(cutoff) || used[o.Key] {
 			continue
 		}
 		if err := s.Blobs.Delete(ctx, o.Key); err != nil {
