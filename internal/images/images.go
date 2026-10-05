@@ -10,11 +10,9 @@ import (
 	"image"
 	"image/jpeg"
 	"image/png"
-	"io"
-	"net/http"
 	"sync"
 
-	"golang.org/x/image/webp"
+	_ "golang.org/x/image/webp" // registers WebP for image.Decode
 )
 
 // Limits of one screenshot (spec §3.1).
@@ -26,7 +24,6 @@ const (
 const (
 	mimePNG     = "image/png"
 	mimeJPEG    = "image/jpeg"
-	mimeWebP    = "image/webp"
 	jpegQuality = 85
 )
 
@@ -41,17 +38,6 @@ var (
 // (about 320 MB: a 16-bit PNG decodes to 8 bytes per pixel); a per-request memory budget if uploads become frequent.
 var decodeMu sync.Mutex
 
-type codec struct {
-	decodeConfig func(io.Reader) (image.Config, error)
-	decode       func(io.Reader) (image.Image, error)
-}
-
-var codecs = map[string]codec{
-	mimePNG:  {png.DecodeConfig, png.Decode},
-	mimeJPEG: {jpeg.DecodeConfig, jpeg.Decode},
-	mimeWebP: {webp.DecodeConfig, webp.Decode},
-}
-
 // Sanitize checks and re-encodes a screenshot: PNG stays PNG, JPEG and WebP
 // become JPEG; metadata is dropped. mime is "image/png" or "image/jpeg".
 //
@@ -61,13 +47,8 @@ func Sanitize(data []byte) (out []byte, mime string, err error) {
 	if len(data) > MaxBytes {
 		return nil, "", ErrTooBig
 	}
-	mime = http.DetectContentType(data)
-	c, ok := codecs[mime]
-	if !ok {
-		return nil, "", ErrNotImage
-	}
-	cfg, err := c.decodeConfig(bytes.NewReader(data))
-	if err != nil {
+	cfg, format, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil || (format != "png" && format != "jpeg" && format != "webp") {
 		return nil, "", ErrNotImage
 	}
 	if cfg.Width <= 0 || cfg.Height <= 0 || int64(cfg.Width)*int64(cfg.Height) > MaxPixels {
@@ -76,12 +57,12 @@ func Sanitize(data []byte) (out []byte, mime string, err error) {
 
 	decodeMu.Lock()
 	defer decodeMu.Unlock()
-	img, err := c.decode(bytes.NewReader(data))
+	img, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
 		return nil, "", ErrNotImage
 	}
 	var buf bytes.Buffer
-	if mime == mimePNG {
+	if format == "png" {
 		if err := png.Encode(&buf, img); err != nil {
 			return nil, "", fmt.Errorf("encode png: %w", err)
 		}
