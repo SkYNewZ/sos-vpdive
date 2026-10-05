@@ -42,6 +42,7 @@ type fakeOptions struct {
 	offerStartTLS bool
 	authCode      int // 0: 235
 	rcptCode      int // 0: 250
+	dropOnQuit    bool
 }
 
 // fakeSMTP is a minimal SMTP server: EHLO, STARTTLS, AUTH, MAIL, RCPT,
@@ -191,7 +192,9 @@ func (f *fakeSMTP) serve(conn net.Conn) {
 			f.record(func(s *smtpState) { s.data = data })
 			ok = reply("250 queued")
 		case "QUIT":
-			reply("221 bye")
+			if !f.opts.dropOnQuit {
+				reply("221 bye")
+			}
 			return
 		default:
 			ok = reply("502 not implemented")
@@ -292,6 +295,12 @@ func TestSendClassifiesRefusals(t *testing.T) {
 			assert.Equal(t, tc.permanent, errors.Is(err, ErrPermanent))
 		})
 	}
+}
+
+func TestSendIgnoresAFailedQuit(t *testing.T) {
+	f, s := startSMTP(t, config.SMTPImplicit, fakeOptions{dropOnQuit: true})
+	require.NoError(t, s.Send(context.Background(), testMessage()), "the message was accepted: no retry")
+	assert.NotEmpty(t, f.snapshot().data)
 }
 
 func TestSendRefusesLineBreaksInHeaders(t *testing.T) {

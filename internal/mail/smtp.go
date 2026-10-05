@@ -110,7 +110,7 @@ func (s *SMTP) dial(ctx context.Context) (net.Conn, error) {
 	return conn, nil
 }
 
-// deliver runs the SMTP dialogue on c and ends it with QUIT. The password
+// deliver runs the SMTP dialogue on c and ends it with a best-effort QUIT. The password
 // only travels encrypted: implicit TLS, or after STARTTLS.
 func (s *SMTP) deliver(c *smtp.Client, to string, data []byte) error {
 	if s.cfg.TLS == config.SMTPStartTLS {
@@ -133,9 +133,9 @@ func (s *SMTP) deliver(c *smtp.Client, to string, data []byte) error {
 	if err := writeData(c, data); err != nil {
 		return fmt.Errorf("smtp data: %w", rejected(err))
 	}
-	if err := c.Quit(); err != nil {
-		return fmt.Errorf("smtp quit: %w", err)
-	}
+	// The relay accepted the message: a failed QUIT must not trigger a retry,
+	// which would deliver the mail twice.
+	_ = c.Quit()
 	return nil
 }
 
