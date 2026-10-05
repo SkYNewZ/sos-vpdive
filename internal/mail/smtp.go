@@ -6,7 +6,6 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"log/slog"
 	"mime"
 	"mime/multipart"
 	"mime/quotedprintable"
@@ -108,7 +107,7 @@ func (s *SMTP) Send(ctx context.Context, m Message) (err error) {
 	if err != nil {
 		return errors.Join(atStage(stageConnect, fmt.Errorf("smtp greeting: %w", err)), conn.Close())
 	}
-	if err := s.deliver(ctx, c, m.To, data); err != nil {
+	if err := s.deliver(c, m.To, data); err != nil {
 		return errors.Join(err, c.Close())
 	}
 	return nil
@@ -144,7 +143,7 @@ func (s *SMTP) dial(ctx context.Context) (net.Conn, error) {
 
 // deliver runs the SMTP dialogue on c and ends it with a best-effort QUIT. The password
 // only travels encrypted: implicit TLS, or after STARTTLS.
-func (s *SMTP) deliver(ctx context.Context, c *smtp.Client, to string, data []byte) error {
+func (s *SMTP) deliver(c *smtp.Client, to string, data []byte) error {
 	if s.cfg.TLS == config.SMTPStartTLS {
 		if ok, _ := c.Extension("STARTTLS"); !ok {
 			return atStage(stageTLS, errNoStartTLS)
@@ -168,8 +167,8 @@ func (s *SMTP) deliver(ctx context.Context, c *smtp.Client, to string, data []by
 	// The relay accepted the message: a failed QUIT must not trigger a retry,
 	// which would deliver the mail twice. net/smtp leaves the socket open
 	// when QUIT fails, so close it ourselves.
-	if err := c.Quit(); err != nil {
-		slog.DebugContext(ctx, "smtp quit failed, closing", "close_failed", c.Close() != nil)
+	if c.Quit() != nil {
+		_ = c.Close() // best effort: the message is already accepted
 	}
 	return nil
 }
