@@ -1,7 +1,6 @@
 package admins
 
 import (
-	"bytes"
 	"context"
 	"log/slog"
 	"os"
@@ -22,7 +21,7 @@ func newRegistry(t *testing.T, content string) (*Registry, string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "admins.yaml")
 	writeFile(t, path, content)
-	r, err := Load(path, slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
+	r, err := Load(path, slog.New(slog.DiscardHandler))
 	require.NoError(t, err)
 	return r, path
 }

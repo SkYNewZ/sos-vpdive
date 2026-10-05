@@ -13,6 +13,8 @@ import (
 	"regexp"
 	"strings"
 
+	dicebear "github.com/dicebear/dicebear-go/v10"
+	"github.com/dicebear/styles/v10"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -79,12 +81,12 @@ func Parse(data []byte) ([]Account, error) {
 	if err := errors.Join(errs...); err != nil {
 		return nil, err
 	}
-	maker, err := newAvatarMaker()
+	style, err := dicebear.NewStyle([]byte(styles.Identicon))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("avatar style: %w", err)
 	}
 	for i := range f.Admins {
-		if f.Admins[i].Avatar, err = maker.dataURI(f.Admins[i].Username); err != nil {
+		if f.Admins[i].Avatar, err = avatarURI(style, f.Admins[i].Username); err != nil {
 			return nil, err
 		}
 	}
