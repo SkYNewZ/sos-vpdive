@@ -63,7 +63,25 @@ const markRows = () => {
   }
 };
 
+// Opens the event stream and calls onId(id) for each event of the given types.
+const subscribe = (types, onId) => {
+  const source = new EventSource("/evenements");
+  for (const type of types) {
+    source.addEventListener(type, (event) => onId(String(JSON.parse(event.data).id)));
+  }
+  return source;
+};
+
+// At most one fetch in flight: events arriving meanwhile share one more
+// fetch afterwards.
+let refreshing = false;
+let pending = false;
 const refreshBoard = async () => {
+  if (refreshing) {
+    pending = true;
+    return;
+  }
+  refreshing = true;
   try {
     const response = await fetch(location.href, { credentials: "same-origin" });
     if (!response.ok) return;
@@ -74,25 +92,28 @@ const refreshBoard = async () => {
     markRows();
   } catch {
     // Network down: EventSource reconnects, then the board catches up.
+  } finally {
+    refreshing = false;
+    if (pending) {
+      pending = false;
+      refreshBoard();
+    }
   }
 };
 
 if (document.querySelector("[data-board]")) {
   markRows();
-  const source = new EventSource("/evenements");
+  const source = subscribe(["created", "changed", "replied", "deleted"], (id) => {
+    const ids = changedIds();
+    ids.add(id);
+    saveChanged(ids);
+    refreshBoard();
+  });
   let connected = false;
   source.addEventListener("open", () => {
     if (connected) refreshBoard(); // back after a cut: catch up on everything
     connected = true;
   });
-  for (const type of ["created", "changed", "replied", "deleted"]) {
-    source.addEventListener(type, (event) => {
-      const ids = changedIds();
-      ids.add(String(JSON.parse(event.data).id));
-      saveChanged(ids);
-      refreshBoard();
-    });
-  }
 }
 
 // Request page: nothing reloads by itself, so a reply being typed is never
@@ -103,12 +124,9 @@ if (ticketPage) {
   const ids = changedIds();
   if (ids.delete(id)) saveChanged(ids);
   const banner = document.querySelector("[data-changed-banner]");
-  const source = new EventSource("/evenements");
-  for (const type of ["changed", "replied", "deleted"]) {
-    source.addEventListener(type, (event) => {
-      if (banner && String(JSON.parse(event.data).id) === id) banner.hidden = false;
-    });
-  }
+  subscribe(["changed", "replied", "deleted"], (changed) => {
+    if (banner && changed === id) banner.hidden = false;
+  });
 }
 
 // Request page: copy buttons, shown only when this script runs.
