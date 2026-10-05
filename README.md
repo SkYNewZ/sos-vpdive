@@ -117,6 +117,7 @@ are allowed), and an image build. No image is published.
 | `golang.org/x/crypto` | argon2id password hashing |
 | `golang.org/x/text` | Unicode normalization: name matching and spreadsheet headers |
 | `golang.org/x/term` | `hash-password` reads a password without echo |
+| `golang.org/x/image` | WebP decoding: screenshots are re-encoded to drop their metadata, and the standard library reads no WebP |
 | `go.yaml.in/yaml/v3` | YAML content and accounts files (maintained successor of `gopkg.in/yaml.v3`) |
 | `go.opentelemetry.io/otel`, `otel/trace`, `otel/sdk`, `otlptracehttp` | Traces over OTLP/HTTP, exported only when configured |
 | `github.com/dicebear/dicebear-go/v10`, `github.com/dicebear/styles/v10` | Committee avatars generated offline (Voxel Art style, CC0); they pull `github.com/dicebear/schema` and `github.com/santhosh-tekuri/jsonschema/v6` indirectly |
