@@ -21,5 +21,13 @@ services:
     stop_grace_period: 35s
     restart: unless-stopped
 
+# Pinned so that TRUSTED_PROXIES can name the gateway: a proxy on the host that
+# connects to the published 127.0.0.1:8080 reaches the container from it.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.30.30.0/24
+
 volumes:
   data:

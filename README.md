@@ -48,8 +48,12 @@ picked up by the hot reload).
 
 - Terminate TLS at the proxy and forward both host names to port 8080 with the
   `Host` header unchanged.
-- Set `X-Forwarded-For` and list the proxy's addresses in `TRUSTED_PROXIES`;
-  otherwise the visitor address is the proxy's.
+- Set `X-Forwarded-For` and list the proxy's address, as the container sees it,
+  in `TRUSTED_PROXIES`; otherwise the visitor address is the proxy's. With the
+  example compose file, a proxy on the host reaches the container through the
+  Docker bridge gateway: the default `172.30.30.1/32` is the gateway of the
+  network pinned in `compose.yaml`. With another topology, list the address
+  the proxy connects from.
 - Do not log request paths of the members site: tracking links carry a secret.
 - You may restrict the committee host name (by address, for instance) without
   touching the members site.
