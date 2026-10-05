@@ -108,6 +108,7 @@ func New(d Deps) (*Server, error) {
 		"static": s.assets.URL, "formatTime": s.formatTime, "formatDate": s.formatDate, "author": s.author,
 		"age": s.age, "accountOf": s.accountOf, "actor": s.actorName, "isoDate": isoDate,
 		"fieldName": tickets.FieldName, "categoryLabel": s.catalog.CategoryLabel, "describe": s.tickets.Describe,
+		"formField": newFormField,
 	}
 	if s.pages, err = parsePages(funcs); err != nil {
 		return nil, err
@@ -144,7 +145,9 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 func (s *Server) publicRoutes() *http.ServeMux {
 	mux := http.NewServeMux()
 	s.commonRoutes(mux)
-	s.handle(mux, "GET /{$}", s.publicHome)
+	s.handle(mux, "GET /{$}", s.formPage)
+	s.handle(mux, "POST /demandes", s.submit)
+	s.handle(mux, "GET /demandes/envoyee", s.sentPage)
 	return mux
 }
 
@@ -179,10 +182,6 @@ func (s *Server) handle(mux *http.ServeMux, pattern string, h http.HandlerFunc) 
 		route = "unmatched"
 	}
 	mux.Handle(pattern, s.instrument(route, h))
-}
-
-func (s *Server) publicHome(w http.ResponseWriter, r *http.Request) {
-	s.render(w, r, http.StatusOK, "public_home", s.newPage(r, "Demande d'aide"))
 }
 
 func (s *Server) robotsTxt(w http.ResponseWriter, r *http.Request) {

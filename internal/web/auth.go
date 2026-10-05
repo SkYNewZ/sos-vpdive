@@ -2,7 +2,6 @@ package web
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -59,18 +58,9 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	username := strings.ToLower(strings.TrimSpace(r.PostForm.Get("username")))
 	ip := s.clientIP(r)
 
-	if s.turnstile != nil {
-		err := s.turnstile.Verify(ctx, r.PostForm.Get("cf-turnstile-response"), ip, s.cfg.AdminBaseURL.Hostname(), turnstileAction)
-		switch {
-		case errors.Is(err, ErrBotCheckUnavailable):
-			s.logger.WarnContext(ctx, "turnstile unavailable", "error", err)
-			s.renderLogin(w, r, http.StatusServiceUnavailable, username, notice{Kind: noticeError,
-				Text: "Le contrôle anti-robot ne répond pas. Réessaie dans un instant, ou écris au club : " + s.cfg.NotifyEmail.Address + "."})
-			return
-		case err != nil:
-			s.renderLogin(w, r, http.StatusForbidden, username, notice{Kind: noticeError, Text: "Le contrôle anti-robot a échoué. Réessaie."})
-			return
-		}
+	if status, n := s.checkBot(r, r.PostForm.Get(turnstileField), s.cfg.AdminBaseURL.Hostname(), turnstileAction); n != nil {
+		s.renderLogin(w, r, status, username, *n)
+		return
 	}
 
 	// Serialise the check-then-act below: the limits and argon2id memory hold.

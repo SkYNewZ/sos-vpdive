@@ -109,3 +109,26 @@ func (t *Turnstile) Verify(ctx context.Context, token string, remoteIP netip.Add
 	}
 	return nil
 }
+
+// turnstileField is the form field the Turnstile widget fills.
+const turnstileField = "cf-turnstile-response"
+
+// checkBot verifies the Turnstile token of a form posted to host. It returns
+// the status and the notice to show when the check fails; Cloudflare not
+// answering refuses the form too, the service never opens without the check
+// (spec §11.3). Without keys (development) every form passes.
+func (s *Server) checkBot(r *http.Request, token, host, action string) (int, *notice) {
+	if s.turnstile == nil {
+		return http.StatusOK, nil
+	}
+	err := s.turnstile.Verify(r.Context(), token, s.clientIP(r), host, action)
+	switch {
+	case errors.Is(err, ErrBotCheckUnavailable):
+		s.logger.WarnContext(r.Context(), "turnstile unavailable", "error", err)
+		return http.StatusServiceUnavailable, &notice{Kind: noticeError,
+			Text: "Le contrôle anti-robot ne répond pas. Réessaie dans un instant, ou écris au club : " + s.cfg.NotifyEmail.Address + "."}
+	case err != nil:
+		return http.StatusForbidden, &notice{Kind: noticeError, Text: "Le contrôle anti-robot a échoué. Réessaie."}
+	}
+	return http.StatusOK, nil
+}
