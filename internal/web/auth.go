@@ -71,6 +71,10 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Serialise the check-then-act below: the limits and argon2id memory hold.
+	s.loginMu.Lock()
+	defer s.loginMu.Unlock()
+
 	wait, err := s.limiter.retryAfter(ctx, ip, username)
 	if err != nil {
 		s.serverError(w, r, err)
@@ -149,9 +153,9 @@ func (s *Server) adminPage(r *http.Request, title string) (page, error) {
 
 func (s *Server) adminNotices(ctx context.Context) ([]notice, error) {
 	var out []notice
-	if s.admins.Err() != nil {
+	if err := s.admins.Err(); err != nil {
 		out = append(out, notice{Kind: noticeError,
-			Text: "Le fichier des comptes est invalide : la dernière modification est ignorée et les comptes précédents restent actifs. Le détail est dans les journaux du serveur."})
+			Text: "Le fichier des comptes est invalide : la dernière modification est ignorée et les comptes précédents restent actifs. Erreur : " + err.Error()})
 	}
 	has, err := s.members.HasList(ctx)
 	if err != nil {

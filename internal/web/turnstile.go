@@ -52,6 +52,8 @@ type siteverifyResponse struct {
 	Success  bool   `json:"success"`
 	Hostname string `json:"hostname"`
 	Action   string `json:"action"`
+
+	ErrorCodes []string `json:"error-codes"`
 }
 
 // Verify checks a token: success, expected host name, expected action.
@@ -94,6 +96,13 @@ func (t *Turnstile) Verify(ctx context.Context, token string, remoteIP netip.Add
 	var out siteverifyResponse
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&out); err != nil {
 		return fmt.Errorf("%w: %w", ErrBotCheckUnavailable, err)
+	}
+	// A wrong secret or a Cloudflare fault is ours to fix, not a refused visitor.
+	for _, code := range out.ErrorCodes {
+		switch code {
+		case "internal-error", "missing-input-secret", "invalid-input-secret":
+			return fmt.Errorf("%w: %s", ErrBotCheckUnavailable, code)
+		}
 	}
 	if !out.Success || out.Hostname != hostname || out.Action != action {
 		return ErrBotCheckFailed

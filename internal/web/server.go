@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/admins"
@@ -47,6 +48,9 @@ type Server struct {
 	turnstile *Turnstile
 	limiter   *limiter
 	dummyHash string
+
+	// ponytail: one login at a time (single instance, a few logins a day); per-key locks if volume grows.
+	loginMu sync.Mutex
 
 	robots  robotsPolicy
 	vpdive  vpdiveLinks

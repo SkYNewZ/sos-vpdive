@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -147,13 +148,26 @@ func TestTurnstileOnLogin(t *testing.T) {
 		assert.Contains(t, rec.Body.String(), "Le contrôle anti-robot a échoué")
 	}
 
-	status = http.StatusBadGateway
+	reply = `{"success":false,"error-codes":["invalid-input-secret"]}`
+	status = http.StatusOK
 	rec := post()
+	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	assert.Contains(t, rec.Body.String(), "club@example.org")
+
+	status = http.StatusBadGateway
+	rec = post()
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
 	assert.Contains(t, rec.Body.String(), "club@example.org")
 }
 
-func TestSessionEndsWhenAccountRemovedOrPasswordChanged(t *testing.T) {
+func countSessions(t *testing.T, e *testEnv) int {
+	t.Helper()
+	var n int
+	require.NoError(t, e.db.QueryRowContext(context.Background(), `SELECT count(*) FROM sessions`).Scan(&n))
+	return n
+}
+
+func TestRevokeSessionsAfterPasswordChange(t *testing.T) {
 	e := newTestEnv(t)
 	cookie := e.login(t)
 	require.Equal(t, http.StatusOK, e.do(t, http.MethodGet, adminHost, "/", nil, withCookie(cookie)).Code)
@@ -167,12 +181,42 @@ func TestSessionEndsWhenAccountRemovedOrPasswordChanged(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"alice"}, users)
 
-	// The credential check refuses the session even before RevokeSessions runs.
-	assert.Equal(t, http.StatusSeeOther, e.do(t, http.MethodGet, adminHost, "/", nil, withCookie(cookie)).Code)
+	assert.Equal(t, 1, countSessions(t, e))
 	require.NoError(t, e.srv.RevokeSessions(context.Background(), users))
+	assert.Zero(t, countSessions(t, e))
+	assert.Equal(t, http.StatusSeeOther, e.do(t, http.MethodGet, adminHost, "/", nil, withCookie(cookie)).Code)
+}
+
+func TestSessionEndsWhenAccountRemoved(t *testing.T) {
+	e := newTestEnv(t)
+	cookie := e.login(t)
+	bob := admins.Account{Username: "bob", Name: "Bob", Role: "Trésorier", PasswordHash: testHash()}
+	require.NoError(t, os.WriteFile(e.adminsPath, []byte(accountsFile(bob)), 0o600))
+	users, err := e.deps.Admins.Reload()
+	require.NoError(t, err)
+	assert.Equal(t, []string{"alice"}, users)
+
+	rec := e.do(t, http.MethodGet, adminHost, "/", nil, withCookie(cookie))
+	assert.Equal(t, http.StatusSeeOther, rec.Code)
+	assert.Equal(t, "/connexion", rec.Header().Get("Location"))
+}
+
+func TestConcurrentFailuresStopAtTheLimit(t *testing.T) {
+	e := newTestEnv(t)
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() {
+			e.postLogin(t, "alice", "wrong")
+		})
+	}
+	wg.Wait()
+
 	var n int
-	require.NoError(t, e.db.QueryRowContext(context.Background(), `SELECT count(*) FROM sessions`).Scan(&n))
-	assert.Zero(t, n)
+	require.NoError(t, e.db.QueryRowContext(context.Background(),
+		`SELECT count FROM counters WHERE key = ?`, e.srv.limiter.userKey("alice")).Scan(&n))
+	// Serialised: the 6th to 8th attempts hit the delay and are not counted.
+	assert.Equal(t, userFailureLimit, n)
+	assert.Equal(t, http.StatusTooManyRequests, e.postLogin(t, "alice", testPassword).Code)
 }
 
 func TestSessionExpiresAndIsPurged(t *testing.T) {
@@ -225,5 +269,8 @@ func TestCommitteeBanners(t *testing.T) {
 	require.NoError(t, os.WriteFile(e.adminsPath, []byte("admins: [\n"), 0o600))
 	_, err := e.deps.Admins.Reload()
 	require.Error(t, err)
-	assert.Contains(t, home(), "Le fichier des comptes est invalide")
+	body := home()
+	assert.Contains(t, body, "Le fichier des comptes est invalide")
+	assert.Contains(t, body, "Erreur : ")
+	assert.Contains(t, body, "yaml")
 }
