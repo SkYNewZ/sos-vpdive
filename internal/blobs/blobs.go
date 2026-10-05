@@ -11,11 +11,9 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"time"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/config"
-	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 )
 
 // ErrNotFound reports a key without object.
@@ -35,17 +33,11 @@ type Store interface {
 	List(ctx context.Context) ([]Object, error)
 }
 
-// keyPattern matches the keys NewKey draws: base64url only, so a key can
-// never climb out of the directory store.
-var keyPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{16,128}$`)
-
-var errInvalidKey = errors.New("invalid object key")
-
 // New returns the S3 store when cfg.S3 is set, else a Dir under
 // DataDir/captures (development only: config requires S3 in production).
 func New(cfg *config.Config) (Store, error) {
 	if cfg.S3 != nil {
-		s, err := NewS3(*cfg.S3)
+		s, err := newS3(*cfg.S3, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -56,11 +48,6 @@ func New(cfg *config.Config) (Store, error) {
 		return nil, err
 	}
 	return d, nil
-}
-
-// NewKey returns a random object key, unrelated to any ticket or file name.
-func NewKey() (string, error) {
-	return secure.NewToken()
 }
 
 // wrap names the failed operation and scrubs err of the object key.

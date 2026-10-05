@@ -33,14 +33,9 @@ type S3 struct {
 	tracer trace.Tracer
 }
 
-// NewS3 returns a client for cfg. Path-style addressing suits R2 and any
+// newS3 returns a client for cfg. Path-style addressing suits R2 and any
 // S3-compatible endpoint; the fixed region avoids a bucket location lookup.
-func NewS3(cfg config.S3) (*S3, error) {
-	return newS3(cfg, nil)
-}
-
-// newS3 takes a transport so that tests can trust their TLS server; nil
-// means minio-go's default.
+// The transport lets tests trust their TLS server; nil means minio-go's default.
 func newS3(cfg config.S3, transport http.RoundTripper) (*S3, error) {
 	client, err := minio.New(cfg.Endpoint.Host, &minio.Options{
 		Creds:        credentials.NewStaticV4(cfg.AccessKeyID, cfg.SecretAccessKey, ""),

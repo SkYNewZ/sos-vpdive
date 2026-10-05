@@ -11,7 +11,6 @@ import (
 	"modernc.org/sqlite"
 	sqlite3 "modernc.org/sqlite/lib"
 
-	"github.com/SkYNewZ/sos-vpdive/internal/blobs"
 	"github.com/SkYNewZ/sos-vpdive/internal/mail"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 	"github.com/SkYNewZ/sos-vpdive/internal/store"
@@ -181,7 +180,7 @@ func nextRef(ctx context.Context, tx *sql.Tx) (string, error) {
 func (s *Store) upload(ctx context.Context, captures []Upload) ([]string, error) {
 	keys := make([]string, 0, len(captures))
 	for _, c := range captures {
-		key, err := blobs.NewKey()
+		key, err := secure.NewToken()
 		if err == nil {
 			err = s.Blobs.Put(ctx, key, s.Keys.Seal(c.Data))
 		}

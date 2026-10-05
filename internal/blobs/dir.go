@@ -25,27 +25,16 @@ func NewDir(dir string) (*Dir, error) {
 	return &Dir{root: root}, nil
 }
 
-// Put writes a temporary file then renames it, so a reader never sees half
-// an object.
+// Put writes an object.
 func (d *Dir) Put(_ context.Context, key string, data []byte) error {
-	if !keyPattern.MatchString(key) {
-		return errInvalidKey
-	}
-	tmp := ".put-" + key
-	if err := d.root.WriteFile(tmp, data, 0o600); err != nil {
+	if err := d.root.WriteFile(key, data, 0o600); err != nil {
 		return wrap("write object", err)
-	}
-	if err := d.root.Rename(tmp, key); err != nil {
-		return errors.Join(wrap("store object", err), scrub(d.root.Remove(tmp)))
 	}
 	return nil
 }
 
 // Get reads an object.
 func (d *Dir) Get(_ context.Context, key string) ([]byte, error) {
-	if !keyPattern.MatchString(key) {
-		return nil, errInvalidKey
-	}
 	data, err := d.root.ReadFile(key)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, ErrNotFound
@@ -58,17 +47,13 @@ func (d *Dir) Get(_ context.Context, key string) ([]byte, error) {
 
 // Delete removes an object; a missing one is not an error.
 func (d *Dir) Delete(_ context.Context, key string) error {
-	if !keyPattern.MatchString(key) {
-		return errInvalidKey
-	}
 	if err := d.root.Remove(key); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return wrap("delete object", err)
 	}
 	return nil
 }
 
-// List returns every object with its modification time. Temporary files
-// never match a key and are skipped.
+// List returns every object with its modification time.
 func (d *Dir) List(_ context.Context) ([]Object, error) {
 	entries, err := fs.ReadDir(d.root.FS(), ".")
 	if err != nil {
@@ -76,7 +61,7 @@ func (d *Dir) List(_ context.Context) ([]Object, error) {
 	}
 	var out []Object
 	for _, e := range entries {
-		if !e.Type().IsRegular() || !keyPattern.MatchString(e.Name()) {
+		if !e.Type().IsRegular() {
 			continue
 		}
 		info, err := e.Info()

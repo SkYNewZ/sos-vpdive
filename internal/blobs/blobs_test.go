@@ -18,11 +18,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/config"
+	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 )
 
 func newKey(t *testing.T) string {
 	t.Helper()
-	k, err := NewKey()
+	k, err := secure.NewToken()
 	require.NoError(t, err)
 	return k
 }
@@ -63,17 +64,14 @@ func TestDir(t *testing.T) {
 	exercise(t, d)
 }
 
-func TestDirRefusesKeysOutsideTheAlphabet(t *testing.T) {
-	dir := t.TempDir()
-	d, err := NewDir(dir + "/captures")
+func TestDirKeepsKeysInsideTheDirectory(t *testing.T) {
+	d, err := NewDir(t.TempDir() + "/captures")
 	require.NoError(t, err)
 	ctx := context.Background()
-	for _, key := range []string{"../escape-attempt-0000", "a/b-c-d-e-f-g-h-i-j", "short", ".hidden-key-0000000"} {
-		require.ErrorIs(t, d.Put(ctx, key, []byte("x")), errInvalidKey, key)
-		_, err := d.Get(ctx, key)
-		require.ErrorIs(t, err, errInvalidKey, key)
-		require.ErrorIs(t, d.Delete(ctx, key), errInvalidKey, key)
-	}
+	require.Error(t, d.Put(ctx, "../escape", []byte("x")))
+	_, err = d.Get(ctx, "../escape")
+	require.Error(t, err)
+	require.NotErrorIs(t, err, ErrNotFound)
 }
 
 // fakeS3 implements the four calls the store makes, path-style, on one bucket.
@@ -152,7 +150,7 @@ func TestS3UnreachableIsAnError(t *testing.T) {
 	require.NoError(t, err)
 	srv.Close()
 
-	s, err := NewS3(config.S3{Endpoint: endpoint, Bucket: "captures", AccessKeyID: "id", SecretAccessKey: "secret", Region: "auto"})
+	s, err := newS3(config.S3{Endpoint: endpoint, Bucket: "captures", AccessKeyID: "id", SecretAccessKey: "secret", Region: "auto"}, nil)
 	require.NoError(t, err)
 	err = s.Put(context.Background(), newKey(t), []byte("x"))
 	require.Error(t, err)
@@ -180,7 +178,7 @@ func TestErrorsCarryNoObjectKey(t *testing.T) {
 	endpoint, err := url.Parse(srv.URL)
 	require.NoError(t, err)
 	srv.Close()
-	s3, err := NewS3(config.S3{Endpoint: endpoint, Bucket: "captures", AccessKeyID: "id", SecretAccessKey: "secret", Region: "auto"})
+	s3, err := newS3(config.S3{Endpoint: endpoint, Bucket: "captures", AccessKeyID: "id", SecretAccessKey: "secret", Region: "auto"}, nil)
 	require.NoError(t, err)
 
 	// A directory in place of the object makes Remove fail with a *fs.PathError.
