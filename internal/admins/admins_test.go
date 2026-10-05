@@ -76,3 +76,10 @@ func TestParseRejectsInvalidFiles(t *testing.T) {
 		})
 	}
 }
+
+func TestParseYAMLErrorEchoesNoValue(t *testing.T) {
+	_, err := Parse([]byte("admins: [Zebulon]\n"))
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "Zebulon")
+	assert.Contains(t, err.Error(), "line 1")
+}

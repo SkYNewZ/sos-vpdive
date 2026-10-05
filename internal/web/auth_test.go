@@ -278,5 +278,5 @@ func TestCommitteeBanners(t *testing.T) {
 	body := home()
 	assert.Contains(t, body, "Le fichier des comptes est invalide")
 	assert.Contains(t, body, "Erreur : ")
-	assert.Contains(t, body, "yaml")
+	assert.Contains(t, body, "invalid YAML")
 }

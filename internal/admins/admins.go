@@ -41,6 +41,25 @@ type accountsFile struct {
 	Admins []Account `yaml:"admins"`
 }
 
+var yamlLinePattern = regexp.MustCompile(`line (\d+)`)
+
+// yamlError keeps only the line numbers of a decoder error: its text can
+// quote file values (names, password hashes).
+func yamlError(err error) error {
+	matches := yamlLinePattern.FindAllStringSubmatch(err.Error(), -1)
+	lines := make([]string, 0, len(matches))
+	for _, m := range matches {
+		lines = append(lines, m[1])
+	}
+	switch len(lines) {
+	case 0:
+		return errors.New("accounts file: invalid YAML")
+	case 1:
+		return fmt.Errorf("accounts file: invalid YAML at line %s", lines[0])
+	}
+	return fmt.Errorf("accounts file: invalid YAML (lines %s)", strings.Join(lines, ", "))
+}
+
 // Parse decodes and validates an accounts file. Unknown keys are refused.
 // Errors cite accounts by position and never echo a value.
 func Parse(data []byte) ([]Account, error) {
@@ -51,7 +70,7 @@ func Parse(data []byte) ([]Account, error) {
 		if errors.Is(err, io.EOF) {
 			return nil, errors.New("accounts file is empty")
 		}
-		return nil, fmt.Errorf("accounts file: %w", err)
+		return nil, yamlError(err)
 	}
 	if len(f.Admins) == 0 {
 		return nil, errors.New("accounts file declares no account")
