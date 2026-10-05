@@ -29,6 +29,8 @@ type Deps struct {
 	Content fs.FS
 	Logger  *slog.Logger
 	Now     func() time.Time
+
+	Turnstile *Turnstile // nil in development without keys
 }
 
 // Server routes requests to the members or the committee site by host.
@@ -41,6 +43,10 @@ type Server struct {
 	logger  *slog.Logger
 	now     func() time.Time
 	paris   *time.Location
+
+	turnstile *Turnstile
+	limiter   *limiter
+	dummyHash string
 
 	robots  robotsPolicy
 	vpdive  vpdiveLinks
@@ -73,6 +79,11 @@ func New(d Deps) (*Server, error) {
 		cfg: d.Config, db: d.DB, keys: d.Keys, members: d.Members, admins: d.Admins,
 		logger: d.Logger, now: d.Now, paris: paris,
 		robots: robots, vpdive: links, assets: static,
+	}
+	s.turnstile = d.Turnstile
+	s.limiter = &limiter{db: d.DB, keys: d.Keys, now: d.Now}
+	if s.dummyHash, err = admins.HashPassword("dummy password for unknown usernames"); err != nil {
+		return nil, err
 	}
 	if s.pages, err = parsePages(s.templateFuncs()); err != nil {
 		return nil, err
@@ -107,10 +118,14 @@ func (s *Server) publicRoutes() *http.ServeMux {
 	return mux
 }
 
-// adminRoutes serves the committee site. Tasks 12 and 13 add its pages.
+// adminRoutes serves the committee site.
 func (s *Server) adminRoutes() *http.ServeMux {
 	mux := http.NewServeMux()
 	s.commonRoutes(mux)
+	s.handle(mux, "GET /connexion", s.loginForm)
+	s.handle(mux, "POST /connexion", s.login)
+	s.handle(mux, "POST /deconnexion", s.signedIn(s.logout))
+	s.handle(mux, "GET /{$}", s.signedIn(s.home))
 	return mux
 }
 

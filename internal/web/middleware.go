@@ -32,7 +32,15 @@ const contentSecurityPolicy = "default-src 'self'; " +
 
 type ctxKey int
 
-const ctxClientIP ctxKey = iota
+const (
+	ctxClientIP ctxKey = iota
+	ctxSession
+)
+
+func clientIPFrom(ctx context.Context) netip.Addr {
+	ip, _ := ctx.Value(ctxClientIP).(netip.Addr)
+	return ip
+}
 
 // recoverPanics answers 500 instead of dropping the connection. It logs the
 // panic type only: the value could hold request data.

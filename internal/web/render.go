@@ -16,6 +16,14 @@ import (
 // noticeKind selects the daisyUI alert color in templates/layout.html.
 type noticeKind string
 
+// Notice kinds, mapped to daisyUI alert colors in templates/layout.html;
+// any other kind renders as information.
+const (
+	noticeSuccess noticeKind = "success"
+	noticeWarning noticeKind = "warning"
+	noticeError   noticeKind = "error"
+)
+
 // notice is a banner shown above the page content.
 type notice struct {
 	Kind     noticeKind
@@ -55,14 +63,20 @@ func parsePages(funcs template.FuncMap) (map[string]*template.Template, error) {
 	return pages, nil
 }
 
-// newPage fills the fields common to every page. Task 12 adds the account
-// and the CSRF token of the session.
+// newPage fills the fields common to every page, including the signed-in
+// account and its anti-CSRF token.
 func (s *Server) newPage(r *http.Request, title string) page {
-	return page{
+	p := page{
 		Title:     title,
 		Admin:     matchHost(r.Host, s.cfg.AdminBaseURL),
 		ClubEmail: s.cfg.NotifyEmail.Address,
 	}
+	if sess, ok := sessionFrom(r.Context()); ok {
+		a := sess.account
+		p.Account = &a
+		p.CSRF = s.keys.CSRFToken(sess.hash)
+	}
+	return p
 }
 
 // render executes a page into a buffer first, so a template error never

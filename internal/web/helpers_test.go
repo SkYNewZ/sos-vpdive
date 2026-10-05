@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -28,6 +29,7 @@ import (
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 	"github.com/SkYNewZ/sos-vpdive/internal/store"
 	"github.com/SkYNewZ/sos-vpdive/internal/telemetry"
+	"github.com/SkYNewZ/sos-vpdive/internal/xlsx"
 )
 
 const (
@@ -56,7 +58,6 @@ func (c *testClock) now() time.Time {
 	return c.t
 }
 
-//nolint:unused // used by the session tests of Task 12
 func (c *testClock) advance(d time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -111,7 +112,6 @@ func alice() admins.Account {
 	return admins.Account{Username: "alice", Name: "Alice", Role: "Présidente", PasswordHash: testHash()}
 }
 
-//nolint:unparam // Task 12 passes options
 func newTestEnv(t *testing.T, opts ...func(*Deps)) *testEnv {
 	t.Helper()
 	ctx := context.Background()
@@ -159,8 +159,6 @@ func newTestEnv(t *testing.T, opts ...func(*Deps)) *testEnv {
 
 // do sends a request to host. Mutations carry the host's Origin unless a
 // mutator changes it.
-//
-//nolint:unparam // Task 12 sends request bodies
 func (e *testEnv) do(t *testing.T, method, host, target string, body io.Reader, mutators ...func(*http.Request)) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequestWithContext(context.Background(), method, target, body)
@@ -175,4 +173,66 @@ func (e *testEnv) do(t *testing.T, method, host, target string, body io.Reader, 
 	rec := httptest.NewRecorder()
 	e.srv.ServeHTTP(rec, req)
 	return rec
+}
+
+var fixtureLimits = xlsx.Limits{MaxUncompressed: 50 << 20, MaxRows: 20_000, MaxCells: 1_000_000}
+
+var csrfPattern = regexp.MustCompile(`name="csrf" value="([^"]+)"`)
+
+func formBody(v url.Values) io.Reader { return strings.NewReader(v.Encode()) }
+
+func formType(r *http.Request) { r.Header.Set("Content-Type", "application/x-www-form-urlencoded") }
+
+func withCookie(c *http.Cookie) func(*http.Request) {
+	return func(r *http.Request) { r.AddCookie(c) }
+}
+
+func sessionCookie(t *testing.T, rec *httptest.ResponseRecorder) *http.Cookie {
+	t.Helper()
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == "__Host-session" {
+			return c
+		}
+	}
+	t.Fatalf("no session cookie in %v", rec.Header().Values("Set-Cookie"))
+	return nil
+}
+
+func (e *testEnv) postLogin(t *testing.T, username, password string, mutators ...func(*http.Request)) *httptest.ResponseRecorder {
+	t.Helper()
+	body := formBody(url.Values{"username": {username}, "password": {password}})
+	return e.do(t, http.MethodPost, adminHost, "/connexion", body, append([]func(*http.Request){formType}, mutators...)...)
+}
+
+// login signs alice in and returns her session cookie.
+func (e *testEnv) login(t *testing.T) *http.Cookie {
+	t.Helper()
+	rec := e.postLogin(t, "alice", testPassword)
+	require.Equal(t, http.StatusSeeOther, rec.Code, rec.Body.String())
+	return sessionCookie(t, rec)
+}
+
+// csrf loads a committee page and returns its anti-CSRF token.
+func (e *testEnv) csrf(t *testing.T, cookie *http.Cookie, path string) string {
+	t.Helper()
+	rec := e.do(t, http.MethodGet, adminHost, path, nil, withCookie(cookie))
+	require.Equal(t, http.StatusOK, rec.Code)
+	m := csrfPattern.FindStringSubmatch(rec.Body.String())
+	require.NotNil(t, m, "no csrf field on %s", path)
+	return m[1]
+}
+
+// importMembers imports a fixture directly through the members store.
+func (e *testEnv) importMembers(t *testing.T, fixture string) {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "fixtures", fixture))
+	require.NoError(t, err)
+	rows, err := xlsx.ReadFirstSheet(data, fixtureLimits)
+	require.NoError(t, err)
+	exp, err := members.Parse(rows, time.UTC)
+	require.NoError(t, err)
+	p, err := e.deps.Members.NewPreview(context.Background(), "alice", exp)
+	require.NoError(t, err)
+	_, err = e.deps.Members.Confirm(context.Background(), p.ID, "alice", true)
+	require.NoError(t, err)
 }
