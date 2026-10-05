@@ -149,7 +149,11 @@ func Parse(rows []xlsx.Row, loc *time.Location) (*Export, error) {
 func AmbiguousGroups(ms []Member) (groups, accounts int) {
 	count := map[string]int{}
 	for _, m := range ms {
-		count[secure.NameKey(m.LastName, m.FirstName)]++
+		key := secure.NameKey(m.LastName, m.FirstName)
+		if key == "|" { // no name at all: nothing to attribute a payment to
+			continue
+		}
+		count[key]++
 	}
 	for _, n := range count {
 		if n > 1 {

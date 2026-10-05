@@ -34,6 +34,12 @@ func TestCommitteePagesRequireSession(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, e.do(t, http.MethodPost, adminHost, "/deconnexion", nil, formType).Code)
 }
 
+func TestLoginIgnoresUsernameCase(t *testing.T) {
+	e := newTestEnv(t)
+	rec := e.postLogin(t, " Alice ", testPassword)
+	assert.Equal(t, http.StatusSeeOther, rec.Code)
+}
+
 func TestLoginSetsHostOnlyCookieAndShowsAccount(t *testing.T) {
 	e := newTestEnv(t)
 	rec := e.postLogin(t, "alice", testPassword)

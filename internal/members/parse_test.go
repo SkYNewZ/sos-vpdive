@@ -104,6 +104,13 @@ func TestParseHeaderBeyondTenthRowIsNotFound(t *testing.T) {
 	assert.Equal(t, ProblemNoHeader, parseError(t, err).Kind)
 }
 
+func TestAmbiguousGroupsSkipsNamelessAccounts(t *testing.T) {
+	ms := []Member{{Email: "a@example.org"}, {Email: "b@example.org"}, {LastName: " ", FirstName: ""}}
+	groups, accounts := AmbiguousGroups(ms)
+	assert.Zero(t, groups)
+	assert.Zero(t, accounts)
+}
+
 func TestAmbiguousGroups(t *testing.T) {
 	exp, err := Parse(readFixture(t, "members_valid.xlsx"), paris(t))
 	require.NoError(t, err)

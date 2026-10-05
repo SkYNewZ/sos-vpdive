@@ -15,6 +15,8 @@ import (
 	"time"
 )
 
+const schemeHTTPS = "https"
+
 // Env is the deployment environment.
 type Env string
 
@@ -225,18 +227,21 @@ func (p *parser) url(name, raw string) *url.URL {
 		return nil
 	}
 	u, err := url.Parse(raw)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" ||
+	if err != nil || (u.Scheme != "http" && u.Scheme != schemeHTTPS) || u.Host == "" ||
 		(u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.User != nil {
 		p.fail(name, errors.New("must be an absolute http(s) URL without path"))
 		return nil
 	}
 	u.Path = ""
-	u.Host = strings.ToLower(u.Host)
+	// Browsers omit a scheme's default port from Origin, which is compared as
+	// an exact string.
+	defaultPort := map[string]string{"http": ":80", schemeHTTPS: ":443"}[u.Scheme]
+	u.Host = strings.TrimSuffix(strings.ToLower(u.Host), defaultPort)
 	return u
 }
 
 func (p *parser) requireHTTPS(name string, u *url.URL) {
-	if u != nil && u.Scheme != "https" {
+	if u != nil && u.Scheme != schemeHTTPS {
 		p.fail(name, errors.New("must use https in production"))
 	}
 }

@@ -36,6 +36,23 @@ func getenv(m map[string]string) func(string) string {
 	return func(k string) string { return m[k] }
 }
 
+func TestLoadDropsDefaultPortFromURLs(t *testing.T) {
+	env := validEnv()
+	env["ADMIN_BASE_URL"] = "https://comite.sos.example.org:443"
+	c, err := Load(getenv(env))
+	require.NoError(t, err)
+	assert.Equal(t, "comite.sos.example.org", c.AdminBaseURL.Host)
+
+	env = validEnv()
+	env["APP_ENV"] = "development"
+	env["BASE_URL"] = "http://sos.localhost:80"
+	env["ADMIN_BASE_URL"] = "http://comite.localhost:8080"
+	c, err = Load(getenv(env))
+	require.NoError(t, err)
+	assert.Equal(t, "sos.localhost", c.BaseURL.Host)
+	assert.Equal(t, "comite.localhost:8080", c.AdminBaseURL.Host)
+}
+
 func TestLoadValidProductionAppliesDefaults(t *testing.T) {
 	c, err := Load(getenv(validEnv()))
 	require.NoError(t, err)

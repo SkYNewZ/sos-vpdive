@@ -54,7 +54,9 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	username := strings.TrimSpace(r.PostForm.Get("username"))
+	// Usernames are [a-z0-9._-]: a phone keyboard capitalizing the first
+	// letter must not lock anyone out.
+	username := strings.ToLower(strings.TrimSpace(r.PostForm.Get("username")))
 	ip := clientIPFrom(ctx)
 
 	if s.turnstile != nil {
