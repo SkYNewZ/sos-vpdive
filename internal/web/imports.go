@@ -1,0 +1,288 @@
+package web
+
+import (
+	"context"
+	"errors"
+	"io"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
+	"go.opentelemetry.io/otel"
+
+	"github.com/SkYNewZ/sos-vpdive/internal/members"
+	"github.com/SkYNewZ/sos-vpdive/internal/telemetry"
+	"github.com/SkYNewZ/sos-vpdive/internal/xlsx"
+)
+
+// Upload limits (spec §7.2): 5 MB file, 50 MB decompressed, 20 000 rows.
+const (
+	maxUploadBytes = 5 << 20
+	multipartSlack = 64 << 10
+	maxFieldBytes  = 1 << 10
+	maxListedRows  = 20
+	dateTimeFormat = "02/01/2006 à 15:04"
+)
+
+var importLimits = xlsx.Limits{MaxUncompressed: 50 << 20, MaxRows: 20_000, MaxCells: 1_000_000}
+
+type importsData struct {
+	MembersLink vpdiveLink
+	Last        *importView
+	Preview     *previewView
+}
+
+type importView struct {
+	ExportedAt string
+	ImportedAt string
+	Author     string
+	Rows       int
+	Skipped    int
+}
+
+type previewView struct {
+	ID                 string
+	ExportedAt         string
+	Total              int
+	Added              int
+	Removed            int
+	Current            int
+	Skipped            int
+	AmbiguousGroups    int
+	AmbiguousAccounts  int
+	NeedsSecondConfirm bool
+}
+
+func (s *Server) importsPage(w http.ResponseWriter, r *http.Request) {
+	var done *notice
+	if r.URL.Query().Get("importe") == "1" {
+		done = &notice{Kind: noticeSuccess, Text: "Liste des membres importée."}
+	}
+	s.renderImports(w, r, http.StatusOK, nil, done)
+}
+
+func (s *Server) renderImports(w http.ResponseWriter, r *http.Request, status int, preview *members.Preview, n *notice) {
+	p, err := s.adminPage(r, "Imports")
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	if n != nil {
+		p.Notices = append(p.Notices, *n)
+	}
+	data := importsData{MembersLink: s.vpdive["membres"]}
+	last, ok, err := s.members.LastImport(r.Context())
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	if ok {
+		data.Last = &importView{
+			ExportedAt: s.formatTime(last.ExportedAt),
+			ImportedAt: s.formatTime(last.ImportedAt),
+			Author:     s.author(last.ImportedBy),
+			Rows:       last.Rows,
+			Skipped:    last.Skipped,
+		}
+	}
+	if preview != nil {
+		data.Preview = &previewView{
+			ID: preview.ID, ExportedAt: s.formatTime(preview.ExportedAt),
+			Total: preview.Total, Added: preview.Added, Removed: preview.Removed, Current: preview.Current,
+			Skipped: preview.Skipped, AmbiguousGroups: preview.AmbiguousGroups,
+			AmbiguousAccounts: preview.AmbiguousAccounts, NeedsSecondConfirm: preview.NeedsSecondConfirm,
+		}
+	}
+	p.Data = data
+	s.render(w, r, status, "imports", p)
+}
+
+// uploadImport reads, validates and previews a members export. Nothing
+// changes before the confirmation.
+func (s *Server) uploadImport(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes+multipartSlack)
+	data, ok := s.readUpload(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	var rows []xlsx.Row
+	if err := traced(ctx, "import.read", func(context.Context) error {
+		var err error
+		rows, err = xlsx.ReadFirstSheet(data, importLimits)
+		return err
+	}); err != nil {
+		s.renderImports(w, r, http.StatusUnprocessableEntity, nil, &notice{Kind: noticeError, Text: workbookMessage(err)})
+		return
+	}
+	sess, _ := sessionFrom(ctx)
+	var preview *members.Preview
+	var parseErr *members.ParseError
+	err := traced(ctx, "import.validate", func(ctx context.Context) error {
+		exp, err := members.Parse(rows, s.paris)
+		if err != nil {
+			return err
+		}
+		preview, err = s.members.NewPreview(ctx, sess.account.Username, exp)
+		return err
+	})
+	switch {
+	case errors.As(err, &parseErr):
+		s.renderImports(w, r, http.StatusUnprocessableEntity, nil, &notice{Kind: noticeError, Text: parseMessage(parseErr)})
+	case err != nil:
+		s.serverError(w, r, err)
+	default:
+		s.renderImports(w, r, http.StatusOK, preview, nil)
+	}
+}
+
+// readUpload reads the multipart body in memory: the CSRF field first, then
+// the file. ParseMultipartForm is not used because it spills large files to
+// disk, and the export must never touch the disk (spec §7.2).
+func (s *Server) readUpload(w http.ResponseWriter, r *http.Request) ([]byte, bool) {
+	mr, err := r.MultipartReader()
+	if err != nil {
+		s.writeText(w, r, http.StatusBadRequest, "Requête refusée : envoi de fichier attendu.\n")
+		return nil, false
+	}
+	part, err := mr.NextPart()
+	if err != nil || part.FormName() != "csrf" {
+		s.writeText(w, r, http.StatusForbidden, "Requête refusée : jeton de formulaire invalide.\n")
+		return nil, false
+	}
+	token, err := io.ReadAll(io.LimitReader(part, maxFieldBytes))
+	if err != nil || !s.csrfValid(r, string(token)) {
+		s.writeText(w, r, http.StatusForbidden, "Requête refusée : jeton de formulaire invalide.\n")
+		return nil, false
+	}
+	missing := &notice{Kind: noticeError, Text: "Choisis le fichier exporté depuis VPDive avant d'envoyer."}
+	part, err = mr.NextPart()
+	if err != nil || part.FormName() != "file" {
+		s.renderImports(w, r, http.StatusUnprocessableEntity, nil, missing)
+		return nil, false
+	}
+	data, err := io.ReadAll(io.LimitReader(part, maxUploadBytes+1))
+	var tooBig *http.MaxBytesError
+	switch {
+	case errors.As(err, &tooBig) || len(data) > maxUploadBytes:
+		s.renderImports(w, r, http.StatusRequestEntityTooLarge, nil,
+			&notice{Kind: noticeError, Text: "Fichier trop volumineux : 5 Mo au plus."})
+		return nil, false
+	case err != nil:
+		s.writeText(w, r, http.StatusBadRequest, "Envoi interrompu. Réessaie.\n")
+		return nil, false
+	case len(data) == 0:
+		s.renderImports(w, r, http.StatusUnprocessableEntity, nil, missing)
+		return nil, false
+	}
+	return data, true
+}
+
+func (s *Server) confirmImport(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, loginBodyLimit)
+	if err := r.ParseForm(); err != nil || !s.csrfValid(r, r.PostForm.Get("csrf")) {
+		s.writeText(w, r, http.StatusForbidden, "Requête refusée : jeton de formulaire invalide.\n")
+		return
+	}
+	sess, _ := sessionFrom(r.Context())
+	username := sess.account.Username
+	id := r.PostForm.Get("apercu")
+	err := traced(r.Context(), "import.replace", func(ctx context.Context) error {
+		_, err := s.members.Confirm(ctx, id, username, r.PostForm.Get("confirmer_moitie") == "oui")
+		return err
+	})
+	switch {
+	case err == nil:
+		http.Redirect(w, r, "/imports?importe=1", http.StatusSeeOther)
+	case errors.Is(err, members.ErrSecondConfirmRequired):
+		preview, perr := s.members.Preview(id, username)
+		if perr != nil {
+			s.renderImports(w, r, http.StatusConflict, nil, expiredNotice())
+			return
+		}
+		s.renderImports(w, r, http.StatusUnprocessableEntity, preview, &notice{Kind: noticeError,
+			Text: "Coche la seconde confirmation : ce fichier contient moins de la moitié des comptes de la liste actuelle."})
+	case errors.Is(err, members.ErrPreviewNotFound):
+		s.renderImports(w, r, http.StatusConflict, nil, expiredNotice())
+	case errors.Is(err, members.ErrStale):
+		s.renderImports(w, r, http.StatusConflict, nil, &notice{Kind: noticeError,
+			Text: "Un autre import est passé entre-temps. Dépose de nouveau le fichier pour voir un aperçu à jour."})
+	default:
+		s.serverError(w, r, err)
+	}
+}
+
+func expiredNotice() *notice {
+	return &notice{Kind: noticeWarning, Text: "Cet aperçu a expiré ou a déjà servi. Dépose de nouveau le fichier si besoin."}
+}
+
+// traced runs fn in a span; a failure records a stable code.
+func traced(ctx context.Context, name string, fn func(context.Context) error) error {
+	ctx, span := otel.Tracer(tracerName).Start(ctx, name)
+	defer span.End()
+	err := fn(ctx)
+	if err != nil {
+		telemetry.Fail(span, name+".failed")
+	}
+	return err
+}
+
+func workbookMessage(err error) string {
+	switch {
+	case errors.Is(err, xlsx.ErrTooLarge):
+		return "Fichier trop volumineux une fois décompressé : 50 Mo au plus."
+	case errors.Is(err, xlsx.ErrTooManyRows), errors.Is(err, xlsx.ErrTooManyCells):
+		return "Fichier trop long : 20 000 lignes au plus."
+	default:
+		return "Ce fichier n'est pas un classeur Excel (.xlsx) lisible. Dépose l'export « Télécharger » de la liste des membres."
+	}
+}
+
+func parseMessage(pe *members.ParseError) string {
+	switch pe.Kind {
+	case members.ProblemNoHeader:
+		return "Colonne « Email » introuvable dans les dix premières lignes. Vérifie que le fichier est bien l'export de la liste des membres."
+	case members.ProblemMissingColumn:
+		return "Colonne obligatoire absente : « " + pe.Column + " »."
+	case members.ProblemDuplicateEmail:
+		return "Une même adresse figure sur plusieurs " + rowList(pe.Rows) + ". Corrige les comptes dans VPDive, puis refais l'export."
+	case members.ProblemInvalidEmail:
+		return "Adresse contenant un espace, " + rowList(pe.Rows) + ". Corrige le compte dans VPDive, puis refais l'export."
+	default:
+		return "Fichier refusé."
+	}
+}
+
+// rowList formats file row numbers: "ligne 7", "lignes 12, 40", at most 20.
+func rowList(rows []int) string {
+	shown := rows[:min(len(rows), maxListedRows)]
+	parts := make([]string, len(shown))
+	for i, n := range shown {
+		parts[i] = strconv.Itoa(n)
+	}
+	text := strings.Join(parts, ", ")
+	if len(rows) > len(shown) {
+		text += "…"
+	}
+	if len(rows) == 1 {
+		return "ligne " + text
+	}
+	return "lignes " + text
+}
+
+func (s *Server) formatTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.In(s.paris).Format(dateTimeFormat)
+}
+
+// author names the committee member of an import, or their username when the
+// account has left the accounts file.
+func (s *Server) author(username string) string {
+	if a, ok := s.admins.Get(username); ok {
+		return a.Name + " (" + a.Role + ")"
+	}
+	return username
+}

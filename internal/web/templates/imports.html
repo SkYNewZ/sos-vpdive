@@ -1,0 +1,61 @@
+{{define "main"}}
+<h1 class="text-2xl font-bold text-primary">Imports</h1>
+
+<section class="mt-6" aria-labelledby="membres-titre">
+<h2 id="membres-titre" class="text-xl font-semibold">Liste des membres</h2>
+<p class="mt-2">La liste des membres sert de liste blanche : seules ses adresses peuvent déposer une demande. Chaque import remplace toute la liste.</p>
+
+<div class="mt-4 border border-base-300 p-4">
+<p class="font-semibold">Où trouver l'export</p>
+<p class="mt-1">Dans VPDive, page <a class="link link-primary" href="{{.Data.MembersLink.URL}}" target="_blank" rel="noopener">liste des membres</a>, bouton « Télécharger », en haut à droite.</p>
+</div>
+
+{{with .Data.Last}}
+<dl class="mt-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
+<dt class="font-semibold">Export du</dt><dd>{{if .ExportedAt}}{{.ExportedAt}}{{else}}date inconnue{{end}}</dd>
+<dt class="font-semibold">Importé le</dt><dd>{{.ImportedAt}}</dd>
+<dt class="font-semibold">Par</dt><dd>{{.Author}}</dd>
+<dt class="font-semibold">Comptes</dt><dd>{{.Rows}}</dd>
+<dt class="font-semibold">Lignes sans adresse ignorées</dt><dd>{{.Skipped}}</dd>
+</dl>
+{{else}}
+<p class="mt-4">Aucune liste importée pour l'instant.</p>
+{{end}}
+
+{{with .Data.Preview}}
+<div class="mt-6 border border-primary p-4">
+<h3 class="text-lg font-semibold">Aperçu avant remplacement</h3>
+<dl class="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
+<dt class="font-semibold">Export du</dt><dd>{{if .ExportedAt}}{{.ExportedAt}}{{else}}date inconnue{{end}}</dd>
+<dt class="font-semibold">Comptes dans le fichier</dt><dd>{{.Total}}</dd>
+<dt class="font-semibold">Comptes ajoutés</dt><dd>{{.Added}}</dd>
+<dt class="font-semibold">Comptes retirés</dt><dd>{{.Removed}}</dd>
+<dt class="font-semibold">Lignes sans adresse ignorées</dt><dd>{{.Skipped}}</dd>
+<dt class="font-semibold">Noms ambigus</dt><dd>{{.AmbiguousGroups}} groupe{{if gt .AmbiguousGroups 1}}s{{end}}, {{.AmbiguousAccounts}} comptes</dd>
+</dl>
+<p class="mt-2 text-sm">Un nom est ambigu quand plusieurs comptes le portent, accents et majuscules mis à part. Leurs paiements ne pourront pas leur être attribués.</p>
+<form method="post" action="/imports/confirmer" class="mt-4 flex flex-col gap-3">
+<input type="hidden" name="csrf" value="{{$.CSRF}}">
+<input type="hidden" name="apercu" value="{{.ID}}">
+{{if .NeedsSecondConfirm}}
+<label class="flex min-h-11 items-start gap-3">
+<input class="checkbox mt-1" type="checkbox" name="confirmer_moitie" value="oui" required>
+<span>Ce fichier contient moins de la moitié des {{.Current}} comptes actuels. Je confirme le remplacement.</span>
+</label>
+{{end}}
+<button class="btn btn-primary min-h-11 self-start" type="submit">Remplacer la liste</button>
+</form>
+<p class="mt-2 text-sm">Cet aperçu reste valable 15 minutes.</p>
+</div>
+{{end}}
+
+<form method="post" action="/imports" enctype="multipart/form-data" class="mt-6 flex flex-col gap-3">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<div class="flex flex-col gap-1">
+<label class="font-semibold" for="file">Fichier exporté (.xlsx, 5 Mo au plus)</label>
+<input class="file-input w-full" id="file" name="file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
+</div>
+<button class="btn {{if .Data.Preview}}btn-outline{{else}}btn-primary{{end}} min-h-11 self-start" type="submit">Voir l'aperçu</button>
+</form>
+</section>
+{{end}}

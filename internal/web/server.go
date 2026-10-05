@@ -129,6 +129,9 @@ func (s *Server) adminRoutes() *http.ServeMux {
 	s.handle(mux, "GET /connexion", s.loginForm)
 	s.handle(mux, "POST /connexion", s.login)
 	s.handle(mux, "POST /deconnexion", s.signedIn(s.logout))
+	s.handle(mux, "GET /imports", s.signedIn(s.importsPage))
+	s.handle(mux, "POST /imports", s.signedIn(s.uploadImport))
+	s.handle(mux, "POST /imports/confirmer", s.signedIn(s.confirmImport))
 	s.handle(mux, "GET /{$}", s.signedIn(s.home))
 	return mux
 }
