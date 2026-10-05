@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/admins"
+	"github.com/SkYNewZ/sos-vpdive/internal/tickets"
 )
 
 const (
@@ -150,6 +151,9 @@ func (s *Server) adminPage(r *http.Request, title string) (page, error) {
 	return p, nil
 }
 
+// adminNotices are the committee banners: accounts file, members list
+// (spec §3.6, §7.2), failed mails (§6) and open requests idle for a year
+// (§8.3).
 func (s *Server) adminNotices(ctx context.Context) ([]notice, error) {
 	var out []notice
 	if err := s.admins.Err(); err != nil {
@@ -160,20 +164,54 @@ func (s *Server) adminNotices(ctx context.Context) ([]notice, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !has {
-		return append(out, notice{Kind: noticeWarning, Text: "Le formulaire est fermé : aucune liste des membres n'est importée.",
-			Link: "/imports", LinkText: "Importer la liste"}), nil
-	}
-	last, ok, err := s.members.LastImport(ctx)
+	last, imported, err := s.members.LastImport(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if ok && s.now().Sub(last.ImportedAt) > s.cfg.MembersMaxAge {
+	switch {
+	case !has:
+		out = append(out, notice{Kind: noticeWarning, Text: "Le formulaire est fermé : aucune liste des membres n'est importée.",
+			Link: "/imports", LinkText: "Importer la liste"})
+	case imported && s.now().Sub(last.ImportedAt) > s.cfg.MembersMaxAge:
 		out = append(out, notice{Kind: noticeWarning,
 			Text: fmt.Sprintf("La liste des membres date du %s. Pense à refaire l'import.", s.formatDate(last.ImportedAt)),
 			Link: "/imports", LinkText: "Refaire l'import"})
 	}
+	failed, err := s.outbox.FailedCount(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if failed > 0 {
+		out = append(out, notice{Kind: noticeError, Text: failedMailsText(failed), Link: "/envois", LinkText: "Voir les envois en échec"})
+	}
+	idle, err := s.tickets.Idle(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(idle) > 0 {
+		out = append(out, notice{Kind: noticeWarning, Text: idleText(idle), Link: "/?statut=" + filterAllOpen, LinkText: "Voir les demandes ouvertes"})
+	}
 	return out, nil
+}
+
+func failedMailsText(n int) string {
+	if n == 1 {
+		return "1 mail n'a pas pu partir."
+	}
+	return strconv.Itoa(n) + " mails n'ont pas pu partir."
+}
+
+// idleText names the open requests without activity for 12 months: they are
+// flagged for review, never closed automatically (spec §8.3).
+func idleText(rows []tickets.Row) string {
+	refs := make([]string, len(rows))
+	for i, row := range rows {
+		refs[i] = row.Ref
+	}
+	if len(rows) == 1 {
+		return "1 demande ouverte est sans activité depuis 12 mois, à revoir : " + refs[0] + "."
+	}
+	return strconv.Itoa(len(rows)) + " demandes ouvertes sont sans activité depuis 12 mois, à revoir : " + strings.Join(refs, ", ") + "."
 }
 
 // serverError logs an internal error and answers 500 without detail.

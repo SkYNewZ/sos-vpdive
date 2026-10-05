@@ -1,0 +1,38 @@
+{{define "main"}}
+{{$d := .Data}}
+<h1 class="text-2xl font-bold text-primary">Effacer les données d'une personne</h1>
+<p class="mt-4">Pour répondre à une demande d'effacement : toutes les demandes de l'adresse, avec leurs messages, leurs captures et leurs mails en attente, et sa ligne dans la liste des membres.</p>
+{{if eq $d.Step "fait"}}
+<div role="status" class="alert alert-soft alert-success mt-6"><span>Données effacées : {{$d.Counts.Tickets}} {{if eq $d.Counts.Tickets 1}}demande{{else}}demandes{{end}}{{if $d.Counts.Member}} et la ligne de la liste des membres{{end}}.</span></div>
+<p class="mt-4">Tant que la personne a un compte VPDive, le prochain import de la liste des membres la réinscrit dans la liste blanche.</p>
+<p class="mt-4"><a class="link link-primary" href="/">Retour aux demandes</a></p>
+{{else if eq $d.Step "apercu"}}
+<div class="mt-6 border border-error p-4">
+<h2 class="text-lg font-semibold break-words">Ce qui sera effacé pour {{$d.Email}}</h2>
+<ul class="mt-2 list-disc pl-6">
+<li>{{$d.Counts.Tickets}} {{if eq $d.Counts.Tickets 1}}demande{{else}}demandes{{end}}, avec leurs messages, leurs captures, leur journal et leurs mails en attente ;</li>
+<li>{{if $d.Counts.Member}}une ligne dans la liste des membres{{else}}aucune ligne dans la liste des membres{{end}}.</li>
+</ul>
+<p class="mt-3">Un mail déjà remis à son destinataire ne peut pas être rappelé.</p>
+<p class="mt-2">Tant que la personne a un compte VPDive, le prochain import de la liste des membres la réinscrit dans la liste blanche.</p>
+<form method="post" action="/effacement" class="mt-4 flex flex-wrap gap-3">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<input type="hidden" name="email" value="{{$d.Email}}">
+<input type="hidden" name="etape" value="confirmer">
+<button class="btn btn-error min-h-11" type="submit">Effacer définitivement</button>
+<a class="btn btn-outline min-h-11" href="/effacement">Annuler</a>
+</form>
+</div>
+{{else}}
+<form method="post" action="/effacement" class="mt-6 flex flex-col gap-4">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<input type="hidden" name="etape" value="apercu">
+<div class="flex flex-col gap-1">
+<label class="font-semibold" for="email">Adresse mail de la personne</label>
+<input class="input w-full max-w-md" id="email" name="email" type="email" required value="{{$d.Email}}"{{if $d.Error}} aria-invalid="true" aria-describedby="email-erreur"{{end}}>
+{{with $d.Error}}<p id="email-erreur" class="font-semibold text-error">{{.}}</p>{{end}}
+</div>
+<button class="btn btn-primary min-h-11 self-start" type="submit">Voir ce qui sera effacé</button>
+</form>
+{{end}}
+{{end}}
