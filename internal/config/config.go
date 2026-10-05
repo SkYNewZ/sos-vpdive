@@ -114,7 +114,7 @@ func Load(getenv func(string) string) (*Config, error) {
 		MembersMaxAge:      p.duration("MEMBERS_MAX_AGE", "336h"),
 		AgeWarnAfter:       p.duration("AGE_WARN_AFTER", "48h"),
 		AgeAlertAfter:      p.duration("AGE_ALERT_AFTER", "168h"),
-		RetentionDays:      p.int("RETENTION_DAYS", "365", 1, 3650),
+		RetentionDays:      p.int("RETENTION_DAYS", "365", 15, 3650),
 		FormRateLimit:      p.perHour("FORM_RATE_LIMIT", "20/h", 1, 10000),
 		VPDiveBaseURL:      p.url("VPDIVE_BASE_URL", p.optional("VPDIVE_BASE_URL", "https://plongee-pradet.fr")),
 	}

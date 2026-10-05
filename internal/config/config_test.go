@@ -142,7 +142,7 @@ func TestLoadProductionRules(t *testing.T) {
 		{"bad proxy", func(m map[string]string) { m["TRUSTED_PROXIES"] = "10.0.0.0/8, nope" }, "TRUSTED_PROXIES"},
 		{"alert before warn", func(m map[string]string) { m["AGE_WARN_AFTER"] = "72h"; m["AGE_ALERT_AFTER"] = "48h" }, "AGE_ALERT_AFTER"},
 		{"bad warn age", func(m map[string]string) { m["AGE_WARN_AFTER"] = "-1h" }, "AGE_WARN_AFTER"},
-		{"zero retention", func(m map[string]string) { m["RETENTION_DAYS"] = "0" }, "RETENTION_DAYS"},
+		{"retention shorter than the reply window", func(m map[string]string) { m["RETENTION_DAYS"] = "14" }, "RETENTION_DAYS"},
 		{"rate without unit", func(m map[string]string) { m["FORM_RATE_LIMIT"] = "20" }, "FORM_RATE_LIMIT"},
 		{"rate per minute", func(m map[string]string) { m["FORM_RATE_LIMIT"] = "20/min" }, "FORM_RATE_LIMIT"},
 		{"rate too high", func(m map[string]string) { m["FORM_RATE_LIMIT"] = "10001/h" }, "FORM_RATE_LIMIT"},
