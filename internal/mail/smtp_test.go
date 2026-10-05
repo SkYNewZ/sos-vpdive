@@ -294,7 +294,7 @@ func TestSendClassifiesRefusals(t *testing.T) {
 			err := s.Send(context.Background(), testMessage())
 			require.Error(t, err)
 			assert.Equal(t, tc.permanent, errors.Is(err, ErrPermanent))
-			assert.Equal(t, tc.code, failureCode(err))
+			assert.Equal(t, tc.code, stageOf(err))
 		})
 	}
 }

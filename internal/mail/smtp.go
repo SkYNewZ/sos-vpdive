@@ -28,10 +28,7 @@ import (
 // smtpTimeout bounds a whole delivery: dial, TLS, commands and data.
 const smtpTimeout = 30 * time.Second
 
-var (
-	errHeaderBreak = fmt.Errorf("%w: line break in a mail header", ErrPermanent)
-	errNoStartTLS  = errors.New("smtp server does not offer STARTTLS")
-)
+var errNoStartTLS = errors.New("smtp server does not offer STARTTLS")
 
 // smtpStage names where a delivery failed. The values are stable: they are
 // span failure codes and log attributes, and never carry the error text.
@@ -43,7 +40,12 @@ const (
 	stageAuth     smtpStage = "smtp_auth"
 	stageRejected smtpStage = "smtp_rejected"
 	stageData     smtpStage = "smtp_data"
+	stageHeader   smtpStage = "smtp_header"
+	// stageOther covers every failure that carries no stage of its own.
+	stageOther smtpStage = "smtp_unavailable"
 )
+
+var errHeaderBreak = atStage(stageHeader, fmt.Errorf("%w: line break in a mail header", ErrPermanent))
 
 // stageError tags err with the stage that failed.
 type stageError struct {
@@ -56,12 +58,13 @@ func (e *stageError) Unwrap() error { return e.err }
 
 func atStage(stage smtpStage, err error) error { return &stageError{stage: stage, err: err} }
 
-// failedStage returns the stage err failed at, if it carries one.
-func failedStage(err error) (smtpStage, bool) {
+// stageOf names where a delivery failed: the span failure code and the worker
+// log attribute. Never the error text.
+func stageOf(err error) string {
 	if se, ok := errors.AsType[*stageError](err); ok {
-		return se.stage, true
+		return string(se.stage)
 	}
-	return "", false
+	return string(stageOther)
 }
 
 // SMTP delivers mails through the relay of SMTP_* (spec §6). The connection
@@ -86,7 +89,7 @@ func (s *SMTP) Send(ctx context.Context, m Message) (err error) {
 	defer span.End()
 	defer func() {
 		if err != nil {
-			telemetry.Fail(span, failureCode(err))
+			telemetry.Fail(span, stageOf(err))
 		}
 	}()
 
@@ -241,19 +244,6 @@ func rejected(err error) error {
 		return fmt.Errorf("%w: %w", ErrPermanent, err)
 	}
 	return err
-}
-
-// failureCode is the stable span code of a failed delivery.
-func failureCode(err error) string {
-	if stage, ok := failedStage(err); ok {
-		return string(stage)
-	}
-	switch {
-	case errors.Is(err, errHeaderBreak):
-		return "smtp_header"
-	default:
-		return "smtp_unavailable"
-	}
 }
 
 func domainOf(address string) string {

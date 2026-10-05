@@ -149,13 +149,6 @@ func (o *Outbox) deliver(ctx context.Context, s Sender, logger *slog.Logger, q q
 	}
 }
 
-// stageOf names where an SMTP delivery failed, empty for senders that do not
-// report a stage. Never the error text.
-func stageOf(err error) string {
-	stage, _ := failedStage(err)
-	return string(stage)
-}
-
 func (o *Outbox) open(q queued) (Message, error) {
 	to, err := o.keys.OpenString(q.to)
 	if err != nil {
