@@ -47,3 +47,6 @@
 {{define "status"}}<span class="badge badge-soft whitespace-nowrap {{template "statusClass" .}}">{{.Label}}</span>{{end}}
 
 {{define "memberStatus"}}<span class="badge badge-soft whitespace-nowrap {{template "statusClass" .}}">{{.MemberLabel}}</span>{{end}}
+
+
+{{define "age"}}<span class="{{if eq .Level "alert"}}text-error font-bold{{else if eq .Level "warn"}}text-warning{{end}}">{{.Text}}</span>{{end}}

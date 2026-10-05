@@ -18,3 +18,80 @@
   select.addEventListener("change", sync);
   sync();
 })();
+
+
+// Committee board: live updates over SSE (spec §4.2). An event carries a
+// type and a request id only: the board fetches itself again and swaps its
+// list. A changed row keeps a mark until its request is opened.
+const CHANGED = "sos-vpdive-changed";
+
+const changedIds = () => {
+  try {
+    return new Set(JSON.parse(sessionStorage.getItem(CHANGED) || "[]"));
+  } catch {
+    return new Set();
+  }
+};
+
+const saveChanged = (ids) => {
+  try {
+    sessionStorage.setItem(CHANGED, JSON.stringify([...ids]));
+  } catch {
+    // Storage unavailable: marks only last until the next refresh.
+  }
+};
+
+const markRows = () => {
+  const ids = changedIds();
+  for (const row of document.querySelectorAll("[data-ticket]")) {
+    row.toggleAttribute("data-changed", ids.has(row.dataset.ticket));
+  }
+};
+
+const refreshBoard = async () => {
+  try {
+    const response = await fetch(location.href, { credentials: "same-origin" });
+    if (!response.ok) return;
+    const page = new DOMParser().parseFromString(await response.text(), "text/html");
+    const fresh = page.querySelector("[data-board]");
+    const current = document.querySelector("[data-board]");
+    if (fresh && current) current.replaceWith(fresh);
+    markRows();
+  } catch {
+    // Network down: EventSource reconnects, then the board catches up.
+  }
+};
+
+if (document.querySelector("[data-board]")) {
+  markRows();
+  const source = new EventSource("/evenements");
+  let connected = false;
+  source.addEventListener("open", () => {
+    if (connected) refreshBoard(); // back after a cut: catch up on everything
+    connected = true;
+  });
+  for (const type of ["created", "changed", "replied", "deleted"]) {
+    source.addEventListener(type, (event) => {
+      const ids = changedIds();
+      ids.add(String(JSON.parse(event.data).id));
+      saveChanged(ids);
+      refreshBoard();
+    });
+  }
+}
+
+// Request page: nothing reloads by itself, so a reply being typed is never
+// lost. A banner offers to reload when the request changed elsewhere.
+const ticketPage = document.querySelector("[data-ticket-page]");
+if (ticketPage) {
+  const id = ticketPage.dataset.ticketPage;
+  const ids = changedIds();
+  if (ids.delete(id)) saveChanged(ids);
+  const banner = document.querySelector("[data-changed-banner]");
+  const source = new EventSource("/evenements");
+  for (const type of ["changed", "replied", "deleted"]) {
+    source.addEventListener(type, (event) => {
+      if (banner && String(JSON.parse(event.data).id) === id) banner.hidden = false;
+    });
+  }
+}

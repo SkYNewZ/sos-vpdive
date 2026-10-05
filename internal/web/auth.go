@@ -137,16 +137,6 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/connexion", http.StatusSeeOther)
 }
 
-// home is the committee's start page. Lot 2 turns it into the requests board.
-func (s *Server) home(w http.ResponseWriter, r *http.Request) {
-	p, err := s.adminPage(r, "Demandes")
-	if err != nil {
-		s.serverError(w, r, err)
-		return
-	}
-	s.render(w, r, http.StatusOK, "admin_home", p)
-}
-
 // adminPage is newPage plus the committee banners (spec §3.6, §4.1, §7.2).
 func (s *Server) adminPage(r *http.Request, title string) (page, error) {
 	p := s.newPage(r, title)

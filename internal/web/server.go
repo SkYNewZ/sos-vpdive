@@ -45,19 +45,20 @@ type Deps struct {
 
 // Server routes requests to the members or the committee site by host.
 type Server struct {
-	cfg     *config.Config
-	db      *sql.DB
-	keys    *secure.Keys
-	members *members.Store
-	admins  *admins.Registry
-	tickets *tickets.Store
-	catalog *tickets.Catalog
-	outbox  *mail.Outbox
-	broker  *Broker
-	logger  *slog.Logger
-	now     func() time.Time
-	paris   *time.Location
-	tracer  trace.Tracer
+	cfg       *config.Config
+	db        *sql.DB
+	keys      *secure.Keys
+	members   *members.Store
+	admins    *admins.Registry
+	tickets   *tickets.Store
+	catalog   *tickets.Catalog
+	outbox    *mail.Outbox
+	broker    *Broker
+	keepAlive time.Duration // event stream keepalive and session check, shortened by tests
+	logger    *slog.Logger
+	now       func() time.Time
+	paris     *time.Location
+	tracer    trace.Tracer
 
 	turnstile *Turnstile
 	limiter   *limiter
@@ -96,7 +97,8 @@ func New(d Deps) (*Server, error) {
 	s := &Server{
 		cfg: d.Config, db: d.DB, keys: d.Keys, members: d.Members, admins: d.Admins,
 		tickets: d.Tickets, catalog: d.Catalog, outbox: d.Outbox, broker: d.Broker,
-		logger: d.Logger, now: d.Now, paris: paris, tracer: otel.Tracer(tracerName),
+		keepAlive: keepAliveInterval,
+		logger:    d.Logger, now: d.Now, paris: paris, tracer: otel.Tracer(tracerName),
 		turnstile: d.Turnstile,
 		limiter:   &limiter{db: d.DB, keys: d.Keys, now: d.Now},
 		robots:    robots, vpdive: links, assets: static,
@@ -167,7 +169,9 @@ func (s *Server) adminRoutes() *http.ServeMux {
 	s.handle(mux, "GET /imports", s.signedIn(s.importsPage))
 	s.handle(mux, "POST /imports", s.signedIn(s.uploadImport))
 	s.handle(mux, "POST /imports/confirmer", s.signedIn(s.confirmImport))
-	s.handle(mux, "GET /{$}", s.signedIn(s.home))
+	// The event stream is neither traced nor logged (spec §9.9).
+	mux.HandleFunc("GET /evenements", s.events)
+	s.handle(mux, "GET /{$}", s.signedIn(s.board))
 	return mux
 }
 
