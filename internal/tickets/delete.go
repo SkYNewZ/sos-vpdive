@@ -153,8 +153,7 @@ func (s *Store) Erase(ctx context.Context, email, actor string) (Erasure, error)
 		if e.Member, err = s.Members.EraseTx(ctx, tx, normalized); err != nil {
 			return err
 		}
-		_, err = s.Outbox.DeleteRecipient(ctx, tx, normalized)
-		return err
+		return s.Outbox.DeleteRecipient(ctx, tx, normalized)
 	})
 	if err != nil {
 		return Erasure{}, err

@@ -218,20 +218,15 @@ func (o *Outbox) Retry(ctx context.Context, id int64) error {
 }
 
 // DeleteRecipient removes every mail to email (normalized) in tx (erasure).
-func (o *Outbox) DeleteRecipient(ctx context.Context, tx *sql.Tx, email string) (int64, error) {
+func (o *Outbox) DeleteRecipient(ctx context.Context, tx *sql.Tx, email string) error {
 	to, err := secure.NormalizeEmail(email)
 	if err != nil {
-		return 0, fmt.Errorf("delete mails of a recipient: %w", err)
+		return fmt.Errorf("delete mails of a recipient: %w", err)
 	}
-	res, err := tx.ExecContext(ctx, `DELETE FROM outbox WHERE recipient_hash = ?`, o.keys.Hash(to))
-	if err != nil {
-		return 0, fmt.Errorf("delete mails of a recipient: %w", err)
+	if _, err := tx.ExecContext(ctx, `DELETE FROM outbox WHERE recipient_hash = ?`, o.keys.Hash(to)); err != nil {
+		return fmt.Errorf("delete mails of a recipient: %w", err)
 	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return 0, fmt.Errorf("delete mails of a recipient: %w", err)
-	}
-	return n, nil
+	return nil
 }
 
 // Purge deletes sent and failed mails 30 days after sending or failure.

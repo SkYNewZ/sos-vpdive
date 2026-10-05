@@ -388,13 +388,9 @@ func TestDeleteRecipient(t *testing.T) {
 	o.enqueue(t, Mail{Event: EventLostLink, To: "lea.martin@example.org", Subject: "Tes liens de suivi", Text: "t"})
 	o.enqueue(t, Mail{Event: EventNewTicket, To: "club@example.org", Subject: "Nouvelle demande CPP-0042", Text: "t"})
 
-	var n int64
 	require.NoError(t, store.Tx(ctx, o.db, "test.erase", func(ctx context.Context, tx *sql.Tx) error {
-		var err error
-		n, err = o.DeleteRecipient(ctx, tx, " LEA.martin@example.org")
-		return err
+		return o.DeleteRecipient(ctx, tx, " LEA.martin@example.org")
 	}))
-	assert.EqualValues(t, 2, n)
 	assert.Equal(t, 1, o.count(t))
 }
 
