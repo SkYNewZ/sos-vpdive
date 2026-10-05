@@ -277,3 +277,47 @@ func TestPreviewIsFreedWithoutFurtherAccess(t *testing.T) {
 		return len(f.store.previews) == 0
 	}, 2*time.Second, 10*time.Millisecond, "preview %s still held", p.ID)
 }
+
+func TestFindAndEraseMember(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	f.importFixture(t, "members_valid.xlsx")
+
+	p, ok, err := f.store.Find(ctx, " LEA.martin@example.org ")
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, "Léa", p.FirstName)
+	assert.Equal(t, "Martin", p.LastName)
+	require.NotNil(t, p.Seasons)
+	assert.Equal(t, "2026", *p.Seasons)
+	assert.Equal(t, "2026-12-31", p.LicenceExpires)
+
+	p, ok, err = f.store.Find(ctx, "chloe.petit@example.org")
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Empty(t, p.LicenceExpires, "empty licence accepted")
+
+	_, ok, err = f.store.Find(ctx, "unknown@example.org")
+	require.NoError(t, err)
+	assert.False(t, ok)
+	_, _, err = f.store.Find(ctx, "lea martin@example.org")
+	require.ErrorIs(t, err, secure.ErrEmailSpace)
+
+	erase := func(email string) bool {
+		var found bool
+		require.NoError(t, store.Tx(ctx, f.db, "test.erase", func(ctx context.Context, tx *sql.Tx) error {
+			var err error
+			found, err = f.store.EraseTx(ctx, tx, email)
+			return err
+		}))
+		return found
+	}
+	assert.True(t, erase("lea.martin@example.org"))
+	assert.False(t, erase("lea.martin@example.org"))
+	listed, err := f.store.Lookup(ctx, "lea.martin@example.org")
+	require.NoError(t, err)
+	assert.False(t, listed)
+	listed, err = f.store.Lookup(ctx, "hugo.bernard@example.org")
+	require.NoError(t, err)
+	assert.True(t, listed, "only that address is erased")
+}

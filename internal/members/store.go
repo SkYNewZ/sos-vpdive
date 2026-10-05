@@ -211,6 +211,71 @@ func (s *Store) Lookup(ctx context.Context, email string) (bool, error) {
 	return found, nil
 }
 
+// Profile is what a ticket page shows of the requester (spec §4.3).
+type Profile struct {
+	FirstName      string
+	LastName       string
+	Seasons        *string // nil when the export had no "Année(s)" column
+	LicenceExpires string  // YYYY-MM-DD or ""
+}
+
+// Find returns the member of email. An address with a space returns
+// secure.ErrEmailSpace, as Lookup does.
+func (s *Store) Find(ctx context.Context, email string) (Profile, bool, error) {
+	normalized, err := secure.NormalizeEmail(email)
+	if err != nil {
+		return Profile{}, false, err
+	}
+	var first, last, seasons, licence []byte
+	err = s.db.QueryRowContext(ctx,
+		`SELECT first_name, last_name, seasons, licence_expires FROM members WHERE email_hash = ?`,
+		s.keys.Hash(normalized)).Scan(&first, &last, &seasons, &licence)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Profile{}, false, nil
+	}
+	if err != nil {
+		return Profile{}, false, fmt.Errorf("find member: %w", err)
+	}
+	var p Profile
+	if p.FirstName, err = s.keys.OpenString(first); err != nil {
+		return Profile{}, false, fmt.Errorf("decrypt member: %w", err)
+	}
+	if p.LastName, err = s.keys.OpenString(last); err != nil {
+		return Profile{}, false, fmt.Errorf("decrypt member: %w", err)
+	}
+	if seasons != nil {
+		v, err := s.keys.OpenString(seasons)
+		if err != nil {
+			return Profile{}, false, fmt.Errorf("decrypt member: %w", err)
+		}
+		p.Seasons = &v
+	}
+	if licence != nil {
+		if p.LicenceExpires, err = s.keys.OpenString(licence); err != nil {
+			return Profile{}, false, fmt.Errorf("decrypt member: %w", err)
+		}
+	}
+	return p, true, nil
+}
+
+// EraseTx deletes the member of email inside tx and reports whether one
+// existed (erasure, spec §4.5). The next import lists it again if VPDive does.
+func (s *Store) EraseTx(ctx context.Context, tx *sql.Tx, email string) (bool, error) {
+	normalized, err := secure.NormalizeEmail(email)
+	if err != nil {
+		return false, err
+	}
+	res, err := tx.ExecContext(ctx, `DELETE FROM members WHERE email_hash = ?`, s.keys.Hash(normalized))
+	if err != nil {
+		return false, fmt.Errorf("erase member: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("erase member: %w", err)
+	}
+	return n > 0, nil
+}
+
 // HasList reports whether a list is in place. Without one the form is closed.
 func (s *Store) HasList(ctx context.Context) (bool, error) {
 	var found bool

@@ -43,6 +43,10 @@ var allowedFrom = map[Action][]Status{
 	ActionNote:       {StatusInProgress, StatusWaiting},
 	ActionCategory:   {StatusTodo, StatusInProgress, StatusWaiting},
 	ActionClose:      {StatusTodo, StatusInProgress, StatusWaiting},
+
+	ActionDeleteCapture: {StatusTodo, StatusInProgress, StatusWaiting, StatusDone},
+	ActionDeleteMessage: {StatusTodo, StatusInProgress, StatusWaiting, StatusDone},
+	ActionDelete:        {StatusTodo, StatusInProgress, StatusWaiting, StatusDone},
 }
 
 // Command is one committee action as the ticket page posts it.
@@ -92,6 +96,9 @@ func (s *Store) Apply(ctx context.Context, cmd Command) error {
 		return err
 	}
 	s.deleteObjects(ctx, res.objects)
+	if cmd.Action == ActionDelete {
+		s.Logger.InfoContext(ctx, "ticket deleted", "actor", cmd.Actor, "ticket_id", cmd.TicketID, "captures", len(res.objects))
+	}
 	s.changed(res.change, cmd.TicketID)
 	return nil
 }
@@ -149,6 +156,12 @@ func (s *Store) apply(ctx context.Context, tx *sql.Tx, t ticketRow, cmd Command)
 			return outcome{}, err
 		}
 		return updated, s.memberMail(ctx, tx, after, 0, mail.EventClosed, mailData{})
+	case ActionDeleteCapture:
+		return s.deleteCapture(ctx, tx, t, cmd)
+	case ActionDeleteMessage:
+		return s.deleteMessage(ctx, tx, t, cmd)
+	case ActionDelete:
+		return s.deleteTicket(ctx, tx, t)
 	default:
 		return outcome{}, ErrInvalid
 	}

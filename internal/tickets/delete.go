@@ -1,0 +1,289 @@
+package tickets
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/SkYNewZ/sos-vpdive/internal/mail"
+	"github.com/SkYNewZ/sos-vpdive/internal/secure"
+)
+
+// Deletions (spec §4.5). They take a version like any committee action.
+const (
+	ActionDeleteCapture Action = "delete_capture"
+	ActionDeleteMessage Action = "delete_message"
+	ActionDelete        Action = "delete"
+)
+
+// Erasure counts what an erasure removes.
+type Erasure struct {
+	Tickets int
+	Member  bool
+}
+
+// doomed is a request about to be deleted, with what the monthly stats need.
+type doomed struct {
+	id          int64
+	status      Status
+	category    string
+	submittedAt int64
+	closedAt    int64
+}
+
+// deleteCapture removes one screenshot, a CACI sent by mistake for instance.
+func (s *Store) deleteCapture(ctx context.Context, tx *sql.Tx, t ticketRow, cmd Command) (outcome, error) {
+	var key string
+	err := tx.QueryRowContext(ctx, `SELECT object_key FROM attachments WHERE id = ? AND ticket_id = ?`,
+		cmd.AttachmentID, t.id).Scan(&key)
+	if errors.Is(err, sql.ErrNoRows) {
+		return outcome{}, ErrNotFound
+	}
+	if err != nil {
+		return outcome{}, fmt.Errorf("find capture: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM attachments WHERE id = ?`, cmd.AttachmentID); err != nil {
+		return outcome{}, fmt.Errorf("delete capture: %w", err)
+	}
+	if err := s.transition(ctx, tx, t, t, cmd.Actor, eventCaptureDeleted, nil); err != nil {
+		return outcome{}, err
+	}
+	return outcome{change: ChangeUpdated, objects: []string{key}}, nil
+}
+
+// deleteMessage removes one message; its captures and the mails citing it
+// go with it (foreign keys ON DELETE CASCADE).
+func (s *Store) deleteMessage(ctx context.Context, tx *sql.Tx, t ticketRow, cmd Command) (outcome, error) {
+	keys, err := objectKeys(ctx, tx, `SELECT object_key FROM attachments WHERE message_id = ? AND ticket_id = ?`,
+		cmd.MessageID, t.id)
+	if err != nil {
+		return outcome{}, err
+	}
+	res, err := tx.ExecContext(ctx, `DELETE FROM messages WHERE id = ? AND ticket_id = ?`, cmd.MessageID, t.id)
+	if err != nil {
+		return outcome{}, fmt.Errorf("delete message: %w", err)
+	}
+	if n, err := res.RowsAffected(); err != nil || n == 0 {
+		return outcome{}, errors.Join(ErrNotFound, err)
+	}
+	if err := s.transition(ctx, tx, t, t, cmd.Actor, eventMessageDeleted, nil); err != nil {
+		return outcome{}, err
+	}
+	return outcome{change: ChangeUpdated, objects: keys}, nil
+}
+
+// deleteTicket removes a whole request: messages, captures, journal and mails
+// cascade. Its tracking link stops working.
+func (s *Store) deleteTicket(ctx context.Context, tx *sql.Tx, t ticketRow) (outcome, error) {
+	keys, err := s.drop(ctx, tx, []doomed{{id: t.id, status: t.status, category: t.category,
+		submittedAt: t.submittedAt, closedAt: t.closedAt}})
+	if err != nil {
+		return outcome{}, err
+	}
+	return outcome{change: ChangeDeleted, objects: keys}, nil
+}
+
+// drop deletes requests and returns their object keys. A done request is
+// counted in stats_monthly first (spec §8.3).
+func (s *Store) drop(ctx context.Context, tx *sql.Tx, list []doomed) ([]string, error) {
+	var keys []string
+	for _, d := range list {
+		k, err := objectKeys(ctx, tx, `SELECT object_key FROM attachments WHERE ticket_id = ?`, d.id)
+		if err != nil {
+			return nil, err
+		}
+		keys = append(keys, k...)
+		if d.status == StatusDone {
+			if err := s.addStats(ctx, tx, d); err != nil {
+				return nil, err
+			}
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM tickets WHERE id = ?`, d.id); err != nil {
+			return nil, fmt.Errorf("delete ticket: %w", err)
+		}
+	}
+	return keys, nil
+}
+
+// addStats counts a closed request in its month (Europe/Paris) and category.
+func (s *Store) addStats(ctx context.Context, tx *sql.Tx, d doomed) error {
+	month := time.Unix(d.closedAt, 0).In(s.paris).Format("2006-01")
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO stats_monthly (month, category, closed_count, hours_to_close_total) VALUES (?, ?, 1, ?)
+		 ON CONFLICT (month, category) DO UPDATE SET closed_count = closed_count + 1,
+		   hours_to_close_total = hours_to_close_total + excluded.hours_to_close_total`,
+		month, d.category, (d.closedAt-d.submittedAt)/3600); err != nil {
+		return fmt.Errorf("monthly stats: %w", err)
+	}
+	return nil
+}
+
+// PreviewErasure counts what Erase would remove for email.
+func (s *Store) PreviewErasure(ctx context.Context, email string) (Erasure, error) {
+	normalized, err := secure.NormalizeEmail(email)
+	if err != nil {
+		return Erasure{}, ErrInvalid
+	}
+	var e Erasure
+	if err := s.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM tickets WHERE email_hash = ?`,
+		s.Keys.Hash(normalized)).Scan(&e.Tickets); err != nil {
+		return Erasure{}, fmt.Errorf("count tickets of address: %w", err)
+	}
+	if _, e.Member, err = s.Members.Find(ctx, normalized); err != nil {
+		return Erasure{}, err
+	}
+	return e, nil
+}
+
+// Erase answers an erasure request (spec §4.5): every request of email, its
+// members row and every mail to it, in one transaction, then the stored
+// captures. The next members import may list the address again.
+func (s *Store) Erase(ctx context.Context, email, actor string) (Erasure, error) {
+	normalized, err := secure.NormalizeEmail(email)
+	if err != nil {
+		return Erasure{}, ErrInvalid
+	}
+	var (
+		e    Erasure
+		list []doomed
+		keys []string
+	)
+	err = s.tx(ctx, "erase", func(ctx context.Context, tx *sql.Tx) error {
+		list, err = listDoomed(ctx, tx,
+			`SELECT id, status, category, submitted_at, closed_at FROM tickets WHERE email_hash = ?`, s.Keys.Hash(normalized))
+		if err != nil {
+			return err
+		}
+		if keys, err = s.drop(ctx, tx, list); err != nil {
+			return err
+		}
+		if e.Member, err = s.Members.EraseTx(ctx, tx, normalized); err != nil {
+			return err
+		}
+		_, err = s.Outbox.DeleteRecipient(ctx, tx, normalized)
+		return err
+	})
+	if err != nil {
+		return Erasure{}, err
+	}
+	e.Tickets = len(list)
+	s.deleteObjects(ctx, keys)
+	for _, d := range list {
+		s.changed(ChangeDeleted, d.id)
+	}
+	s.Logger.InfoContext(ctx, "person erased", "actor", actor, "tickets", e.Tickets, "member", e.Member)
+	return e, nil
+}
+
+// ReleaseMissing returns to todo the open requests of accounts known() rejects
+// (spec §4.1): at startup and after each reload of the accounts file.
+func (s *Store) ReleaseMissing(ctx context.Context, known func(username string) bool) error {
+	ids, err := s.assignedTo(ctx, func(username string) bool { return !known(username) })
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for _, id := range ids {
+		errs = append(errs, s.release(ctx, id, known))
+	}
+	return errors.Join(errs...)
+}
+
+// assignedTo lists the in-progress and waiting requests whose assignee matches.
+func (s *Store) assignedTo(ctx context.Context, match func(string) bool) (ids []int64, err error) {
+	rows, err := s.DB.QueryContext(ctx, `SELECT id, assignee FROM tickets WHERE status IN ('in_progress', 'waiting')`)
+	if err != nil {
+		return nil, fmt.Errorf("assigned tickets: %w", err)
+	}
+	defer func() { err = errors.Join(err, rows.Close()) }()
+	for rows.Next() {
+		var (
+			id       int64
+			assignee string
+		)
+		if err := rows.Scan(&id, &assignee); err != nil {
+			return nil, fmt.Errorf("scan assigned ticket: %w", err)
+		}
+		if match(assignee) {
+			ids = append(ids, id)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("assigned tickets: %w", err)
+	}
+	return ids, nil
+}
+
+func (s *Store) release(ctx context.Context, id int64, known func(string) bool) error {
+	released := false
+	err := s.tx(ctx, "release", func(ctx context.Context, tx *sql.Tx) error {
+		t, err := s.load(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		if (t.status != StatusInProgress && t.status != StatusWaiting) || known(t.assignee) {
+			return nil
+		}
+		after := t
+		after.status, after.assignee = StatusTodo, ""
+		if err := s.transition(ctx, tx, t, after, actorSystem, eventReleased, map[string]string{dataFrom: t.assignee}); err != nil {
+			return err
+		}
+		released = true
+		return s.clubMail(ctx, tx, after, 0, mail.EventReleased, mailData{Former: s.AccountName(t.assignee)})
+	})
+	if err != nil {
+		return err
+	}
+	if released {
+		s.Logger.InfoContext(ctx, "ticket released, its resolver left the accounts file", "ticket_id", id)
+		s.changed(ChangeUpdated, id)
+	}
+	return nil
+}
+
+// listDoomed reads the requests a fixed query selects.
+func listDoomed(ctx context.Context, q querier, query string, args ...any) (out []doomed, err error) {
+	rows, err := q.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list tickets to delete: %w", err)
+	}
+	defer func() { err = errors.Join(err, rows.Close()) }()
+	for rows.Next() {
+		var (
+			d                 doomed
+			submitted, closed sql.NullInt64
+		)
+		if err := rows.Scan(&d.id, &d.status, &d.category, &submitted, &closed); err != nil {
+			return nil, fmt.Errorf("scan ticket to delete: %w", err)
+		}
+		d.submittedAt, d.closedAt = submitted.Int64, closed.Int64
+		out = append(out, d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list tickets to delete: %w", err)
+	}
+	return out, nil
+}
+
+// objectKeys reads the object keys a fixed query selects.
+func objectKeys(ctx context.Context, q querier, query string, args ...any) (keys []string, err error) {
+	rows, err := q.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list capture objects: %w", err)
+	}
+	defer func() { err = errors.Join(err, rows.Close()) }()
+	for rows.Next() {
+		var k string
+		if err := rows.Scan(&k); err != nil {
+			return nil, fmt.Errorf("scan capture object: %w", err)
+		}
+		keys = append(keys, k)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list capture objects: %w", err)
+	}
+	return keys, nil
+}
