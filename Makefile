@@ -1,4 +1,4 @@
-.PHONY: test lint fmt
+.PHONY: test lint fmt css
 
 test:
 	go test -race ./...
@@ -8,3 +8,6 @@ lint:
 
 fmt:
 	gofmt -w .
+
+css:
+	./scripts/tailwind.sh

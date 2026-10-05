@@ -1,0 +1,62 @@
+/* Club stylesheet: Tailwind CSS 4 and daisyUI 5, built by scripts/tailwind.sh.
+   Spec §12: one light theme "cpp", the club navy as the only accent, thin
+   borders, small radii, no depth, no noise, one self-hosted sans-serif face.
+   Templates use semantic colors only (primary, base-*, info, success,
+   warning, error), never raw colors. */
+@import "tailwindcss" source(none);
+@source "../templates";
+@source not "./daisyui{,*}.mjs";
+
+@plugin "./daisyui.mjs" {
+  themes: false;
+  logs: false;
+}
+
+@plugin "./daisyui-theme.mjs" {
+  name: "cpp";
+  default: true;
+  prefersdark: false;
+  color-scheme: light;
+
+  --color-base-100: #ffffff;
+  --color-base-200: #f3f5f7;
+  --color-base-300: #dfe5eb;
+  --color-base-content: #14181c;
+  --color-primary: #0b2e4a;
+  --color-primary-content: #ffffff;
+  --color-secondary: #0b2e4a;
+  --color-secondary-content: #ffffff;
+  --color-accent: #0b2e4a;
+  --color-accent-content: #ffffff;
+  --color-neutral: #2b3640;
+  --color-neutral-content: #ffffff;
+  --color-info: #1d5c8c;
+  --color-info-content: #ffffff;
+  --color-success: #1e6b3a;
+  --color-success-content: #ffffff;
+  --color-warning: #a14a00;
+  --color-warning-content: #ffffff;
+  --color-error: #b42318;
+  --color-error-content: #ffffff;
+
+  --radius-selector: 0.25rem;
+  --radius-field: 0.25rem;
+  --radius-box: 0.25rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+}
+
+@font-face {
+  font-family: "Atkinson Hyperlegible Next";
+  src: url("/static/fonts/atkinson-hyperlegible-next-latin.woff2") format("woff2");
+  font-weight: 200 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@theme {
+  --font-sans: "Atkinson Hyperlegible Next", ui-sans-serif, system-ui, sans-serif;
+}
