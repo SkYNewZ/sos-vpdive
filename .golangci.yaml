@@ -1,0 +1,42 @@
+version: "2"
+linters:
+  default: all
+  disable:
+    - cyclop # complexity is gated by gocyclo alone
+    - depguard # no import allow-list in this project
+    - err113 # wrapped dynamic errors carry the context we need
+    - exhaustruct # zero values are meaningful in config and option structs
+    - funlen # see cyclop
+    - gochecknoglobals # embed.FS values are package-level by design
+    - gocognit # see cyclop
+    - godox
+    - ireturn
+    - lll
+    - mnd # limits are named where they matter
+    - nlreturn
+    - noinlineerr # `if err := f(); err != nil` is idiomatic Go
+    - nonamedreturns
+    - paralleltest # SQLite temp files and clocks make parallel tests opt-in
+    - tagliatelle # YAML keys follow the spec's snake_case
+    - testpackage
+    - varnamelen
+    - wrapcheck
+    - wsl # deprecated, replaced by wsl_v5
+    - wsl_v5
+  settings:
+    forbidigo:
+      forbid:
+        - pattern: ^(fmt\.Print(|f|ln)|print|println)$
+          msg: write to an explicit io.Writer
+        - pattern: ^panic$
+          msg: return an error instead
+    gocyclo:
+      min-complexity: 30
+    misspell:
+      mode: restricted # French UI strings are not English typos
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters: [dupl, goconst, maintidx, gosec, forcetypeassert]
+formatters:
+  enable: [gofmt, goimports]

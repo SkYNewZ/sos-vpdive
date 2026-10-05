@@ -1,0 +1,25 @@
+# Private material (spec, real exports) and local agent artifacts.
+/.local/
+/docs/superpowers/
+.claude/settings.local.json
+
+# Secrets, data, spreadsheets. Synthetic fixtures are the only allowed workbooks.
+.env
+.env.*
+!.env.example
+/admins.yaml
+/data/
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.csv
+*.xls
+*.xlsx
+*.xlsm
+!/testdata/fixtures/*.xlsx
+
+# Build outputs.
+/bin/
+/internal/web/static/app.css
+.DS_Store
