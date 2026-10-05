@@ -1,4 +1,4 @@
-.PHONY: test lint fmt css build run
+.PHONY: test lint fmt css fixtures build run
 
 test:
 	go test -race ./...
@@ -11,6 +11,10 @@ fmt:
 
 css:
 	./scripts/tailwind.sh
+
+# Regenerate the synthetic workbooks in testdata/fixtures/.
+fixtures:
+	go test ./internal/members -run TestFixturesAreUpToDate -update
 
 build: css
 	CGO_ENABLED=0 go build -trimpath -o bin/sos-vpdive ./cmd/sos-vpdive

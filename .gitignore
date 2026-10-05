@@ -1,6 +1,7 @@
 # Private material (spec, real exports) and local agent artifacts.
 /.local/
 /docs/superpowers/
+/.superpowers/
 .claude/settings.local.json
 
 # Secrets, data, spreadsheets. Synthetic fixtures are the only allowed workbooks.

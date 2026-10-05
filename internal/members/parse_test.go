@@ -77,7 +77,7 @@ func TestParseEmailWithSpaceListsRows(t *testing.T) {
 	assert.Equal(t, []int{6}, pe.Rows)
 }
 
-// Review focus 1: header cells with trailing or non-breaking spaces and
+// Header cells with trailing or non-breaking spaces and
 // decomposed accents are still recognized.
 func TestParseHeaderVariants(t *testing.T) {
 	rows := []xlsx.Row{

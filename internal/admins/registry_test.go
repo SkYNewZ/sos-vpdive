@@ -63,7 +63,7 @@ func TestReloadReportsRemovedAndChangedAccounts(t *testing.T) {
 	assert.False(t, ok)
 }
 
-// Review focus 4: a file read while an editor rewrites it keeps the
+// A file read while an editor rewrites it keeps the
 // previous accounts active.
 func TestReloadKeepsAccountsWhenFileBecomesInvalid(t *testing.T) {
 	r, path := newRegistry(t, accountsYAML(alice()))

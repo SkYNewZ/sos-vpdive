@@ -98,11 +98,13 @@ docker compose up -d --wait
 ```
 
 `restore` refuses a backup that `SECRET_KEY` cannot decrypt. Keep backups
-30 days.
+30 days. Backups pile up in the volume: remove old ones with
+`docker run --rm -v <project>_data:/data busybox rm /data/backup-2026-09-05.db`,
+or write them to a mounted host directory instead.
 
 ## Continuous integration
 
-Every push and pull request runs gofmt, `go vet`, golangci-lint, the tests
+Every push to main or develop and every pull request runs gofmt, `go vet`, golangci-lint, the tests
 with the race detector, a guard against committed spreadsheets, CSV files,
 databases or `.env` files (only synthetic workbooks in `testdata/fixtures/`
 are allowed), and an image build. No image is published.

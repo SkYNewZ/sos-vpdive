@@ -193,7 +193,7 @@ func TestConfirmRefusesStalePreview(t *testing.T) {
 	assert.True(t, got, "list from the first import is intact")
 }
 
-// Review focus 3: a double click confirms once and answers the second click
+// A double click confirms once and answers the second click
 // with ErrPreviewNotFound.
 func TestConcurrentConfirmCreatesOneImport(t *testing.T) {
 	f := newFixture(t)
