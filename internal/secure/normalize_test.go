@@ -13,7 +13,7 @@ func TestNormalizeEmail(t *testing.T) {
 		err      error
 	}{
 		{"  Lea.Martin@Example.ORG \n", "lea.martin@example.org", nil},
-		{" hugo@example.org ", "hugo@example.org", nil},
+		{" hugo@example.org ", "hugo@example.org", nil},
 		{"lea martin@example.org", "", ErrEmailSpace},
 		{"lea\tmartin@example.org", "", ErrEmailSpace},
 		{"   ", "", ErrEmailEmpty},
@@ -31,7 +31,7 @@ func TestNormalizeEmail(t *testing.T) {
 
 func TestNormalizeName(t *testing.T) {
 	assert.Equal(t, "eloisemariedarc", NormalizeName("Éloïse-Marie d'Arc"))
-	assert.Equal(t, "lea", NormalizeName("Léa"), "decomposed accent")
+	assert.Equal(t, "lea", NormalizeName("Léa"), "decomposed accent")
 	assert.Equal(t, "lea", NormalizeName(" LÉA "))
 	assert.Empty(t, NormalizeName(" 42 - "))
 }

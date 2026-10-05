@@ -64,7 +64,7 @@ func TestReadFirstSheetOnly(t *testing.T) {
 }
 
 func TestRowHelpers(t *testing.T) {
-	r := Row{Num: 4, Cells: []Cell{{Col: 2, Kind: KindString, Text: "  Prénom  "}}}
+	r := Row{Num: 4, Cells: []Cell{{Col: 2, Kind: KindString, Text: "  Prénom  "}}}
 	assert.Equal(t, "Prénom", r.Text(2))
 	assert.Empty(t, r.Text(0))
 	_, ok := r.Cell(0)
