@@ -91,9 +91,6 @@ type vpdiveLink struct {
 
 type vpdiveLinks map[string]vpdiveLink
 
-// requiredLinks are the keys the code relies on.
-var requiredLinks = []string{"membres"}
-
 func loadVPDiveLinks(content fs.FS, base *url.URL) (vpdiveLinks, error) {
 	var f struct {
 		Links []struct {
@@ -115,10 +112,8 @@ func loadVPDiveLinks(content fs.FS, base *url.URL) (vpdiveLinks, error) {
 		}
 		links[l.Key] = vpdiveLink{Label: l.Label, URL: base.String() + l.Path}
 	}
-	for _, k := range requiredLinks {
-		if _, ok := links[k]; !ok {
-			return nil, fmt.Errorf("config/vpdive.yaml: missing link %q", k)
-		}
+	if _, ok := links["membres"]; !ok {
+		return nil, errors.New(`config/vpdive.yaml: missing link "membres"`)
 	}
 	return links, nil
 }

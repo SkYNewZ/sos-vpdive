@@ -68,7 +68,7 @@ func parsePages(funcs template.FuncMap) (map[string]*template.Template, error) {
 func (s *Server) newPage(r *http.Request, title string) page {
 	p := page{
 		Title:     title,
-		Admin:     s.isAdminHost(r),
+		Admin:     hostKey(r.Host, s.cfg.AdminBaseURL.Scheme) == s.cfg.AdminBaseURL.Host,
 		ClubEmail: s.cfg.NotifyEmail.Address,
 	}
 	if sess, ok := sessionFrom(r.Context()); ok {

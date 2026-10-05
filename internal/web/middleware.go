@@ -1,7 +1,6 @@
 package web
 
 import (
-	"context"
 	"fmt"
 	"net"
 	"net/http"
@@ -32,14 +31,8 @@ const contentSecurityPolicy = "default-src 'self'; " +
 type ctxKey int
 
 const (
-	ctxClientIP ctxKey = iota
-	ctxSession
+	ctxSession ctxKey = iota
 )
-
-func clientIPFrom(ctx context.Context) netip.Addr {
-	ip, _ := ctx.Value(ctxClientIP).(netip.Addr)
-	return ip
-}
 
 // recoverPanics answers 500 instead of dropping the connection. It logs the
 // panic type only: the value could hold request data.
@@ -53,12 +46,6 @@ func (s *Server) recoverPanics(next http.Handler) http.Handler {
 			}
 		}()
 		next.ServeHTTP(w, r)
-	})
-}
-
-func (s *Server) withClientIP(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxClientIP, s.clientIP(r))))
 	})
 }
 

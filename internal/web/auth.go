@@ -57,7 +57,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	// Usernames are [a-z0-9._-]: a phone keyboard capitalizing the first
 	// letter must not lock anyone out.
 	username := strings.ToLower(strings.TrimSpace(r.PostForm.Get("username")))
-	ip := clientIPFrom(ctx)
+	ip := s.clientIP(r)
 
 	if s.turnstile != nil {
 		err := s.turnstile.Verify(ctx, r.PostForm.Get("cf-turnstile-response"), ip, s.cfg.AdminBaseURL.Hostname(), turnstileAction)

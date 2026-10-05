@@ -30,7 +30,7 @@ type importsData struct {
 	importMessage
 
 	MembersLink vpdiveLink
-	Last        *importView
+	Last        *members.ImportInfo
 	Preview     *members.Preview
 }
 
@@ -39,14 +39,6 @@ type importsData struct {
 type importMessage struct {
 	Notice          *notice
 	Upload, Confirm string
-}
-
-type importView struct {
-	ExportedAt string
-	ImportedAt string
-	Author     string
-	Rows       int
-	Skipped    int
 }
 
 func (s *Server) importsPage(w http.ResponseWriter, r *http.Request) {
@@ -73,13 +65,7 @@ func (s *Server) renderImports(w http.ResponseWriter, r *http.Request, status in
 		return
 	}
 	if ok {
-		data.Last = &importView{
-			ExportedAt: s.formatTime(last.ExportedAt),
-			ImportedAt: s.formatTime(last.ImportedAt),
-			Author:     s.author(last.ImportedBy),
-			Rows:       last.Rows,
-			Skipped:    last.Skipped,
-		}
+		data.Last = &last
 	}
 	p.Data = data
 	s.render(w, r, status, "imports", p)
@@ -174,8 +160,7 @@ func (s *Server) confirmImport(w http.ResponseWriter, r *http.Request) {
 	username := sess.account.Username
 	id := r.PostForm.Get("apercu")
 	err := telemetry.Trace(r.Context(), s.tracer, "import.replace", func(ctx context.Context) error {
-		_, err := s.members.Confirm(ctx, id, username, r.PostForm.Get("confirmer_moitie") == "oui")
-		return err
+		return s.members.Confirm(ctx, id, username, r.PostForm.Get("confirmer_moitie") == "oui")
 	})
 	switch {
 	case err == nil:

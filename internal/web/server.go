@@ -49,9 +49,6 @@ type Server struct {
 	paris   *time.Location
 	tracer  trace.Tracer
 
-	// publicHost and adminHost are the normalised host keys of the two sites.
-	publicHost, adminHost string
-
 	turnstile *Turnstile
 	limiter   *limiter
 	dummyHash string
@@ -89,22 +86,20 @@ func New(d Deps) (*Server, error) {
 	s := &Server{
 		cfg: d.Config, db: d.DB, keys: d.Keys, members: d.Members, admins: d.Admins,
 		logger: d.Logger, now: d.Now, paris: paris, tracer: otel.Tracer(tracerName),
-		publicHost: hostKey(d.Config.BaseURL.Host, d.Config.BaseURL.Scheme),
-		adminHost:  hostKey(d.Config.AdminBaseURL.Host, d.Config.AdminBaseURL.Scheme),
-		turnstile:  d.Turnstile,
-		limiter:    &limiter{db: d.DB, keys: d.Keys, now: d.Now},
-		robots:     robots, vpdive: links, assets: static,
+		turnstile: d.Turnstile,
+		limiter:   &limiter{db: d.DB, keys: d.Keys, now: d.Now},
+		robots:    robots, vpdive: links, assets: static,
 	}
 	if s.dummyHash, err = dummyHash(); err != nil {
 		return nil, err
 	}
-	funcs := template.FuncMap{"static": s.assets.URL, "formatTime": s.formatTime}
+	funcs := template.FuncMap{"static": s.assets.URL, "formatTime": s.formatTime, "author": s.author}
 	if s.pages, err = parsePages(funcs); err != nil {
 		return nil, err
 	}
 	s.public = s.requireOrigin(d.Config.BaseURL, s.publicRoutes())
 	s.admin = s.requireOrigin(d.Config.AdminBaseURL, s.adminRoutes())
-	s.handler = s.recoverPanics(s.withClientIP(securityHeaders(s.refuseAIRobots(http.HandlerFunc(s.route)))))
+	s.handler = s.recoverPanics(securityHeaders(s.refuseAIRobots(http.HandlerFunc(s.route))))
 	return s, nil
 }
 
@@ -122,17 +117,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // route picks the site by host name. An unknown host gets a 404 (spec §9.6).
 func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 	switch {
-	case hostKey(r.Host, s.cfg.BaseURL.Scheme) == s.publicHost:
+	case hostKey(r.Host, s.cfg.BaseURL.Scheme) == s.cfg.BaseURL.Host:
 		s.public.ServeHTTP(w, r)
-	case s.isAdminHost(r):
+	case hostKey(r.Host, s.cfg.AdminBaseURL.Scheme) == s.cfg.AdminBaseURL.Host:
 		s.admin.ServeHTTP(w, r)
 	default:
 		s.notFound(w, r)
 	}
-}
-
-func (s *Server) isAdminHost(r *http.Request) bool {
-	return hostKey(r.Host, s.cfg.AdminBaseURL.Scheme) == s.adminHost
 }
 
 func (s *Server) publicRoutes() *http.ServeMux {
