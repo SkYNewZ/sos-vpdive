@@ -104,7 +104,7 @@ func (s *Server) renderTicket(w http.ResponseWriter, r *http.Request, status int
 
 // pageActions are the actions whose forms the ticket page shows or hides by status.
 var pageActions = []tickets.Action{
-	tickets.ActionTake, tickets.ActionReassign, tickets.ActionWait, tickets.ActionResume,
+	tickets.ActionTake, tickets.ActionWait, tickets.ActionResume,
 	tickets.ActionReply, tickets.ActionCategory, tickets.ActionClose,
 }
 

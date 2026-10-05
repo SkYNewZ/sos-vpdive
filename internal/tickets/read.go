@@ -208,26 +208,16 @@ func (s *Store) Detail(ctx context.Context, id int64) (*Detail, error) {
 	return &d, nil
 }
 
-// IDByToken returns the id of the request of a tracking link, without
-// reading it. ErrNotFound for drafts too.
-func (s *Store) IDByToken(ctx context.Context, token string) (int64, error) {
+// ByToken returns the request of a tracking link. ErrNotFound for drafts too.
+func (s *Store) ByToken(ctx context.Context, token string) (*Detail, error) {
 	var id int64
 	err := s.DB.QueryRowContext(ctx, `SELECT id FROM tickets WHERE token_hash = ? AND status != 'draft'`,
 		secure.TokenHash(token)).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
-		return 0, ErrNotFound
+		return nil, ErrNotFound
 	}
 	if err != nil {
-		return 0, fmt.Errorf("find tracking token: %w", err)
-	}
-	return id, nil
-}
-
-// ByToken returns the request of a tracking link. ErrNotFound for drafts too.
-func (s *Store) ByToken(ctx context.Context, token string) (*Detail, error) {
-	id, err := s.IDByToken(ctx, token)
-	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("find tracking token: %w", err)
 	}
 	return s.Detail(ctx, id)
 }

@@ -200,12 +200,11 @@ func (s *Server) readSubmission(d *formData) tickets.Submission {
 		d.Errors["categorie"] = "Choisis une catégorie dans la liste."
 		return sub
 	}
-	fields, problems := s.tickets.Catalog.ReadFields(category.ID, v.Get)
+	var problems map[string]string
+	sub.Fields, problems = s.tickets.Catalog.ReadFields(category.ID, v.Get)
 	for id, msg := range problems {
 		d.Errors[tickets.FieldName(category.ID, id)] = msg
 	}
-	fields.Category = category.ID
-	sub.Fields = fields
 	return sub
 }
 

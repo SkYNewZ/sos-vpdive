@@ -34,31 +34,21 @@ type trackingData struct {
 // ticketByToken finds the request of the link. Anything else gets the
 // « ce lien ne fonctionne plus » page.
 func (s *Server) ticketByToken(w http.ResponseWriter, r *http.Request) (*tickets.Detail, bool) {
-	return findByToken(s, w, r, s.tickets.ByToken)
-}
-
-// idByToken is ticketByToken for handlers that only need the request id.
-func (s *Server) idByToken(w http.ResponseWriter, r *http.Request) (int64, bool) {
-	return findByToken(s, w, r, s.tickets.IDByToken)
-}
-
-func findByToken[T any](s *Server, w http.ResponseWriter, r *http.Request, find func(context.Context, string) (T, error)) (T, bool) {
-	var zero T
 	token := r.PathValue("jeton")
 	if !secure.IsToken(token) {
 		s.renderGone(w, r)
-		return zero, false
+		return nil, false
 	}
-	found, err := find(r.Context(), token)
+	d, err := s.tickets.ByToken(r.Context(), token)
 	if errors.Is(err, tickets.ErrNotFound) {
 		s.renderGone(w, r)
-		return zero, false
+		return nil, false
 	}
 	if err != nil {
 		s.serverError(w, r, err)
-		return zero, false
+		return nil, false
 	}
-	return found, true
+	return d, true
 }
 
 func (s *Server) renderGone(w http.ResponseWriter, r *http.Request) {
@@ -121,8 +111,6 @@ func (s *Server) memberReply(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/suivi/"+r.PathValue("jeton"), http.StatusSeeOther)
 	case errors.Is(err, tickets.ErrNotAllowed):
 		s.renderTracking(w, r, http.StatusConflict, d, reply, "")
-	case errors.Is(err, tickets.ErrInvalid):
-		s.renderTracking(w, r, http.StatusUnprocessableEntity, d, reply, "Écris ton message : 4 000 caractères au plus.")
 	case errors.Is(err, tickets.ErrTooManyCaptures):
 		s.renderTracking(w, r, http.StatusUnprocessableEntity, d, reply,
 			"Une demande garde 10 captures au plus : envoie-en moins, ou ton message sans capture.")
@@ -147,11 +135,11 @@ func (s *Server) replyAllowed(ctx context.Context, ip string, id int64) (bool, e
 // memberClose marks the request settled by its member. A second tap on a
 // request already done changes nothing.
 func (s *Server) memberClose(w http.ResponseWriter, r *http.Request) {
-	id, ok := s.idByToken(w, r)
+	d, ok := s.ticketByToken(w, r)
 	if !ok {
 		return
 	}
-	err := s.tickets.MemberClose(r.Context(), id)
+	err := s.tickets.MemberClose(r.Context(), d.ID)
 	if errors.Is(err, tickets.ErrNotFound) { // deleted since the link was opened
 		s.renderGone(w, r)
 		return
@@ -164,7 +152,7 @@ func (s *Server) memberClose(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) memberCapture(w http.ResponseWriter, r *http.Request) {
-	id, ok := s.idByToken(w, r)
+	d, ok := s.ticketByToken(w, r)
 	if !ok {
 		return
 	}
@@ -173,7 +161,7 @@ func (s *Server) memberCapture(w http.ResponseWriter, r *http.Request) {
 		s.notFound(w, r)
 		return
 	}
-	data, mime, err := s.tickets.Capture(r.Context(), id, attachment)
+	data, mime, err := s.tickets.Capture(r.Context(), d.ID, attachment)
 	s.writeCapture(w, r, data, mime, err)
 }
 
