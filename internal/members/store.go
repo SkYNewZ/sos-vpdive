@@ -63,6 +63,7 @@ type Store struct {
 	db   *sql.DB
 	keys *secure.Keys
 	now  func() time.Time
+	ttl  time.Duration // preview lifetime; previewTTL outside tests
 
 	mu       sync.Mutex
 	previews map[string]*Preview
@@ -70,7 +71,7 @@ type Store struct {
 
 // NewStore returns a Store; now is injectable for tests.
 func NewStore(db *sql.DB, keys *secure.Keys, now func() time.Time) *Store {
-	return &Store{db: db, keys: keys, now: now, previews: map[string]*Preview{}}
+	return &Store{db: db, keys: keys, now: now, ttl: previewTTL, previews: map[string]*Preview{}}
 }
 
 // NewPreview compares exp with the list in place and keeps the result for
@@ -120,6 +121,15 @@ func (s *Store) NewPreview(ctx context.Context, username string, exp *Export) (*
 	defer s.mu.Unlock()
 	s.dropExpired()
 	s.previews[id] = p
+	// Free the names and emails once the preview expires, even if nobody
+	// touches the store again; dropExpired still enforces the injected clock.
+	time.AfterFunc(s.ttl, func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if s.previews[id] == p {
+			delete(s.previews, id)
+		}
+	})
 	return p, nil
 }
 

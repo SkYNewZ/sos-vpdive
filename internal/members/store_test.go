@@ -264,3 +264,16 @@ func TestPurgeAfterTwelveMonths(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, has)
 }
+
+func TestPreviewIsFreedWithoutFurtherAccess(t *testing.T) {
+	f := newFixture(t)
+	f.store.ttl = 20 * time.Millisecond
+	p, err := f.store.NewPreview(context.Background(), "alice", f.export(t, "members_valid.xlsx"))
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		f.store.mu.Lock()
+		defer f.store.mu.Unlock()
+		return len(f.store.previews) == 0
+	}, 2*time.Second, 10*time.Millisecond, "preview %s still held", p.ID)
+}
