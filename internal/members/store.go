@@ -276,9 +276,8 @@ func (s *Store) dropExpired() {
 // current returns the latest members import id (0 when none) and the email
 // hashes of the list in place.
 func (s *Store) current(ctx context.Context) (base int64, current map[string]bool, err error) {
-	if err := s.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(id), 0) FROM imports WHERE kind = ?`,
-		string(ImportMembers)).Scan(&base); err != nil {
-		return 0, nil, fmt.Errorf("latest import: %w", err)
+	if base, err = latestImportID(ctx, s.db); err != nil {
+		return 0, nil, err
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT email_hash FROM members`)
 	if err != nil {
@@ -338,9 +337,15 @@ func (s *Store) sealNonEmpty(v string) any {
 	return s.keys.SealString(v)
 }
 
-func latestImportID(ctx context.Context, tx *sql.Tx) (int64, error) {
+// rowQuerier is satisfied by *sql.DB and *sql.Tx.
+type rowQuerier interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+// latestImportID returns the id of the latest members import, 0 when none.
+func latestImportID(ctx context.Context, q rowQuerier) (int64, error) {
 	var id int64
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(id), 0) FROM imports WHERE kind = ?`,
+	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(id), 0) FROM imports WHERE kind = ?`,
 		string(ImportMembers)).Scan(&id); err != nil {
 		return 0, fmt.Errorf("latest import: %w", err)
 	}

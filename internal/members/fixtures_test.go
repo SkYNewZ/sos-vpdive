@@ -116,7 +116,7 @@ func readFixture(t *testing.T, name string) []xlsx.Row {
 	t.Helper()
 	data, err := os.ReadFile(fixturePath(name))
 	require.NoError(t, err)
-	rows, err := xlsx.ReadFirstSheet(data, xlsx.Limits{MaxUncompressed: 50 << 20, MaxRows: 20_000, MaxCells: 1_000_000})
+	rows, err := xlsx.ReadFirstSheet(data, ImportLimits())
 	require.NoError(t, err)
 	return rows
 }
