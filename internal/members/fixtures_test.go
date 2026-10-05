@@ -99,7 +99,7 @@ func fixturePath(name string) string {
 // Regenerate with: go test ./internal/members -run TestFixturesAreUpToDate -update.
 func TestFixturesAreUpToDate(t *testing.T) {
 	for name, sheet := range fixtures() {
-		want := xlsxtest.MustBuild(t, sheet)
+		want := xlsxtest.Build(t, sheet)
 		if *update {
 			require.NoError(t, os.MkdirAll(filepath.Dir(fixturePath(name)), 0o755))
 			require.NoError(t, os.WriteFile(fixturePath(name), want, 0o644))

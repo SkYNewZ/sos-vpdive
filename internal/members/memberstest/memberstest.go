@@ -6,7 +6,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 	"time"
 
@@ -16,16 +15,10 @@ import (
 	"github.com/SkYNewZ/sos-vpdive/internal/xlsx"
 )
 
-// FixturePath is the absolute path of testdata/fixtures/<name>, whatever the
-// package under test.
+// FixturePath is the path of testdata/fixtures/<name> from internal/<pkg>,
+// where every importer lives.
 func FixturePath(name string) string {
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		return filepath.Join("..", "..", "testdata", "fixtures", name) // from internal/<pkg>
-	}
-	// file is <module>/internal/members/memberstest/memberstest.go
-	root := filepath.Join(filepath.Dir(file), "..", "..", "..")
-	return filepath.Join(root, "testdata", "fixtures", name)
+	return filepath.Join("..", "..", "testdata", "fixtures", name)
 }
 
 // Import reads a fixture and replaces the members list with it, as alice.
@@ -40,6 +33,5 @@ func Import(tb testing.TB, s *members.Store, name string) {
 	ctx := context.Background()
 	p, err := s.NewPreview(ctx, "alice", exp)
 	require.NoError(tb, err)
-	_, err = s.Confirm(ctx, p.ID, "alice", true)
-	require.NoError(tb, err)
+	require.NoError(tb, s.Confirm(ctx, p.ID, "alice", true))
 }

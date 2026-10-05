@@ -127,30 +127,18 @@ func (s *Store) NewPreview(ctx context.Context, username string, exp *Export) (*
 func (s *Store) Preview(id, username string) (*Preview, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.dropExpired()
-	p, ok := s.previews[id]
-	if !ok || p.Username != username {
-		return nil, ErrPreviewNotFound
-	}
-	return p, nil
+	return s.lookup(id, username)
 }
 
 // Confirm replaces the whole list with the previewed export and journals the
 // import, in one transaction. The preview is consumed first, so a second
 // confirmation of the same preview gets ErrPreviewNotFound.
-func (s *Store) Confirm(ctx context.Context, id, username string, secondConfirm bool) (ImportInfo, error) {
+func (s *Store) Confirm(ctx context.Context, id, username string, secondConfirm bool) error {
 	p, err := s.take(id, username, secondConfirm)
 	if err != nil {
-		return ImportInfo{}, err
+		return err
 	}
-	info := ImportInfo{
-		ExportedAt: storedTime(p.ExportedAt),
-		ImportedAt: storedTime(s.now()),
-		ImportedBy: username,
-		Rows:       p.Total,
-		Skipped:    p.Skipped,
-	}
-	err = store.Tx(ctx, s.db, "members.replace", func(ctx context.Context, tx *sql.Tx) error {
+	return store.Tx(ctx, s.db, "members.replace", func(ctx context.Context, tx *sql.Tx) error {
 		latest, err := latestImportID(ctx, tx)
 		if err != nil {
 			return err
@@ -164,20 +152,14 @@ func (s *Store) Confirm(ctx context.Context, id, username string, secondConfirm 
 		if err := s.insertMembers(ctx, tx, p.members); err != nil {
 			return err
 		}
-		res, err := tx.ExecContext(ctx,
+		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO imports (kind, exported_at, imported_at, imported_by, row_count, skipped_count)
 			 VALUES (?, ?, ?, ?, ?, ?)`,
-			string(ImportMembers), unixOrNull(info.ExportedAt), info.ImportedAt.Unix(), username, info.Rows, info.Skipped)
-		if err != nil {
+			string(ImportMembers), unixOrNull(p.ExportedAt), s.now().Unix(), username, p.Total, p.Skipped); err != nil {
 			return fmt.Errorf("journal import: %w", err)
 		}
-		info.ID, err = res.LastInsertId()
-		return err
+		return nil
 	})
-	if err != nil {
-		return ImportInfo{}, err
-	}
-	return info, nil
 }
 
 // LastImport returns the latest members import, if any.
@@ -251,15 +233,24 @@ func (s *Store) Purge(ctx context.Context) error {
 func (s *Store) take(id, username string, secondConfirm bool) (*Preview, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.dropExpired()
-	p, ok := s.previews[id]
-	if !ok || p.Username != username {
-		return nil, ErrPreviewNotFound
+	p, err := s.lookup(id, username)
+	if err != nil {
+		return nil, err
 	}
 	if p.NeedsSecondConfirm && !secondConfirm {
 		return nil, ErrSecondConfirmRequired
 	}
 	delete(s.previews, id)
+	return p, nil
+}
+
+// lookup returns the live preview id of username. Callers hold s.mu.
+func (s *Store) lookup(id, username string) (*Preview, error) {
+	s.dropExpired()
+	p, ok := s.previews[id]
+	if !ok || p.Username != username {
+		return nil, ErrPreviewNotFound
+	}
 	return p, nil
 }
 
@@ -350,15 +341,6 @@ func latestImportID(ctx context.Context, q rowQuerier) (int64, error) {
 		return 0, fmt.Errorf("latest import: %w", err)
 	}
 	return id, nil
-}
-
-// storedTime drops what the database does not keep: sub-second precision
-// and location.
-func storedTime(t time.Time) time.Time {
-	if t.IsZero() {
-		return t
-	}
-	return time.Unix(t.Unix(), 0).UTC()
 }
 
 func unixOrNull(t time.Time) any {

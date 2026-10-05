@@ -48,13 +48,11 @@ func (f *fixture) export(t *testing.T, name string) *Export {
 	return exp
 }
 
-func (f *fixture) importFixture(t *testing.T, name string) ImportInfo {
+func (f *fixture) importFixture(t *testing.T, name string) {
 	t.Helper()
 	p, err := f.store.NewPreview(context.Background(), "alice", f.export(t, name))
 	require.NoError(t, err)
-	info, err := f.store.Confirm(context.Background(), p.ID, "alice", true)
-	require.NoError(t, err)
-	return info
+	require.NoError(t, f.store.Confirm(context.Background(), p.ID, "alice", true))
 }
 
 func TestPreviewOnEmptyList(t *testing.T) {
@@ -85,17 +83,16 @@ func TestConfirmReplacesListAndJournals(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, has)
 
-	info := f.importFixture(t, "members_valid.xlsx")
+	f.importFixture(t, "members_valid.xlsx")
 
 	last, ok, err := f.store.LastImport(ctx)
 	require.NoError(t, err)
 	require.True(t, ok)
-	assert.Equal(t, info, last)
 	assert.Equal(t, "alice", last.ImportedBy)
 	assert.Equal(t, 6, last.Rows)
 	assert.Equal(t, 1, last.Skipped)
 	assert.True(t, last.ExportedAt.Equal(time.Date(2026, 9, 1, 8, 15, 0, 0, paris(t))))
-	assert.True(t, last.ImportedAt.Equal(f.clock.t))
+	assert.Equal(t, f.clock.t.Truncate(time.Second).UTC(), last.ImportedAt)
 
 	for _, c := range []struct {
 		email string
@@ -149,9 +146,9 @@ func TestSmallerExportNeedsSecondConfirmation(t *testing.T) {
 	assert.Equal(t, 6, p.Current)
 	assert.True(t, p.NeedsSecondConfirm)
 
-	_, err = f.store.Confirm(ctx, p.ID, "alice", false)
+	err = f.store.Confirm(ctx, p.ID, "alice", false)
 	require.ErrorIs(t, err, ErrSecondConfirmRequired)
-	_, err = f.store.Confirm(ctx, p.ID, "alice", true)
+	err = f.store.Confirm(ctx, p.ID, "alice", true)
 	require.NoError(t, err)
 
 	got, err := f.store.Lookup(ctx, "chloe.petit@example.org")
@@ -165,11 +162,11 @@ func TestPreviewExpiresAndBelongsToUploader(t *testing.T) {
 	p, err := f.store.NewPreview(ctx, "alice", f.export(t, "members_valid.xlsx"))
 	require.NoError(t, err)
 
-	_, err = f.store.Confirm(ctx, p.ID, "bob", true)
+	err = f.store.Confirm(ctx, p.ID, "bob", true)
 	require.ErrorIs(t, err, ErrPreviewNotFound)
 
 	f.clock.t = f.clock.t.Add(16 * time.Minute)
-	_, err = f.store.Confirm(ctx, p.ID, "alice", true)
+	err = f.store.Confirm(ctx, p.ID, "alice", true)
 	require.ErrorIs(t, err, ErrPreviewNotFound)
 	_, err = f.store.Preview(p.ID, "alice")
 	require.ErrorIs(t, err, ErrPreviewNotFound)
@@ -183,9 +180,9 @@ func TestConfirmRefusesStalePreview(t *testing.T) {
 	b, err := f.store.NewPreview(ctx, "alice", f.export(t, "members_minimal.xlsx"))
 	require.NoError(t, err)
 
-	_, err = f.store.Confirm(ctx, a.ID, "alice", true)
+	err = f.store.Confirm(ctx, a.ID, "alice", true)
 	require.NoError(t, err)
-	_, err = f.store.Confirm(ctx, b.ID, "alice", true)
+	err = f.store.Confirm(ctx, b.ID, "alice", true)
 	require.ErrorIs(t, err, ErrStale)
 
 	got, err := f.store.Lookup(ctx, "ines.leroy@example.org")
@@ -205,7 +202,7 @@ func TestConcurrentConfirmCreatesOneImport(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := range errs {
 		wg.Go(func() {
-			_, errs[i] = f.store.Confirm(ctx, p.ID, "alice", false)
+			errs[i] = f.store.Confirm(ctx, p.ID, "alice", false)
 		})
 	}
 	wg.Wait()
