@@ -82,10 +82,6 @@ func setup(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*app, 
 	return &app{logger: logger, db: db, admins: registry, members: memberStore, web: srv}, nil
 }
 
-func (a *app) close() error {
-	return a.db.Close()
-}
-
 // serve runs until SIGTERM, SIGINT or ctx ends, then finishes the requests in
 // flight (spec §9.2).
 func serve(ctx context.Context, getenv func(string) string, stdout io.Writer) (err error) {
@@ -132,7 +128,7 @@ func serve(ctx context.Context, getenv func(string) string, stdout io.Writer) (e
 	case err := <-listenErr:
 		stop()
 		jobs.Wait()
-		return errors.Join(fmt.Errorf("http server: %w", err), a.close(), shutdownTraces(context.WithoutCancel(ctx)))
+		return errors.Join(fmt.Errorf("http server: %w", err), a.db.Close(), shutdownTraces(context.WithoutCancel(ctx)))
 	case <-ctx.Done():
 	}
 	detached := context.WithoutCancel(ctx) // ctx is done: shutdown needs a live one
@@ -141,7 +137,7 @@ func serve(ctx context.Context, getenv func(string) string, stdout io.Writer) (e
 	defer cancel()
 	shutdownErr := httpServer.Shutdown(shutdownCtx)
 	jobs.Wait()
-	return errors.Join(shutdownErr, shutdownTraces(shutdownCtx), a.close())
+	return errors.Join(shutdownErr, shutdownTraces(shutdownCtx), a.db.Close())
 }
 
 // runPurges applies the retention rules at startup, then daily (spec §8.3).

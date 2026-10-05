@@ -109,7 +109,7 @@ func TestSetupRefusesAnotherKey(t *testing.T) {
 	require.NoError(t, err)
 	a, err := setup(ctx, cfg, quietLogger())
 	require.NoError(t, err)
-	require.NoError(t, a.close())
+	require.NoError(t, a.db.Close())
 
 	env["SECRET_KEY"] = key(6)
 	other, err := config.Load(getenv(env))
@@ -148,7 +148,7 @@ func TestBackupThenRestoreOnABlankMachine(t *testing.T) {
 	a, err := setup(ctx, cfg, quietLogger())
 	require.NoError(t, err)
 	importFixture(t, a.members)
-	require.NoError(t, a.close())
+	require.NoError(t, a.db.Close())
 
 	backupFile := filepath.Join(t.TempDir(), "support-backup.db")
 	require.NoError(t, run(ctx, []string{"backup", backupFile}, getenv(env), nil, &bytes.Buffer{}))
@@ -160,7 +160,7 @@ func TestBackupThenRestoreOnABlankMachine(t *testing.T) {
 	require.NoError(t, err)
 	restored, err := setup(ctx, restoredCfg, quietLogger())
 	require.NoError(t, err)
-	defer func() { assert.NoError(t, restored.close()) }()
+	defer func() { assert.NoError(t, restored.db.Close()) }()
 	found, err := restored.members.Lookup(ctx, "lea.martin@example.org")
 	require.NoError(t, err)
 	assert.True(t, found)
