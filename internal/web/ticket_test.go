@@ -292,3 +292,20 @@ func TestRequestPageShowsRemovedCategory(t *testing.T) {
 	assert.Contains(t, page.body, "-180,00 €")
 	assert.Contains(t, page.body, "retiré")
 }
+
+// A stale reply on a request that no longer takes replies still shows the text.
+func TestStaleReplyOnClosedRequestShowsTheText(t *testing.T) {
+	e := newTestEnv(t)
+	cookie := e.login(t)
+	tk := e.submitTicket(t, "lea.martin@example.org")
+	e.apply(t, tk.ID, tickets.Command{Action: tickets.ActionTake})
+	page := e.openTicket(t, cookie, tk.ID)
+	require.NoError(t, e.deps.Tickets.MemberClose(context.Background(), tk.ID))
+
+	rec := e.act(t, cookie, tk.ID, page, url.Values{"action": {"reply"}, "message": {"Voici ma réponse détaillée."}})
+	assert.Equal(t, http.StatusConflict, rec.Code)
+	body := html.UnescapeString(rec.Body.String())
+	assert.Contains(t, body, "Voici ma réponse détaillée.")
+	assert.Contains(t, body, "copie-le ci-dessous")
+	assert.NotContains(t, body, "Ton texte est conservé")
+}

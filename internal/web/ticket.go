@@ -86,7 +86,7 @@ func (s *Server) renderTicket(w http.ResponseWriter, r *http.Request, status int
 		return
 	}
 	if m.stale != "" {
-		m.Notice = s.staleNotice(m.stale, t)
+		m.Notice = s.staleNotice(m.stale, t, m)
 	}
 	data.ticketMessage = m
 	p, err := s.adminPage(r, "Demande "+t.Ref)
@@ -148,12 +148,19 @@ func newProfileView(p members.Profile) *profileView {
 }
 
 // staleNotice explains why an action from an outdated page was refused.
-func (s *Server) staleNotice(action tickets.Action, t *tickets.Detail) *notice {
+func (s *Server) staleNotice(action tickets.Action, t *tickets.Detail, m ticketMessage) *notice {
 	if action == tickets.ActionTake && t.Assignee != "" {
 		return &notice{Kind: noticeWarning, Text: s.author(t.Assignee) + " a pris cette demande entre-temps. Ton action n'a pas été appliquée."}
 	}
-	return &notice{Kind: noticeWarning,
-		Text: "Cette demande a changé entre-temps : voici son état actuel. Ton action n'a pas été appliquée, ton texte est conservé."}
+	text := "Cette demande a changé entre-temps : voici son état actuel. Ton action n'a pas été appliquée."
+	switch {
+	case m.Reply == "" && m.Note == "":
+	case t.Status.Open() && t.Status != tickets.StatusTodo:
+		text += " Ton texte est conservé."
+	default:
+		text += " Ton texte n'a pas été envoyé : copie-le ci-dessous."
+	}
+	return &notice{Kind: noticeWarning, Text: text}
 }
 
 // ticketAction runs one committee action (spec §8.1). The page's version
