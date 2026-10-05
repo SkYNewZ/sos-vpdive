@@ -7,9 +7,14 @@ import (
 	"fmt"
 	"strings"
 	"text/template"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/mail"
 )
+
+// replyExcerpt is how much of a resolver's reply the member mail quotes.
+const replyExcerpt = 300
 
 //go:embed mails/*.txt
 var mailFiles embed.FS
@@ -90,4 +95,14 @@ func (s *Store) queue(ctx context.Context, tx *sql.Tx, m mail.Mail, d mailData) 
 		return fmt.Errorf("queue mail %s: %w", m.Event, err)
 	}
 	return nil
+}
+
+// resolverText names a resolver the way member mails do: "Alice, présidente".
+func (s *Store) resolverText(username string) string {
+	a, ok := s.Account(username)
+	if !ok {
+		return "Un membre du comité"
+	}
+	r, size := utf8.DecodeRuneInString(a.Role)
+	return a.Name + ", " + string(unicode.ToLower(r)) + a.Role[size:]
 }

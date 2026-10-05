@@ -103,6 +103,19 @@ const (
 	NameMax              = 100
 )
 
+// Keys of events.data.
+const (
+	dataFrom   = "from"
+	dataTo     = "to"
+	dataStatus = "status"
+)
+
+// Message authors, as stored in messages.author_type.
+const (
+	authorMember = "member"
+	authorAdmin  = "admin"
+)
+
 // Journal actors that are not committee usernames.
 const (
 	actorMember = "member"
@@ -292,4 +305,66 @@ func nullInt(v int64) any {
 		return nil
 	}
 	return v
+}
+
+// save writes the mutable columns of after and bumps the version. Zero rows
+// means another action changed the request since before was read.
+func (s *Store) save(ctx context.Context, tx *sql.Tx, before, after ticketRow) error {
+	res, err := tx.ExecContext(ctx,
+		`UPDATE tickets SET status = ?, assignee = ?, category = ?, closed_at = ?, version = version + 1, updated_at = ?
+		 WHERE id = ? AND version = ?`,
+		after.status, nullString(after.assignee), after.category, nullInt(after.closedAt), s.Now().Unix(),
+		before.id, before.version)
+	if err != nil {
+		return fmt.Errorf("update ticket: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("update ticket: %w", err)
+	}
+	if n == 0 {
+		return ErrStale
+	}
+	return nil
+}
+
+// insertMessage adds a thread message; author "" is the member.
+func (s *Store) insertMessage(ctx context.Context, tx *sql.Tx, ticketID int64, author string, internal bool, body string) (int64, error) {
+	authorType := authorAdmin
+	if author == "" {
+		authorType = authorMember
+	}
+	res, err := tx.ExecContext(ctx,
+		`INSERT INTO messages (ticket_id, author_type, author, internal, created_at, body) VALUES (?, ?, ?, ?, ?, ?)`,
+		ticketID, authorType, nullString(author), internal, s.Now().Unix(), s.Keys.SealString(body))
+	if err != nil {
+		return 0, fmt.Errorf("insert message: %w", err)
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("insert message: %w", err)
+	}
+	return id, nil
+}
+
+func nullString(v string) any {
+	if v == "" {
+		return nil
+	}
+	return v
+}
+
+func unixTime(v sql.NullInt64) time.Time {
+	if !v.Valid {
+		return time.Time{}
+	}
+	return time.Unix(v.Int64, 0).UTC()
+}
+
+// truncate cuts s to n runes, marking the cut with an ellipsis.
+func truncate(s string, n int) string {
+	if utf8.RuneCountInString(s) <= n {
+		return s
+	}
+	return string([]rune(s)[:n]) + "…"
 }
