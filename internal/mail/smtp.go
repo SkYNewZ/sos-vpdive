@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"log/slog"
 	"mime"
 	"mime/multipart"
 	"mime/quotedprintable"
@@ -32,6 +33,37 @@ var (
 	errHeaderBreak = fmt.Errorf("%w: line break in a mail header", ErrPermanent)
 	errNoStartTLS  = errors.New("smtp server does not offer STARTTLS")
 )
+
+// smtpStage names where a delivery failed. The values are stable: they are
+// span failure codes and log attributes, and never carry the error text.
+type smtpStage string
+
+const (
+	stageConnect  smtpStage = "smtp_connect"
+	stageTLS      smtpStage = "smtp_tls"
+	stageAuth     smtpStage = "smtp_auth"
+	stageRejected smtpStage = "smtp_rejected"
+	stageData     smtpStage = "smtp_data"
+)
+
+// stageError tags err with the stage that failed.
+type stageError struct {
+	stage smtpStage
+	err   error
+}
+
+func (e *stageError) Error() string { return e.err.Error() }
+func (e *stageError) Unwrap() error { return e.err }
+
+func atStage(stage smtpStage, err error) error { return &stageError{stage: stage, err: err} }
+
+// failedStage returns the stage err failed at, if it carries one.
+func failedStage(err error) (smtpStage, bool) {
+	if se, ok := errors.AsType[*stageError](err); ok {
+		return se.stage, true
+	}
+	return "", false
+}
 
 // SMTP delivers mails through the relay of SMTP_* (spec §6). The connection
 // is always encrypted before authentication: implicit TLS or STARTTLS.
@@ -74,9 +106,9 @@ func (s *SMTP) Send(ctx context.Context, m Message) (err error) {
 	}
 	c, err := smtp.NewClient(conn, s.cfg.Host)
 	if err != nil {
-		return errors.Join(fmt.Errorf("smtp greeting: %w", err), conn.Close())
+		return errors.Join(atStage(stageConnect, fmt.Errorf("smtp greeting: %w", err)), conn.Close())
 	}
-	if err := s.deliver(c, m.To, data); err != nil {
+	if err := s.deliver(ctx, c, m.To, data); err != nil {
 		return errors.Join(err, c.Close())
 	}
 	return nil
@@ -102,40 +134,43 @@ func (s *SMTP) dial(ctx context.Context) (net.Conn, error) {
 		conn, err = dialer.DialContext(ctx, "tcp", addr)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("smtp connect: %w", err)
+		return nil, atStage(stageConnect, fmt.Errorf("smtp connect: %w", err))
 	}
 	if err := conn.SetDeadline(deadline); err != nil {
-		return nil, errors.Join(fmt.Errorf("smtp deadline: %w", err), conn.Close())
+		return nil, errors.Join(atStage(stageConnect, fmt.Errorf("smtp deadline: %w", err)), conn.Close())
 	}
 	return conn, nil
 }
 
 // deliver runs the SMTP dialogue on c and ends it with a best-effort QUIT. The password
 // only travels encrypted: implicit TLS, or after STARTTLS.
-func (s *SMTP) deliver(c *smtp.Client, to string, data []byte) error {
+func (s *SMTP) deliver(ctx context.Context, c *smtp.Client, to string, data []byte) error {
 	if s.cfg.TLS == config.SMTPStartTLS {
 		if ok, _ := c.Extension("STARTTLS"); !ok {
-			return errNoStartTLS
+			return atStage(stageTLS, errNoStartTLS)
 		}
 		if err := c.StartTLS(s.tlsConfig); err != nil {
-			return fmt.Errorf("smtp starttls: %w", err)
+			return atStage(stageTLS, fmt.Errorf("smtp starttls: %w", err))
 		}
 	}
 	if err := c.Auth(smtp.PlainAuth("", s.cfg.Username, s.cfg.Password, s.cfg.Host)); err != nil {
-		return fmt.Errorf("smtp auth: %w", err)
+		return atStage(stageAuth, fmt.Errorf("smtp auth: %w", err))
 	}
 	if err := c.Mail(s.from.Address); err != nil {
-		return fmt.Errorf("smtp mail from: %w", err)
+		return atStage(stageRejected, fmt.Errorf("smtp mail from: %w", err))
 	}
 	if err := c.Rcpt(to); err != nil {
-		return fmt.Errorf("smtp rcpt: %w", rejected(err))
+		return atStage(stageRejected, fmt.Errorf("smtp rcpt: %w", rejected(err)))
 	}
 	if err := writeData(c, data); err != nil {
-		return fmt.Errorf("smtp data: %w", rejected(err))
+		return atStage(stageData, fmt.Errorf("smtp data: %w", rejected(err)))
 	}
 	// The relay accepted the message: a failed QUIT must not trigger a retry,
-	// which would deliver the mail twice.
-	_ = c.Quit()
+	// which would deliver the mail twice. net/smtp leaves the socket open
+	// when QUIT fails, so close it ourselves.
+	if err := c.Quit(); err != nil {
+		slog.DebugContext(ctx, "smtp quit failed, closing", "close_failed", c.Close() != nil)
+	}
 	return nil
 }
 
@@ -211,13 +246,12 @@ func rejected(err error) error {
 
 // failureCode is the stable span code of a failed delivery.
 func failureCode(err error) string {
+	if stage, ok := failedStage(err); ok {
+		return string(stage)
+	}
 	switch {
 	case errors.Is(err, errHeaderBreak):
 		return "smtp_header"
-	case errors.Is(err, errNoStartTLS):
-		return "smtp_no_starttls"
-	case errors.Is(err, ErrPermanent):
-		return "smtp_rejected"
 	default:
 		return "smtp_unavailable"
 	}

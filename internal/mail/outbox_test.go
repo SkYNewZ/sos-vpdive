@@ -20,6 +20,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace/noop"
 
+	"github.com/SkYNewZ/sos-vpdive/internal/config"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 	"github.com/SkYNewZ/sos-vpdive/internal/store"
 )
@@ -462,4 +463,36 @@ func TestRunDeliversOnWakeAndStops(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("Run did not stop")
 	}
+}
+
+func TestOutcomeIsRecordedWhenShutdownCancelsDuringSend(t *testing.T) {
+	o := newTestOutbox(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s := &fakeSender{}
+	id := o.enqueue(t, sampleMail())
+
+	_, err := o.SendDue(ctx, senderFunc(func(ctx context.Context, m Message) error {
+		cancel() // SIGTERM while the relay is accepting the mail
+		return s.Send(ctx, m)
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, "sent", o.row(t, id).status)
+
+	_, err = o.SendDue(context.Background(), s)
+	require.NoError(t, err)
+	assert.Equal(t, 1, s.callCount(), "no duplicate at the next start")
+}
+
+func TestPostponedMailLogsTheFailureStageOnly(t *testing.T) {
+	o := newTestOutbox(t)
+	_, smtpSender := startSMTP(t, config.SMTPImplicit, fakeOptions{authCode: 535})
+	o.enqueue(t, sampleMail())
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+
+	_, err := o.sendDue(context.Background(), smtpSender, logger)
+	require.NoError(t, err)
+	assert.Contains(t, logs.String(), "stage=smtp_auth")
+	assert.NotContains(t, logs.String(), "example.org")
 }

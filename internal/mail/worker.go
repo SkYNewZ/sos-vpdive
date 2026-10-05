@@ -136,6 +136,9 @@ func (o *Outbox) deliver(ctx context.Context, s Sender, logger *slog.Logger, q q
 		return false, o.finish(ctx, q.id, statusFailed, q.attempts)
 	}
 	sendErr := s.Send(ctx, m)
+	// The outcome is recorded even if shutdown cancelled ctx during Send:
+	// losing it would send the mail again at the next start.
+	ctx = context.WithoutCancel(ctx)
 	attempts := q.attempts + 1
 	now := o.now()
 	permanent := errors.Is(sendErr, ErrPermanent)
@@ -145,13 +148,13 @@ func (o *Outbox) deliver(ctx context.Context, s Sender, logger *slog.Logger, q q
 	case permanent || now.Unix() >= q.giveUpAt:
 		telemetry.Fail(span, "delivery_failed")
 		logger.WarnContext(ctx, "mail failed for good", "outbox_id", q.id, "event", string(q.event),
-			"attempts", attempts, "permanent", permanent)
+			"attempts", attempts, "permanent", permanent, "stage", stageOf(sendErr))
 		return false, o.finish(ctx, q.id, statusFailed, attempts)
 	default:
 		telemetry.Fail(span, "delivery_postponed")
 		next := now.Add(retryDelay(attempts))
 		logger.WarnContext(ctx, "mail delivery postponed", "outbox_id", q.id, "event", string(q.event),
-			"attempts", attempts, "next_attempt", next)
+			"attempts", attempts, "next_attempt", next, "stage", stageOf(sendErr))
 		if _, err := o.db.ExecContext(ctx,
 			`UPDATE outbox SET attempts = ?, next_attempt_at = ? WHERE id = ? AND status = ?`,
 			attempts, next.Unix(), q.id, string(statusPending)); err != nil {
@@ -159,6 +162,13 @@ func (o *Outbox) deliver(ctx context.Context, s Sender, logger *slog.Logger, q q
 		}
 		return false, nil
 	}
+}
+
+// stageOf names where an SMTP delivery failed, empty for senders that do not
+// report a stage. Never the error text.
+func stageOf(err error) string {
+	stage, _ := failedStage(err)
+	return string(stage)
 }
 
 func (o *Outbox) open(q queued) (Message, error) {

@@ -283,16 +283,18 @@ func TestSendClassifiesRefusals(t *testing.T) {
 		name      string
 		opts      fakeOptions
 		permanent bool
+		code      string
 	}{
-		{"recipient busy", fakeOptions{rcptCode: 450}, false},
-		{"recipient unknown", fakeOptions{rcptCode: 550}, true},
-		{"wrong relay password", fakeOptions{authCode: 535}, false},
+		{"recipient busy", fakeOptions{rcptCode: 450}, false, "smtp_rejected"},
+		{"recipient unknown", fakeOptions{rcptCode: 550}, true, "smtp_rejected"},
+		{"wrong relay password", fakeOptions{authCode: 535}, false, "smtp_auth"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, s := startSMTP(t, config.SMTPImplicit, tc.opts)
 			err := s.Send(context.Background(), testMessage())
 			require.Error(t, err)
 			assert.Equal(t, tc.permanent, errors.Is(err, ErrPermanent))
+			assert.Equal(t, tc.code, failureCode(err))
 		})
 	}
 }
