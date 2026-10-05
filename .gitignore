@@ -8,6 +8,7 @@
 .env.*
 !.env.example
 /admins.yaml
+/admins/
 /data/
 *.db
 *.db-*

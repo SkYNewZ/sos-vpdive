@@ -1,4 +1,7 @@
-# Committee accounts. Mount the real file read-only at ADMINS_FILE.
+# Committee accounts. Create the real file with
+#   mkdir -p admins && cp admins.example.yaml admins/admins.yaml
+# and mount the admins/ directory (not the file) read-only at /config, so that
+# editors saving by rename are picked up.
 # Hash each password with:
 #   docker run --rm -it sos-vpdive:local hash-password
 # Changes are picked up within 10 seconds. Removing an account or changing its

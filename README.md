@@ -18,7 +18,7 @@ cp .env.example .env
 # ADMIN_BASE_URL=http://comite.localhost:8080, SECRET_KEY=$(openssl rand -base64 32),
 # and empty TURNSTILE_* and S3_* values.
 go run ./cmd/sos-vpdive hash-password        # type a password twice
-cp admins.example.yaml admins.yaml           # paste the hash, adjust names
+mkdir -p admins && cp admins.example.yaml admins/admins.yaml   # paste the hash
 make run
 ```
 
@@ -34,13 +34,15 @@ list on the Imports page. http://sos.localhost:8080 is the members site.
 docker build -t sos-vpdive:local .
 cp .env.example .env                                    # fill every required value
 docker run --rm -it sos-vpdive:local hash-password      # once per account
-cp admins.example.yaml admins.yaml                      # paste the hashes
+mkdir -p admins && cp admins.example.yaml admins/admins.yaml   # paste the hashes
 docker compose up -d --wait
 ```
 
 The image is distroless (`gcr.io/distroless/static-debian13:nonroot`): no
 shell, user 65532, read-only root file system. The database lives in the
-`/data` volume; the accounts file is mounted read-only.
+`/data` volume; the `admins/` directory is mounted read-only at `/config`
+(a directory rather than the file, so that editors saving by rename are
+picked up by the hot reload).
 
 ### Behind a reverse proxy
 
@@ -83,7 +85,7 @@ docker compose cp app:/data/backup-$(date +%F).db .
 ```
 
 Restore on a blank machine, with the same `.env` (same `SECRET_KEY`) and
-`admins.yaml`:
+`admins/admins.yaml`:
 
 ```sh
 docker compose stop app      # skip on a blank machine
