@@ -209,10 +209,11 @@ func TestPurge(t *testing.T) {
 	assert.Equal(t, 1, e.count(t, `SELECT closed_count FROM stats_monthly WHERE month = '2026-09' AND category = 'carnet'`))
 	assert.Equal(t, 1, e.count(t, `SELECT COUNT(*) FROM tickets WHERE id = ?`, open), "open requests are never deleted")
 
-	idle, err := e.store.Idle(ctx)
+	idle, err := e.store.IdleRefs(ctx)
 	require.NoError(t, err)
-	require.Len(t, idle, 1)
-	assert.Equal(t, open, idle[0].ID)
+	var openRef string
+	require.NoError(t, e.db.QueryRowContext(ctx, `SELECT ref FROM tickets WHERE id = ?`, open).Scan(&openRef))
+	assert.Equal(t, []string{openRef}, idle)
 	status, _ := e.status(t, open)
 	assert.Equal(t, StatusTodo, status, "nor closed")
 }
@@ -224,7 +225,7 @@ func TestIdleIgnoresRecentActivity(t *testing.T) {
 	e.clock.advance(364 * 24 * time.Hour)
 	require.NoError(t, e.store.MemberReply(ctx, id, "Toujours là ?", nil))
 	e.clock.advance(2 * 24 * time.Hour)
-	idle, err := e.store.Idle(ctx)
+	idle, err := e.store.IdleRefs(ctx)
 	require.NoError(t, err)
 	assert.Empty(t, idle)
 }

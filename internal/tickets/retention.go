@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/SkYNewZ/sos-vpdive/internal/store"
 )
 
 // Retention of spec §8.3 and §9.8.
@@ -55,34 +57,42 @@ func (s *Store) SweepOrphans(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("list capture objects: %w", err)
 	}
+	keys, err := objectKeys(ctx, s.DB, `SELECT object_key FROM attachments`)
+	if err != nil {
+		return err
+	}
+	used := make(map[string]bool, len(keys))
+	for _, k := range keys {
+		used[k] = true
+	}
 	cutoff := s.Now().Add(-orphanGrace)
 	var errs []error
 	for _, o := range objects {
 		if o.Modified.After(cutoff) {
 			continue
 		}
-		var used bool
-		if err := s.DB.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM attachments WHERE object_key = ?)`,
-			o.Key).Scan(&used); err != nil {
-			return errors.Join(append(errs, fmt.Errorf("check capture object: %w", err))...)
+		if used[o.Key] {
+			continue
 		}
-		if !used {
-			if err := s.Blobs.Delete(ctx, o.Key); err != nil {
-				errs = append(errs, fmt.Errorf("delete orphan capture: %w", err))
-			}
+		if err := s.Blobs.Delete(ctx, o.Key); err != nil {
+			errs = append(errs, fmt.Errorf("delete orphan capture: %w", err))
 		}
 	}
 	return errors.Join(errs...)
 }
 
-// Idle lists open requests without activity for 12 months: the board shows
-// them for review, nothing closes them (spec §8.3).
-func (s *Store) Idle(ctx context.Context) ([]Row, error) {
-	rows, err := s.DB.QueryContext(ctx, `SELECT `+rowColumns+` FROM tickets t
-		WHERE t.status IN ('todo', 'in_progress', 'waiting') AND t.updated_at < ?
-		ORDER BY t.updated_at, t.id`, s.Now().Add(-idleAfter).Unix())
+// IdleRefs lists the references of open requests without activity for 12
+// months: the banner shows them for review, nothing closes them (spec §8.3).
+func (s *Store) IdleRefs(ctx context.Context) ([]string, error) {
+	rows, err := s.DB.QueryContext(ctx, `SELECT ref FROM tickets
+		WHERE status IN ('todo', 'in_progress', 'waiting') AND updated_at < ?
+		ORDER BY updated_at, id`, s.Now().Add(-idleAfter).Unix())
+	refs, err := store.Collect(rows, err, func(rows *sql.Rows) (ref string, err error) {
+		err = rows.Scan(&ref)
+		return ref, err
+	})
 	if err != nil {
 		return nil, fmt.Errorf("idle tickets: %w", err)
 	}
-	return s.scanRows(rows)
+	return refs, nil
 }

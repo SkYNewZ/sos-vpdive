@@ -30,24 +30,37 @@ const (
 	ActionClose      Action = "close"
 )
 
+// Status sets the matrix is built from.
+var (
+	openStatuses     = []Status{StatusTodo, StatusInProgress, StatusWaiting}
+	assignedStatuses = []Status{StatusInProgress, StatusWaiting}
+	anyStatuses      = append(slices.Clone(openStatuses), StatusDone)
+)
+
 // allowedFrom is the matrix of spec §8.1: the statuses each committee action
 // starts from. An action absent from this table is refused.
 var allowedFrom = map[Action][]Status{
 	ActionTake:       {StatusTodo},
-	ActionReassign:   {StatusInProgress, StatusWaiting},
-	ActionUnassign:   {StatusInProgress, StatusWaiting},
+	ActionReassign:   assignedStatuses,
+	ActionUnassign:   assignedStatuses,
 	ActionWait:       {StatusInProgress},
 	ActionResume:     {StatusWaiting},
-	ActionReply:      {StatusInProgress, StatusWaiting},
-	ActionReplyWait:  {StatusInProgress, StatusWaiting},
-	ActionReplyClose: {StatusInProgress, StatusWaiting},
-	ActionNote:       {StatusInProgress, StatusWaiting},
-	ActionCategory:   {StatusTodo, StatusInProgress, StatusWaiting},
-	ActionClose:      {StatusTodo, StatusInProgress, StatusWaiting},
+	ActionReply:      assignedStatuses,
+	ActionReplyWait:  assignedStatuses,
+	ActionReplyClose: assignedStatuses,
+	ActionNote:       assignedStatuses,
+	ActionCategory:   openStatuses,
+	ActionClose:      openStatuses,
 
-	ActionDeleteCapture: {StatusTodo, StatusInProgress, StatusWaiting, StatusDone},
-	ActionDeleteMessage: {StatusTodo, StatusInProgress, StatusWaiting, StatusDone},
-	ActionDelete:        {StatusTodo, StatusInProgress, StatusWaiting, StatusDone},
+	ActionDeleteCapture: anyStatuses,
+	ActionDeleteMessage: anyStatuses,
+	ActionDelete:        anyStatuses,
+}
+
+// Allowed reports whether action a starts from status st: what the ticket page
+// uses to show only the actions Apply would accept.
+func Allowed(a Action, st Status) bool {
+	return slices.Contains(allowedFrom[a], st)
 }
 
 // Command is one committee action as the ticket page posts it.
@@ -73,8 +86,7 @@ type outcome struct {
 // messages, mails), then publishes the change. ErrStale, ErrNotAllowed,
 // ErrInvalid, ErrNotFound.
 func (s *Store) Apply(ctx context.Context, cmd Command) error {
-	from, ok := allowedFrom[cmd.Action]
-	if !ok {
+	if _, ok := allowedFrom[cmd.Action]; !ok {
 		return ErrInvalid
 	}
 	var res outcome
@@ -87,7 +99,7 @@ func (s *Store) Apply(ctx context.Context, cmd Command) error {
 			return ErrNotFound
 		case t.version != cmd.Version:
 			return ErrStale
-		case !slices.Contains(from, t.status):
+		case !Allowed(cmd.Action, t.status):
 			return ErrNotAllowed
 		}
 		res, err = s.apply(ctx, tx, t, cmd)
