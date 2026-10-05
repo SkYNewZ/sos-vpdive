@@ -346,20 +346,16 @@ func (s *Store) current(ctx context.Context) (base int64, current map[string]boo
 		return 0, nil, err
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT email_hash FROM members`)
+	hashes, err := store.Collect(rows, err, func(rows *sql.Rows) (h []byte, err error) {
+		err = rows.Scan(&h)
+		return h, err
+	})
 	if err != nil {
 		return 0, nil, fmt.Errorf("current members: %w", err)
 	}
-	defer func() { err = errors.Join(err, rows.Close()) }()
-	current = map[string]bool{}
-	for rows.Next() {
-		var h []byte
-		if err := rows.Scan(&h); err != nil {
-			return 0, nil, fmt.Errorf("current members: %w", err)
-		}
+	current = make(map[string]bool, len(hashes))
+	for _, h := range hashes {
 		current[string(h)] = true
-	}
-	if err := rows.Err(); err != nil {
-		return 0, nil, fmt.Errorf("current members: %w", err)
 	}
 	return base, current, nil
 }
@@ -403,13 +399,8 @@ func (s *Store) sealNonEmpty(v string) any {
 	return s.keys.SealString(v)
 }
 
-// rowQuerier is satisfied by *sql.DB and *sql.Tx.
-type rowQuerier interface {
-	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
-}
-
 // latestImportID returns the id of the latest members import, 0 when none.
-func latestImportID(ctx context.Context, q rowQuerier) (int64, error) {
+func latestImportID(ctx context.Context, q store.Querier) (int64, error) {
 	var id int64
 	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(id), 0) FROM imports WHERE kind = ?`,
 		string(ImportMembers)).Scan(&id); err != nil {

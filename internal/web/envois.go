@@ -43,7 +43,6 @@ func (s *Server) retryMail(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		s.serverError(w, r, err)
 	default:
-		s.outbox.Wake()
 		http.Redirect(w, r, "/envois?relance=1", http.StatusSeeOther)
 	}
 }

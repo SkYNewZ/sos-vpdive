@@ -107,7 +107,7 @@ func New(d Deps) (*Server, error) {
 		return nil, err
 	}
 	funcs := template.FuncMap{
-		"static": s.assets.URL, "formatTime": s.formatTime, "formatDate": s.formatDate, "author": s.author,
+		"static": s.assets.URL, "formatTime": s.formatTime, "formatDate": s.formatDate, "author": s.tickets.AccountName,
 		"age": s.age, "accountOf": s.accountOf, "actor": s.actorName, "isoDate": isoDate,
 		"fieldName": tickets.FieldName, "categoryLabel": s.catalog.CategoryLabel, "describe": s.tickets.Describe,
 		"formField": newFormField,

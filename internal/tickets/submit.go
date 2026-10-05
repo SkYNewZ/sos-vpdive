@@ -14,6 +14,7 @@ import (
 	"github.com/SkYNewZ/sos-vpdive/internal/blobs"
 	"github.com/SkYNewZ/sos-vpdive/internal/mail"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
+	"github.com/SkYNewZ/sos-vpdive/internal/store"
 )
 
 // Upload is a screenshot already checked by images.Sanitize.
@@ -133,7 +134,7 @@ func (s *Store) Confirm(ctx context.Context, id int64) (string, error) {
 			return fmt.Errorf("confirm ticket: %w", err)
 		}
 		t.ref, t.status = ref, StatusTodo
-		if err := s.addEvent(ctx, tx, id, eventSubmitted, actorMember, nil); err != nil {
+		if err := s.addEvent(ctx, tx, id, eventSubmitted, ActorMember, nil); err != nil {
 			return err
 		}
 		if err := s.memberMail(ctx, tx, t, 0, mail.EventSubmitted, mailData{}); err != nil {
@@ -200,7 +201,7 @@ func (s *Store) insertAttachments(ctx context.Context, tx *sql.Tx, ticketID, mes
 	for i, c := range captures {
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO attachments (ticket_id, message_id, mime, size, object_key, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-			ticketID, nullInt(messageID), c.MIME, len(c.Data), keys[i], s.Now().Unix()); err != nil {
+			ticketID, store.NullIfZero(messageID), c.MIME, len(c.Data), keys[i], s.Now().Unix()); err != nil {
 			return fmt.Errorf("insert attachment: %w", err)
 		}
 	}

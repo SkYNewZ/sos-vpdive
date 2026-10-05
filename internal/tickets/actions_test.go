@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/mail"
+	"github.com/SkYNewZ/sos-vpdive/internal/store"
 )
 
 func (c *testClock) advance(d time.Duration) {
@@ -41,7 +42,7 @@ func (e *env) force(t *testing.T, id int64, s Status, assignee string) {
 		closed = e.clock.now().Unix()
 	}
 	_, err := e.db.ExecContext(context.Background(), `UPDATE tickets SET status = ?, assignee = ?, closed_at = ?, version = version + 1 WHERE id = ?`,
-		s, nullString(assignee), closed, id)
+		s, store.NullIfZero(assignee), closed, id)
 	require.NoError(t, err)
 }
 

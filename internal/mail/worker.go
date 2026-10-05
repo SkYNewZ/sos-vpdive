@@ -2,6 +2,7 @@ package mail
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -11,6 +12,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/SkYNewZ/sos-vpdive/internal/store"
 	"github.com/SkYNewZ/sos-vpdive/internal/telemetry"
 )
 
@@ -21,23 +23,13 @@ const (
 	batchSize = 100
 )
 
-// retryDelay is the wait after the n-th failed attempt (spec §6): 1 min,
-// 5 min, 30 min, 2 h, 12 h, then every 24 h until the 7-day window ends.
+// retrySchedule is the wait after the n-th failed attempt (spec §6); the last
+// entry repeats until the 7-day window ends.
+var retrySchedule = [...]time.Duration{time.Minute, 5 * time.Minute, 30 * time.Minute, 2 * time.Hour, 12 * time.Hour, 24 * time.Hour}
+
+// retryDelay is the wait after the attempts-th failed attempt, attempts >= 1.
 func retryDelay(attempts int) time.Duration {
-	switch attempts {
-	case 1:
-		return time.Minute
-	case 2:
-		return 5 * time.Minute
-	case 3:
-		return 30 * time.Minute
-	case 4:
-		return 2 * time.Hour
-	case 5:
-		return 12 * time.Hour
-	default:
-		return 24 * time.Hour
-	}
+	return retrySchedule[min(attempts, len(retrySchedule))-1]
 }
 
 // Run sends due mails until ctx ends: at start, on Wake and every 30 s.
@@ -95,27 +87,20 @@ func (o *Outbox) sendDue(ctx context.Context, s Sender, logger *slog.Logger) (in
 	return sent, nil
 }
 
-func (o *Outbox) due(ctx context.Context) (out []queued, err error) {
+func (o *Outbox) due(ctx context.Context) ([]queued, error) {
 	rows, err := o.db.QueryContext(ctx,
 		`SELECT id, event, attempts, give_up_at, recipient, subject, body FROM outbox
 		 WHERE status = ? AND next_attempt_at <= ? ORDER BY next_attempt_at, id LIMIT ?`,
 		string(statusPending), o.now().Unix(), batchSize)
-	if err != nil {
-		return nil, fmt.Errorf("due mails: %w", err)
-	}
-	defer func() { err = errors.Join(err, rows.Close()) }()
-	for rows.Next() {
-		var (
-			q     queued
-			event string
-		)
-		if err := rows.Scan(&q.id, &event, &q.attempts, &q.giveUpAt, &q.to, &q.subject, &q.body); err != nil {
-			return nil, fmt.Errorf("due mails: %w", err)
+	out, err := store.Collect(rows, err, func(rows *sql.Rows) (q queued, err error) {
+		var event string
+		if err = rows.Scan(&q.id, &event, &q.attempts, &q.giveUpAt, &q.to, &q.subject, &q.body); err != nil {
+			return q, err
 		}
 		q.event = Event(event)
-		out = append(out, q)
-	}
-	if err := rows.Err(); err != nil {
+		return q, nil
+	})
+	if err != nil {
 		return nil, fmt.Errorf("due mails: %w", err)
 	}
 	return out, nil

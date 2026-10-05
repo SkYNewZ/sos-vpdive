@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
+	"github.com/SkYNewZ/sos-vpdive/internal/store"
 )
 
 const (
@@ -140,7 +141,7 @@ func (o *Outbox) Enqueue(ctx context.Context, tx *sql.Tx, m Mail) error {
 		`INSERT INTO outbox (ticket_id, message_id, event, status, next_attempt_at, give_up_at, created_at,
 		                     recipient_hash, recipient, subject, body)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		nullID(m.TicketID), nullID(m.MessageID), string(m.Event), string(statusPending),
+		store.NullIfZero(m.TicketID), store.NullIfZero(m.MessageID), string(m.Event), string(statusPending),
 		now.Unix(), now.Add(deliveryWindow).Unix(), now.Unix(),
 		o.keys.Hash(to), o.keys.SealString(to), o.keys.SealString(m.Subject), o.keys.SealString(m.Text),
 	); err != nil {
@@ -158,34 +159,28 @@ func (o *Outbox) Wake() {
 }
 
 // Failed lists the mails in failure, newest first.
-func (o *Outbox) Failed(ctx context.Context) (out []Failed, err error) {
+func (o *Outbox) Failed(ctx context.Context) ([]Failed, error) {
 	rows, err := o.db.QueryContext(ctx,
 		`SELECT o.id, COALESCE(o.ticket_id, 0), COALESCE(t.ref, ''), o.event, o.recipient, o.created_at, o.failed_at
 		 FROM outbox o LEFT JOIN tickets t ON t.id = o.ticket_id
 		 WHERE o.status = ? ORDER BY o.failed_at DESC, o.id DESC`, string(statusFailed))
-	if err != nil {
-		return nil, fmt.Errorf("failed mails: %w", err)
-	}
-	defer func() { err = errors.Join(err, rows.Close()) }()
-	for rows.Next() {
+	out, err := store.Collect(rows, err, func(rows *sql.Rows) (f Failed, err error) {
 		var (
-			f                Failed
 			event            string
 			recipient        []byte
 			created, failure int64
 		)
-		if err := rows.Scan(&f.ID, &f.TicketID, &f.Ref, &event, &recipient, &created, &failure); err != nil {
-			return nil, fmt.Errorf("failed mails: %w", err)
+		if err = rows.Scan(&f.ID, &f.TicketID, &f.Ref, &event, &recipient, &created, &failure); err != nil {
+			return f, err
 		}
-		to, err := o.keys.OpenString(recipient)
-		if err != nil {
-			return nil, fmt.Errorf("failed mail %d: recipient: %w", f.ID, err)
+		if f.To, err = o.keys.OpenString(recipient); err != nil {
+			return f, fmt.Errorf("mail %d: recipient: %w", f.ID, err)
 		}
-		f.To, f.Event = to, Event(event)
+		f.Event = Event(event)
 		f.CreatedAt, f.FailedAt = time.Unix(created, 0).UTC(), time.Unix(failure, 0).UTC()
-		out = append(out, f)
-	}
-	if err := rows.Err(); err != nil {
+		return f, nil
+	})
+	if err != nil {
 		return nil, fmt.Errorf("failed mails: %w", err)
 	}
 	return out, nil
@@ -248,12 +243,4 @@ func (o *Outbox) Purge(ctx context.Context) error {
 		return fmt.Errorf("purge outbox: %w", err)
 	}
 	return nil
-}
-
-// nullID stores 0 as NULL: the mail cites no request or no message.
-func nullID(id int64) any {
-	if id == 0 {
-		return nil
-	}
-	return id
 }

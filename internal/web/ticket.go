@@ -150,7 +150,7 @@ func newProfileView(p members.Profile) *profileView {
 // staleNotice explains why an action from an outdated page was refused.
 func (s *Server) staleNotice(action tickets.Action, t *tickets.Detail, m ticketMessage) *notice {
 	if action == tickets.ActionTake && t.Assignee != "" {
-		return &notice{Kind: noticeWarning, Text: s.author(t.Assignee) + " a pris cette demande entre-temps. Ton action n'a pas été appliquée."}
+		return &notice{Kind: noticeWarning, Text: s.tickets.AccountName(t.Assignee) + " a pris cette demande entre-temps. Ton action n'a pas été appliquée."}
 	}
 	text := "Cette demande a changé entre-temps : voici son état actuel. Ton action n'a pas été appliquée."
 	switch {

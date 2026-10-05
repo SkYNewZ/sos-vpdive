@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/mail"
+	"github.com/SkYNewZ/sos-vpdive/internal/store"
 )
 
 // Action is a committee action on a request (route POST /demandes/{id}/actions).
@@ -281,7 +282,7 @@ func (s *Store) memberReply(ctx context.Context, tx *sql.Tx, t ticketRow, body s
 		return err
 	}
 	if typ != "" {
-		if err := s.addEvent(ctx, tx, t.id, typ, actorMember, data); err != nil {
+		if err := s.addEvent(ctx, tx, t.id, typ, ActorMember, data); err != nil {
 			return err
 		}
 	}
@@ -289,7 +290,7 @@ func (s *Store) memberReply(ctx context.Context, tx *sql.Tx, t ticketRow, body s
 }
 
 // memberMayReply checks the reply window and the per-request capture limit.
-func (s *Store) memberMayReply(ctx context.Context, q querier, id int64, captures int) error {
+func (s *Store) memberMayReply(ctx context.Context, q store.Querier, id int64, captures int) error {
 	var (
 		status   Status
 		closedAt sql.NullInt64
@@ -329,7 +330,7 @@ func (s *Store) MemberClose(ctx context.Context, id int64) error {
 		}
 		after := t
 		after.status, after.closedAt = StatusDone, s.Now().Unix()
-		return s.transition(ctx, tx, t, after, actorMember, eventClosedByMember, nil)
+		return s.transition(ctx, tx, t, after, ActorMember, eventClosedByMember, nil)
 	})
 	if err != nil {
 		return err

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/admins"
+	"github.com/SkYNewZ/sos-vpdive/internal/tickets"
 )
 
 // ageLevel colors the age of an open request (spec §4.2): neutral, then the
@@ -65,12 +66,12 @@ func (s *Server) accountOf(username string) *admins.Account {
 // actorName names the author of a journal entry (tickets.Event.Actor).
 func (s *Server) actorName(actor string) string {
 	switch actor {
-	case "member":
+	case tickets.ActorMember:
 		return "l'adhérent"
-	case "system":
+	case tickets.ActorSystem:
 		return "automatique"
 	default:
-		return s.author(actor)
+		return s.tickets.AccountName(actor)
 	}
 }
 

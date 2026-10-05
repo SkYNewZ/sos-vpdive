@@ -22,10 +22,7 @@ const (
 	unknownAddress   = "Cette adresse n'est pas celle d'un compte VPDive du club. Utilise l'adresse de ton compte, ou écris au club."
 )
 
-var (
-	formKeyPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
-	refPattern     = regexp.MustCompile(`^CPP-\d{4,}$`)
-)
+var refPattern = regexp.MustCompile(`^CPP-\d{4,}$`)
 
 // formData is the member form: an empty one, or the one just sent with its
 // values and its problems, keyed by input name.
@@ -101,7 +98,7 @@ func (s *Server) submit(w http.ResponseWriter, r *http.Request) {
 		Open: true, FormKey: f.values.Get("cle"), Category: f.values.Get("categorie"),
 		Values: f.values, Errors: map[string]string{}, CapturesLost: len(f.files) > 0,
 	}
-	if !formKeyPattern.MatchString(d.FormKey) {
+	if !secure.IsToken(d.FormKey) {
 		s.writeText(w, r, http.StatusBadRequest, "Formulaire expiré : recharge la page.\n")
 		return
 	}

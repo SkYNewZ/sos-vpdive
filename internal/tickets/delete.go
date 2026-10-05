@@ -9,6 +9,7 @@ import (
 
 	"github.com/SkYNewZ/sos-vpdive/internal/mail"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
+	"github.com/SkYNewZ/sos-vpdive/internal/store"
 )
 
 // Deletions (spec §4.5). They take a version like any committee action.
@@ -192,26 +193,26 @@ func (s *Store) ReleaseMissing(ctx context.Context, known func(username string) 
 }
 
 // assignedTo lists the in-progress and waiting requests whose assignee matches.
-func (s *Store) assignedTo(ctx context.Context, match func(string) bool) (ids []int64, err error) {
+func (s *Store) assignedTo(ctx context.Context, match func(string) bool) ([]int64, error) {
+	type assigned struct {
+		id       int64
+		assignee string
+	}
 	rows, err := s.DB.QueryContext(ctx, `SELECT id, assignee FROM tickets WHERE status IN ('in_progress', 'waiting')`)
+	all, err := store.Collect(rows, err, func(rows *sql.Rows) (a assigned, err error) {
+		if err = rows.Scan(&a.id, &a.assignee); err != nil {
+			err = fmt.Errorf("scan assigned ticket: %w", err)
+		}
+		return a, err
+	})
 	if err != nil {
 		return nil, fmt.Errorf("assigned tickets: %w", err)
 	}
-	defer func() { err = errors.Join(err, rows.Close()) }()
-	for rows.Next() {
-		var (
-			id       int64
-			assignee string
-		)
-		if err := rows.Scan(&id, &assignee); err != nil {
-			return nil, fmt.Errorf("scan assigned ticket: %w", err)
+	var ids []int64
+	for _, a := range all {
+		if match(a.assignee) {
+			ids = append(ids, a.id)
 		}
-		if match(assignee) {
-			ids = append(ids, id)
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("assigned tickets: %w", err)
 	}
 	return ids, nil
 }
@@ -228,7 +229,7 @@ func (s *Store) release(ctx context.Context, id int64, known func(string) bool) 
 		}
 		after := t
 		after.status, after.assignee = StatusTodo, ""
-		if err := s.transition(ctx, tx, t, after, actorSystem, eventReleased, map[string]string{dataFrom: t.assignee}); err != nil {
+		if err := s.transition(ctx, tx, t, after, ActorSystem, eventReleased, map[string]string{dataFrom: t.assignee}); err != nil {
 			return err
 		}
 		released = true
@@ -245,44 +246,32 @@ func (s *Store) release(ctx context.Context, id int64, known func(string) bool) 
 }
 
 // listDoomed reads the requests a fixed query selects.
-func listDoomed(ctx context.Context, q querier, query string, args ...any) (out []doomed, err error) {
+func listDoomed(ctx context.Context, q store.Querier, query string, args ...any) ([]doomed, error) {
 	rows, err := q.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("list tickets to delete: %w", err)
-	}
-	defer func() { err = errors.Join(err, rows.Close()) }()
-	for rows.Next() {
-		var (
-			d                 doomed
-			submitted, closed sql.NullInt64
-		)
-		if err := rows.Scan(&d.id, &d.status, &d.category, &submitted, &closed); err != nil {
-			return nil, fmt.Errorf("scan ticket to delete: %w", err)
+	out, err := store.Collect(rows, err, func(rows *sql.Rows) (d doomed, err error) {
+		var submitted, closed sql.NullInt64
+		if err = rows.Scan(&d.id, &d.status, &d.category, &submitted, &closed); err != nil {
+			return d, fmt.Errorf("scan ticket to delete: %w", err)
 		}
 		d.submittedAt, d.closedAt = submitted.Int64, closed.Int64
-		out = append(out, d)
-	}
-	if err := rows.Err(); err != nil {
+		return d, nil
+	})
+	if err != nil {
 		return nil, fmt.Errorf("list tickets to delete: %w", err)
 	}
 	return out, nil
 }
 
 // objectKeys reads the object keys a fixed query selects.
-func objectKeys(ctx context.Context, q querier, query string, args ...any) (keys []string, err error) {
+func objectKeys(ctx context.Context, q store.Querier, query string, args ...any) ([]string, error) {
 	rows, err := q.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("list capture objects: %w", err)
-	}
-	defer func() { err = errors.Join(err, rows.Close()) }()
-	for rows.Next() {
-		var k string
-		if err := rows.Scan(&k); err != nil {
-			return nil, fmt.Errorf("scan capture object: %w", err)
+	keys, err := store.Collect(rows, err, func(rows *sql.Rows) (k string, err error) {
+		if err = rows.Scan(&k); err != nil {
+			err = fmt.Errorf("scan capture object: %w", err)
 		}
-		keys = append(keys, k)
-	}
-	if err := rows.Err(); err != nil {
+		return k, err
+	})
+	if err != nil {
 		return nil, fmt.Errorf("list capture objects: %w", err)
 	}
 	return keys, nil

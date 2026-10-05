@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/admins"
+	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 	"github.com/SkYNewZ/sos-vpdive/internal/tickets"
 )
 
@@ -17,7 +18,6 @@ import (
 const (
 	replyIPLimit       = 30
 	replyTicketLimit   = 20
-	tokenLength        = 43 // secure.NewToken: 32 bytes in unpadded base64url
 	unavailableCapture = "static/capture-indisponible.svg"
 )
 
@@ -35,7 +35,7 @@ type trackingData struct {
 // « ce lien ne fonctionne plus » page.
 func (s *Server) ticketByToken(w http.ResponseWriter, r *http.Request) (*tickets.Detail, bool) {
 	token := r.PathValue("jeton")
-	if len(token) != tokenLength {
+	if !secure.IsToken(token) {
 		s.renderGone(w, r)
 		return nil, false
 	}

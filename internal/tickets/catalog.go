@@ -4,7 +4,6 @@
 package tickets
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -16,7 +15,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"go.yaml.in/yaml/v3"
+	"github.com/SkYNewZ/sos-vpdive/internal/config"
 )
 
 // FieldType is the kind of a category field (spec §9.7).
@@ -120,7 +119,7 @@ func LoadCatalog(content fs.FS) (*Catalog, error) {
 	var pf struct {
 		Products []Option `yaml:"products"`
 	}
-	if err := decodeStrict(content, productsPath, &pf); err != nil {
+	if err := config.DecodeYAML(content, productsPath, &pf); err != nil {
 		return nil, err
 	}
 	if err := validOptions(pf.Products); err != nil {
@@ -129,7 +128,7 @@ func LoadCatalog(content fs.FS) (*Catalog, error) {
 	var cf struct {
 		Categories []categoryYAML `yaml:"categories"`
 	}
-	if err := decodeStrict(content, categoriesPath, &cf); err != nil {
+	if err := config.DecodeYAML(content, categoriesPath, &cf); err != nil {
 		return nil, err
 	}
 	c := &Catalog{Products: pf.Products, index: map[string]int{}}
@@ -224,20 +223,6 @@ func validOptions(opts []Option) error {
 			return fmt.Errorf("options[%d]: invalid or duplicate id, or empty label", i)
 		}
 		seen[o.ID] = true
-	}
-	return nil
-}
-
-// decodeStrict reads a YAML content file, refusing unknown keys.
-func decodeStrict(content fs.FS, name string, v any) error {
-	data, err := fs.ReadFile(content, name)
-	if err != nil {
-		return fmt.Errorf("read %s: %w", name, err)
-	}
-	dec := yaml.NewDecoder(bytes.NewReader(data))
-	dec.KnownFields(true)
-	if err := dec.Decode(v); err != nil {
-		return fmt.Errorf("decode %s: %w", name, err)
 	}
 	return nil
 }

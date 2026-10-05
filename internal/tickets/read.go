@@ -11,6 +11,7 @@ import (
 
 	"github.com/SkYNewZ/sos-vpdive/internal/mail"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
+	"github.com/SkYNewZ/sos-vpdive/internal/store"
 )
 
 // excerptRunes is the length of the description shown on a board row.
@@ -21,8 +22,6 @@ type Attachment struct {
 	ID        int64
 	MessageID int64 // 0 when sent with the form
 	MIME      string
-	Size      int64
-	CreatedAt time.Time
 }
 
 // Message is one entry of the thread.
@@ -57,9 +56,7 @@ type Detail struct {
 	Email       string
 	Fields      Fields
 	Description string
-	CreatedAt   time.Time
 	SubmittedAt time.Time
-	UpdatedAt   time.Time
 	ClosedAt    time.Time    // zero while open
 	Captures    []Attachment // sent with the form
 	Messages    []Message    // oldest first, internal notes included
@@ -145,9 +142,8 @@ func (s *Store) Others(ctx context.Context, id int64) ([]Row, error) {
 	return s.scanRows(rows)
 }
 
-func (s *Store) scanRows(rows *sql.Rows) (out []Row, err error) {
-	defer func() { err = errors.Join(err, rows.Close()) }()
-	for rows.Next() {
+func (s *Store) scanRows(rows *sql.Rows) ([]Row, error) {
+	out, err := store.Collect(rows, nil, func(rows *sql.Rows) (Row, error) {
 		var (
 			r                        Row
 			ref, assignee, lastBy    sql.NullString
@@ -156,18 +152,18 @@ func (s *Store) scanRows(rows *sql.Rows) (out []Row, err error) {
 		)
 		if err := rows.Scan(&r.ID, &ref, &first, &last, &r.Category, &description, &r.Status, &assignee,
 			&submitted, &closed, &lastBy); err != nil {
-			return nil, fmt.Errorf("scan ticket row: %w", err)
+			return r, fmt.Errorf("scan ticket row: %w", err)
 		}
 		if err := s.openAll([]*string{&r.FirstName, &r.LastName, &r.Excerpt}, first, last, description); err != nil {
-			return nil, err
+			return r, err
 		}
 		r.Ref, r.Assignee = ref.String, assignee.String
 		r.SubmittedAt, r.ClosedAt = unixTime(submitted), unixTime(closed)
 		r.Excerpt = truncate(strings.Join(strings.Fields(r.Excerpt), " "), excerptRunes)
 		r.MemberRepliedLast = lastBy.String == authorMember
-		out = append(out, r)
-	}
-	if err := rows.Err(); err != nil {
+		return r, nil
+	})
+	if err != nil {
 		return nil, fmt.Errorf("ticket rows: %w", err)
 	}
 	return out, nil
@@ -179,15 +175,14 @@ func (s *Store) Detail(ctx context.Context, id int64) (*Detail, error) {
 		d                                    Detail
 		assignee                             sql.NullString
 		submitted, closed                    sql.NullInt64
-		created, updated                     int64
 		first, last, email, fields, describe []byte
 	)
 	err := s.DB.QueryRowContext(ctx,
 		`SELECT id, ref, status, assignee, version, category, first_name, last_name, email, fields, description,
-		  created_at, submitted_at, updated_at, closed_at
+		  submitted_at, closed_at
 		 FROM tickets WHERE id = ? AND status != 'draft'`, id).
 		Scan(&d.ID, &d.Ref, &d.Status, &assignee, &d.Version, &d.Category, &first, &last, &email, &fields, &describe,
-			&created, &submitted, &updated, &closed)
+			&submitted, &closed)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -203,7 +198,6 @@ func (s *Store) Detail(ctx context.Context, id int64) (*Detail, error) {
 		return nil, fmt.Errorf("decode ticket fields: %w", err)
 	}
 	d.Assignee = assignee.String
-	d.CreatedAt, d.UpdatedAt = time.Unix(created, 0).UTC(), time.Unix(updated, 0).UTC()
 	d.SubmittedAt, d.ClosedAt = unixTime(submitted), unixTime(closed)
 	if err := s.readThread(ctx, &d); err != nil {
 		return nil, err
@@ -234,18 +228,14 @@ func (s *Store) CanReply(d *Detail) bool {
 }
 
 // readThread fills d.Messages and d.Captures.
-func (s *Store) readThread(ctx context.Context, d *Detail) (err error) {
+func (s *Store) readThread(ctx context.Context, d *Detail) error {
 	captures, err := s.readAttachments(ctx, d.ID)
 	if err != nil {
 		return err
 	}
 	rows, err := s.DB.QueryContext(ctx,
 		`SELECT id, author_type, author, internal, created_at, body FROM messages WHERE ticket_id = ? ORDER BY id`, d.ID)
-	if err != nil {
-		return fmt.Errorf("read messages: %w", err)
-	}
-	defer func() { err = errors.Join(err, rows.Close()) }()
-	for rows.Next() {
+	d.Messages, err = store.Collect(rows, err, func(rows *sql.Rows) (Message, error) {
 		var (
 			m          Message
 			authorType string
@@ -254,16 +244,16 @@ func (s *Store) readThread(ctx context.Context, d *Detail) (err error) {
 			body       []byte
 		)
 		if err := rows.Scan(&m.ID, &authorType, &author, &m.Internal, &created, &body); err != nil {
-			return fmt.Errorf("scan message: %w", err)
+			return m, fmt.Errorf("scan message: %w", err)
 		}
 		if m.Body, err = s.Keys.OpenString(body); err != nil {
-			return fmt.Errorf("decrypt message: %w", err)
+			return m, fmt.Errorf("decrypt message: %w", err)
 		}
 		m.FromMember, m.Author, m.CreatedAt = authorType == authorMember, author.String, time.Unix(created, 0).UTC()
 		m.Captures = captures[m.ID]
-		d.Messages = append(d.Messages, m)
-	}
-	if err := rows.Err(); err != nil {
+		return m, nil
+	})
+	if err != nil {
 		return fmt.Errorf("read messages: %w", err)
 	}
 	d.Captures = captures[0]
@@ -271,55 +261,49 @@ func (s *Store) readThread(ctx context.Context, d *Detail) (err error) {
 }
 
 // readAttachments groups a request's captures by message id, 0 for the form.
-func (s *Store) readAttachments(ctx context.Context, ticketID int64) (out map[int64][]Attachment, err error) {
+func (s *Store) readAttachments(ctx context.Context, ticketID int64) (map[int64][]Attachment, error) {
 	rows, err := s.DB.QueryContext(ctx,
-		`SELECT id, message_id, mime, size, created_at FROM attachments WHERE ticket_id = ? ORDER BY id`, ticketID)
-	if err != nil {
-		return nil, fmt.Errorf("read attachments: %w", err)
-	}
-	defer func() { err = errors.Join(err, rows.Close()) }()
-	out = map[int64][]Attachment{}
-	for rows.Next() {
+		`SELECT id, message_id, mime FROM attachments WHERE ticket_id = ? ORDER BY id`, ticketID)
+	list, err := store.Collect(rows, err, func(rows *sql.Rows) (Attachment, error) {
 		var (
 			a       Attachment
 			message sql.NullInt64
-			created int64
 		)
-		if err := rows.Scan(&a.ID, &message, &a.MIME, &a.Size, &created); err != nil {
-			return nil, fmt.Errorf("scan attachment: %w", err)
+		if err := rows.Scan(&a.ID, &message, &a.MIME); err != nil {
+			return a, fmt.Errorf("scan attachment: %w", err)
 		}
-		a.MessageID, a.CreatedAt = message.Int64, time.Unix(created, 0).UTC()
-		out[a.MessageID] = append(out[a.MessageID], a)
-	}
-	if err := rows.Err(); err != nil {
+		a.MessageID = message.Int64
+		return a, nil
+	})
+	if err != nil {
 		return nil, fmt.Errorf("read attachments: %w", err)
+	}
+	out := map[int64][]Attachment{}
+	for _, a := range list {
+		out[a.MessageID] = append(out[a.MessageID], a)
 	}
 	return out, nil
 }
 
-func (s *Store) readEvents(ctx context.Context, ticketID int64) (out []Event, err error) {
+func (s *Store) readEvents(ctx context.Context, ticketID int64) ([]Event, error) {
 	rows, err := s.DB.QueryContext(ctx,
 		`SELECT type, actor, data, created_at FROM events WHERE ticket_id = ? ORDER BY id`, ticketID)
-	if err != nil {
-		return nil, fmt.Errorf("read events: %w", err)
-	}
-	defer func() { err = errors.Join(err, rows.Close()) }()
-	for rows.Next() {
+	out, err := store.Collect(rows, err, func(rows *sql.Rows) (Event, error) {
 		var (
 			e       Event
 			data    string
 			created int64
 		)
 		if err := rows.Scan(&e.Type, &e.Actor, &data, &created); err != nil {
-			return nil, fmt.Errorf("scan event: %w", err)
+			return e, fmt.Errorf("scan event: %w", err)
 		}
 		if err := json.Unmarshal([]byte(data), &e.Data); err != nil {
-			return nil, fmt.Errorf("decode event data: %w", err)
+			return e, fmt.Errorf("decode event data: %w", err)
 		}
 		e.CreatedAt = time.Unix(created, 0).UTC()
-		out = append(out, e)
-	}
-	if err := rows.Err(); err != nil {
+		return e, nil
+	})
+	if err != nil {
 		return nil, fmt.Errorf("read events: %w", err)
 	}
 	return out, nil
@@ -410,28 +394,24 @@ func (s *Store) SendLinks(ctx context.Context, email string) error {
 }
 
 // linksOf returns the tracking links of every confirmed request of an address.
-func (s *Store) linksOf(ctx context.Context, tx *sql.Tx, emailHash []byte) (links []refLink, err error) {
+func (s *Store) linksOf(ctx context.Context, tx *sql.Tx, emailHash []byte) ([]refLink, error) {
 	rows, err := tx.QueryContext(ctx,
 		`SELECT ref, token FROM tickets WHERE email_hash = ? AND status != 'draft' ORDER BY submitted_at, id`, emailHash)
-	if err != nil {
-		return nil, fmt.Errorf("find tickets of address: %w", err)
-	}
-	defer func() { err = errors.Join(err, rows.Close()) }()
-	for rows.Next() {
+	links, err := store.Collect(rows, err, func(rows *sql.Rows) (refLink, error) {
 		var (
 			ref    string
 			sealed []byte
 		)
 		if err := rows.Scan(&ref, &sealed); err != nil {
-			return nil, fmt.Errorf("scan ticket link: %w", err)
+			return refLink{}, fmt.Errorf("scan ticket link: %w", err)
 		}
 		token, err := s.Keys.OpenString(sealed)
 		if err != nil {
-			return nil, fmt.Errorf("decrypt tracking token: %w", err)
+			return refLink{}, fmt.Errorf("decrypt tracking token: %w", err)
 		}
-		links = append(links, refLink{Ref: ref, Link: s.trackingLink(token)})
-	}
-	if err := rows.Err(); err != nil {
+		return refLink{Ref: ref, Link: s.trackingLink(token)}, nil
+	})
+	if err != nil {
 		return nil, fmt.Errorf("find tickets of address: %w", err)
 	}
 	return links, nil

@@ -240,12 +240,3 @@ func (s *Server) formatTime(t time.Time) string {
 func (s *Server) formatDate(t time.Time) string {
 	return t.In(s.paris).Format(dateFormat)
 }
-
-// author names the committee member of an import, or their username when the
-// account has left the accounts file.
-func (s *Server) author(username string) string {
-	if a, ok := s.admins.Get(username); ok {
-		return a.Name + " (" + a.Role + ")"
-	}
-	return username
-}

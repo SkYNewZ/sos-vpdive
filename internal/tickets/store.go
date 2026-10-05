@@ -116,10 +116,10 @@ const (
 	authorAdmin  = "admin"
 )
 
-// Journal actors that are not committee usernames.
+// Journal actors that are not committee usernames (events.actor).
 const (
-	actorMember = "member"
-	actorSystem = "system"
+	ActorMember = "member"
+	ActorSystem = "system"
 )
 
 // eventType is a journal event type, as stored in events.type.
@@ -212,19 +212,13 @@ type ticketRow struct {
 	closedAt    int64
 }
 
-// querier is satisfied by *sql.DB and *sql.Tx.
-type querier interface {
-	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
-	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
-}
-
 // tx runs fn in a transaction traced as "db tickets.<name>".
 func (s *Store) tx(ctx context.Context, name string, fn func(context.Context, *sql.Tx) error) error {
 	return store.Tx(ctx, s.DB, "tickets."+name, fn)
 }
 
 // load reads one request, drafts included. ErrNotFound when absent.
-func (s *Store) load(ctx context.Context, q querier, id int64) (ticketRow, error) {
+func (s *Store) load(ctx context.Context, q store.Querier, id int64) (ticketRow, error) {
 	var (
 		t                         ticketRow
 		ref, assignee             sql.NullString
@@ -303,20 +297,13 @@ func (s *Store) adminLink(id int64) string {
 	return s.AdminBaseURL.String() + "/demandes/" + strconv.FormatInt(id, 10)
 }
 
-func nullInt(v int64) any {
-	if v == 0 {
-		return nil
-	}
-	return v
-}
-
 // save writes the mutable columns of after and bumps the version. Zero rows
 // means another action changed the request since before was read.
 func (s *Store) save(ctx context.Context, tx *sql.Tx, before, after ticketRow) error {
 	res, err := tx.ExecContext(ctx,
 		`UPDATE tickets SET status = ?, assignee = ?, category = ?, closed_at = ?, version = version + 1, updated_at = ?
 		 WHERE id = ? AND version = ?`,
-		after.status, nullString(after.assignee), after.category, nullInt(after.closedAt), s.Now().Unix(),
+		after.status, store.NullIfZero(after.assignee), after.category, store.NullIfZero(after.closedAt), s.Now().Unix(),
 		before.id, before.version)
 	if err != nil {
 		return fmt.Errorf("update ticket: %w", err)
@@ -339,7 +326,7 @@ func (s *Store) insertMessage(ctx context.Context, tx *sql.Tx, ticketID int64, a
 	}
 	res, err := tx.ExecContext(ctx,
 		`INSERT INTO messages (ticket_id, author_type, author, internal, created_at, body) VALUES (?, ?, ?, ?, ?, ?)`,
-		ticketID, authorType, nullString(author), internal, s.Now().Unix(), s.Keys.SealString(body))
+		ticketID, authorType, store.NullIfZero(author), internal, s.Now().Unix(), s.Keys.SealString(body))
 	if err != nil {
 		return 0, fmt.Errorf("insert message: %w", err)
 	}
@@ -348,13 +335,6 @@ func (s *Store) insertMessage(ctx context.Context, tx *sql.Tx, ticketID int64, a
 		return 0, fmt.Errorf("insert message: %w", err)
 	}
 	return id, nil
-}
-
-func nullString(v string) any {
-	if v == "" {
-		return nil
-	}
-	return v
 }
 
 func unixTime(v sql.NullInt64) time.Time {

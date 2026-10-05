@@ -49,15 +49,10 @@ func (l *limiter) userKey(username string) string {
 	return l.hashedKey("login-user:" + username)
 }
 
-// rowQuerier is what *sql.DB and *sql.Tx share.
-type rowQuerier interface {
-	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
-}
-
 // countInWindow counts one more event under the hashed key in a fixed window
 // that starts with its first event, and returns the count. It is the single
 // window rule of every limit.
-func (l *limiter) countInWindow(ctx context.Context, q rowQuerier, key string, window time.Duration) (int, error) {
+func (l *limiter) countInWindow(ctx context.Context, q store.Querier, key string, window time.Duration) (int, error) {
 	now := l.now().Unix()
 	windowEnd := now - int64(window/time.Second)
 	var count int
