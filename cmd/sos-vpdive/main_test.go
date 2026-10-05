@@ -20,8 +20,8 @@ import (
 	"github.com/SkYNewZ/sos-vpdive/internal/admins"
 	"github.com/SkYNewZ/sos-vpdive/internal/config"
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
+	"github.com/SkYNewZ/sos-vpdive/internal/members/memberstest"
 	"github.com/SkYNewZ/sos-vpdive/internal/store"
-	"github.com/SkYNewZ/sos-vpdive/internal/xlsx"
 )
 
 var testHash = sync.OnceValue(func() string {
@@ -211,14 +211,5 @@ func TestServeAnswersHealthcheckAndStops(t *testing.T) {
 
 func importFixture(t *testing.T, s *members.Store) {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "fixtures", "members_valid.xlsx"))
-	require.NoError(t, err)
-	rows, err := xlsx.ReadFirstSheet(data, xlsx.Limits{MaxUncompressed: 50 << 20, MaxRows: 20_000, MaxCells: 1_000_000})
-	require.NoError(t, err)
-	exp, err := members.Parse(rows, time.UTC)
-	require.NoError(t, err)
-	p, err := s.NewPreview(context.Background(), "alice", exp)
-	require.NoError(t, err)
-	_, err = s.Confirm(context.Background(), p.ID, "alice", true)
-	require.NoError(t, err)
+	memberstest.Import(t, s, "members_valid.xlsx")
 }

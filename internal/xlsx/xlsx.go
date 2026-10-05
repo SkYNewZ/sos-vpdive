@@ -167,22 +167,22 @@ type relationships struct {
 	} `xml:"Relationship"`
 }
 
-func (rs relationships) target(base, typeSuffix string) (string, bool) {
+// find returns the zip path of the first relationship accepted by match.
+func (rs relationships) find(base string, match func(id, typ string) bool) (string, bool) {
 	for _, it := range rs.Items {
-		if strings.HasSuffix(it.Type, typeSuffix) {
+		if match(it.ID, it.Type) {
 			return resolve(base, it.Target), true
 		}
 	}
 	return "", false
 }
 
+func (rs relationships) target(base, typeSuffix string) (string, bool) {
+	return rs.find(base, func(_, typ string) bool { return strings.HasSuffix(typ, typeSuffix) })
+}
+
 func (rs relationships) byID(base, id string) (string, bool) {
-	for _, it := range rs.Items {
-		if it.ID == id {
-			return resolve(base, it.Target), true
-		}
-	}
-	return "", false
+	return rs.find(base, func(rid, _ string) bool { return rid == id })
 }
 
 // resolve turns a relationship target into a zip path, relative to the part
@@ -256,14 +256,10 @@ func xmlError(name string, err error) error {
 	return fmt.Errorf("%w: %s: %w", ErrInvalid, name, err)
 }
 
-// sharedStrings reads the shared string table. Rich text runs are joined;
-// phonetic runs (<rPh>) are skipped.
-func (r *reader) sharedStrings(name string, lim Limits) ([]string, error) {
-	var out []string
-	err := r.open(name, func(src io.Reader) error {
+// tokens feeds fn with the XML tokens of the named part until EOF.
+func (r *reader) tokens(name string, fn func(xml.Token) error) error {
+	return r.open(name, func(src io.Reader) error {
 		d := xml.NewDecoder(src)
-		var cur strings.Builder
-		inItem, inText, phonetic := false, false, 0
 		for {
 			tok, err := d.Token()
 			if errors.Is(err, io.EOF) {
@@ -272,39 +268,59 @@ func (r *reader) sharedStrings(name string, lim Limits) ([]string, error) {
 			if err != nil {
 				return xmlError(name, err)
 			}
-			switch t := tok.(type) {
-			case xml.StartElement:
-				switch t.Name.Local {
-				case "si":
-					inItem = true
-					cur.Reset()
-				case tagPhonetic:
-					phonetic++
-				case "t":
-					inText = inItem && phonetic == 0
-				}
-			case xml.EndElement:
-				switch t.Name.Local {
-				case "si":
-					if len(out) >= lim.MaxCells {
-						return ErrTooManyCells
-					}
-					out = append(out, cur.String())
-					inItem = false
-				case tagPhonetic:
-					phonetic--
-				case "t":
-					inText = false
-				}
-			case xml.CharData:
-				if inText {
-					if cur.Len()+len(t) > maxTextBytes {
-						return errTextTooLong
-					}
-					cur.Write(t)
-				}
+			if err := fn(tok); err != nil {
+				return err
 			}
 		}
+	})
+}
+
+// appendText adds element text to b, within the maxTextBytes cap.
+func appendText(b *strings.Builder, data []byte) error {
+	if b.Len()+len(data) > maxTextBytes {
+		return errTextTooLong
+	}
+	b.Write(data)
+	return nil
+}
+
+// sharedStrings reads the shared string table. Rich text runs are joined;
+// phonetic runs (<rPh>) are skipped.
+func (r *reader) sharedStrings(name string, lim Limits) ([]string, error) {
+	var out []string
+	var cur strings.Builder
+	inItem, inText, phonetic := false, false, 0
+	err := r.tokens(name, func(tok xml.Token) error {
+		switch t := tok.(type) {
+		case xml.StartElement:
+			switch t.Name.Local {
+			case "si":
+				inItem = true
+				cur.Reset()
+			case tagPhonetic:
+				phonetic++
+			case "t":
+				inText = inItem && phonetic == 0
+			}
+		case xml.EndElement:
+			switch t.Name.Local {
+			case "si":
+				if len(out) >= lim.MaxCells {
+					return ErrTooManyCells
+				}
+				out = append(out, cur.String())
+				inItem = false
+			case tagPhonetic:
+				phonetic--
+			case "t":
+				inText = false
+			}
+		case xml.CharData:
+			if inText {
+				return appendText(&cur, t)
+			}
+		}
+		return nil
 	})
 	return out, err
 }
@@ -326,34 +342,18 @@ type sheetState struct {
 
 func (r *reader) sheet(name string, shared []string, lim Limits) ([]Row, error) {
 	st := &sheetState{}
-	err := r.open(name, func(src io.Reader) error {
-		d := xml.NewDecoder(src)
-		for {
-			tok, err := d.Token()
-			if errors.Is(err, io.EOF) {
-				return nil
-			}
-			if err != nil {
-				return xmlError(name, err)
-			}
-			switch t := tok.(type) {
-			case xml.StartElement:
-				if err := st.start(t, lim); err != nil {
-					return err
-				}
-			case xml.EndElement:
-				if err := st.end(t.Name.Local, shared, lim); err != nil {
-					return err
-				}
-			case xml.CharData:
-				if st.inValue || (st.inInline && st.phonetic == 0) {
-					if st.text.Len()+len(t) > maxTextBytes {
-						return errTextTooLong
-					}
-					st.text.Write(t)
-				}
+	err := r.tokens(name, func(tok xml.Token) error {
+		switch t := tok.(type) {
+		case xml.StartElement:
+			return st.start(t, lim)
+		case xml.EndElement:
+			return st.end(t.Name.Local, shared, lim)
+		case xml.CharData:
+			if st.inValue || (st.inInline && st.phonetic == 0) {
+				return appendText(&st.text, t)
 			}
 		}
+		return nil
 	})
 	if err != nil {
 		return nil, err
