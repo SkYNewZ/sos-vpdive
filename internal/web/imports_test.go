@@ -129,6 +129,18 @@ func TestImportRefusalsKeepTheListAndExplain(t *testing.T) {
 	assert.False(t, has)
 }
 
+func TestImportErrorSitsAfterTheFileField(t *testing.T) {
+	e := newTestEnv(t)
+	cookie := e.login(t)
+	csrf := e.csrf(t, cookie, "/imports")
+	body := e.upload(t, cookie, csrf, fixtureBytes(t, "members_missing_email.xlsx")).Body.String()
+	label := strings.Index(body, `for="file"`)
+	msg := strings.Index(body, "Colonne « Email » introuvable")
+	require.NotEqual(t, -1, label)
+	require.NotEqual(t, -1, msg)
+	assert.Greater(t, msg, label)
+}
+
 func TestImportNeedsSessionAndCSRF(t *testing.T) {
 	e := newTestEnv(t)
 	cookie := e.login(t)

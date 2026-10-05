@@ -31,6 +31,16 @@ type importsData struct {
 	MembersLink vpdiveLink
 	Last        *importView
 	Preview     *previewView
+	// UploadError and ConfirmError sit next to their form's action (spec §12.1).
+	UploadError  string
+	ConfirmError string
+}
+
+// importMessage is what a page render reports: a page-level notice, or an
+// error shown beside the upload or confirmation action.
+type importMessage struct {
+	Notice          *notice
+	Upload, Confirm string
 }
 
 type importView struct {
@@ -59,19 +69,19 @@ func (s *Server) importsPage(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("importe") == "1" {
 		done = &notice{Kind: noticeSuccess, Text: "Liste des membres importée."}
 	}
-	s.renderImports(w, r, http.StatusOK, nil, done)
+	s.renderImports(w, r, http.StatusOK, nil, importMessage{Notice: done})
 }
 
-func (s *Server) renderImports(w http.ResponseWriter, r *http.Request, status int, preview *members.Preview, n *notice) {
+func (s *Server) renderImports(w http.ResponseWriter, r *http.Request, status int, preview *members.Preview, m importMessage) {
 	p, err := s.adminPage(r, "Imports")
 	if err != nil {
 		s.serverError(w, r, err)
 		return
 	}
-	if n != nil {
-		p.Notices = append(p.Notices, *n)
+	if m.Notice != nil {
+		p.Notices = append(p.Notices, *m.Notice)
 	}
-	data := importsData{MembersLink: s.vpdive["membres"]}
+	data := importsData{MembersLink: s.vpdive["membres"], UploadError: m.Upload, ConfirmError: m.Confirm}
 	last, ok, err := s.members.LastImport(r.Context())
 	if err != nil {
 		s.serverError(w, r, err)
@@ -113,7 +123,7 @@ func (s *Server) uploadImport(w http.ResponseWriter, r *http.Request) {
 		rows, err = xlsx.ReadFirstSheet(data, importLimits)
 		return err
 	}); err != nil {
-		s.renderImports(w, r, http.StatusUnprocessableEntity, nil, &notice{Kind: noticeError, Text: workbookMessage(err)})
+		s.renderImports(w, r, http.StatusUnprocessableEntity, nil, importMessage{Upload: workbookMessage(err)})
 		return
 	}
 	sess, _ := sessionFrom(ctx)
@@ -129,11 +139,11 @@ func (s *Server) uploadImport(w http.ResponseWriter, r *http.Request) {
 	})
 	switch {
 	case errors.As(err, &parseErr):
-		s.renderImports(w, r, http.StatusUnprocessableEntity, nil, &notice{Kind: noticeError, Text: parseMessage(parseErr)})
+		s.renderImports(w, r, http.StatusUnprocessableEntity, nil, importMessage{Upload: parseMessage(parseErr)})
 	case err != nil:
 		s.serverError(w, r, err)
 	default:
-		s.renderImports(w, r, http.StatusOK, preview, nil)
+		s.renderImports(w, r, http.StatusOK, preview, importMessage{})
 	}
 }
 
@@ -156,7 +166,7 @@ func (s *Server) readUpload(w http.ResponseWriter, r *http.Request) ([]byte, boo
 		s.writeText(w, r, http.StatusForbidden, "Requête refusée : jeton de formulaire invalide.\n")
 		return nil, false
 	}
-	missing := &notice{Kind: noticeError, Text: "Choisis le fichier exporté depuis VPDive avant d'envoyer."}
+	missing := importMessage{Upload: "Choisis le fichier exporté depuis VPDive avant d'envoyer."}
 	part, err = mr.NextPart()
 	if err != nil || part.FormName() != "file" {
 		s.renderImports(w, r, http.StatusUnprocessableEntity, nil, missing)
@@ -167,7 +177,7 @@ func (s *Server) readUpload(w http.ResponseWriter, r *http.Request) ([]byte, boo
 	switch {
 	case errors.As(err, &tooBig) || len(data) > maxUploadBytes:
 		s.renderImports(w, r, http.StatusRequestEntityTooLarge, nil,
-			&notice{Kind: noticeError, Text: "Fichier trop volumineux : 5 Mo au plus."})
+			importMessage{Upload: "Fichier trop volumineux : 5 Mo au plus."})
 		return nil, false
 	case err != nil:
 		s.writeText(w, r, http.StatusBadRequest, "Envoi interrompu. Réessaie.\n")
@@ -198,16 +208,16 @@ func (s *Server) confirmImport(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, members.ErrSecondConfirmRequired):
 		preview, perr := s.members.Preview(id, username)
 		if perr != nil {
-			s.renderImports(w, r, http.StatusConflict, nil, expiredNotice())
+			s.renderImports(w, r, http.StatusConflict, nil, importMessage{Notice: expiredNotice()})
 			return
 		}
-		s.renderImports(w, r, http.StatusUnprocessableEntity, preview, &notice{Kind: noticeError,
-			Text: "Coche la seconde confirmation : ce fichier contient moins de la moitié des comptes de la liste actuelle."})
+		s.renderImports(w, r, http.StatusUnprocessableEntity, preview, importMessage{
+			Confirm: "Coche la seconde confirmation : ce fichier contient moins de la moitié des comptes de la liste actuelle."})
 	case errors.Is(err, members.ErrPreviewNotFound):
-		s.renderImports(w, r, http.StatusConflict, nil, expiredNotice())
+		s.renderImports(w, r, http.StatusConflict, nil, importMessage{Notice: expiredNotice()})
 	case errors.Is(err, members.ErrStale):
-		s.renderImports(w, r, http.StatusConflict, nil, &notice{Kind: noticeError,
-			Text: "Un autre import est passé entre-temps. Dépose de nouveau le fichier pour voir un aperçu à jour."})
+		s.renderImports(w, r, http.StatusConflict, nil, importMessage{Notice: &notice{Kind: noticeError,
+			Text: "Un autre import est passé entre-temps. Dépose de nouveau le fichier pour voir un aperçu à jour."}})
 	default:
 		s.serverError(w, r, err)
 	}

@@ -5,11 +5,6 @@
 <h2 id="membres-titre" class="text-xl font-semibold">Liste des membres</h2>
 <p class="mt-2">La liste des membres sert de liste blanche : seules ses adresses peuvent déposer une demande. Chaque import remplace toute la liste.</p>
 
-<div class="mt-4 border border-base-300 p-4">
-<p class="font-semibold">Où trouver l'export</p>
-<p class="mt-1">Dans VPDive, page <a class="link link-primary" href="{{.Data.MembersLink.URL}}" target="_blank" rel="noopener">liste des membres</a>, bouton « Télécharger », en haut à droite.</p>
-</div>
-
 {{with .Data.Last}}
 <dl class="mt-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
 <dt class="font-semibold">Export du</dt><dd>{{if .ExportedAt}}{{.ExportedAt}}{{else}}date inconnue{{end}}</dd>
@@ -38,6 +33,7 @@
 <input type="hidden" name="csrf" value="{{$.CSRF}}">
 <input type="hidden" name="apercu" value="{{.ID}}">
 {{if .NeedsSecondConfirm}}
+{{with $.Data.ConfirmError}}<p role="alert" class="text-error font-semibold">{{.}}</p>{{end}}
 <label class="flex min-h-11 items-start gap-3">
 <input class="checkbox mt-1" type="checkbox" name="confirmer_moitie" value="oui" required>
 <span>Ce fichier contient moins de la moitié des {{.Current}} comptes actuels. Je confirme le remplacement.</span>
@@ -51,10 +47,15 @@
 
 <form method="post" action="/imports" enctype="multipart/form-data" class="mt-6 flex flex-col gap-3">
 <input type="hidden" name="csrf" value="{{.CSRF}}">
+<div class=" border border-base-300 p-4">
+<p class="font-semibold">Où trouver l'export</p>
+<p class="mt-1">Dans VPDive, page <a class="link link-primary" href="{{.Data.MembersLink.URL}}" target="_blank" rel="noopener">liste des membres</a>, bouton « Télécharger », en haut à droite.</p>
+</div>
 <div class="flex flex-col gap-1">
 <label class="font-semibold" for="file">Fichier exporté (.xlsx, 5 Mo au plus)</label>
 <input class="file-input w-full" id="file" name="file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
 </div>
+{{with .Data.UploadError}}<p role="alert" class="text-error font-semibold">{{.}}</p>{{end}}
 <button class="btn {{if .Data.Preview}}btn-outline{{else}}btn-primary{{end}} min-h-11 self-start" type="submit">Voir l'aperçu</button>
 </form>
 </section>
