@@ -19,6 +19,20 @@
   sync();
 })();
 
+// Every POST form goes out once: a second tap or click would reuse a
+// single-use anti-robot token (member form) or hit a stale page (committee).
+// The submit button stays enabled: a disabled submitter drops its name=action.
+// A page restored from the back/forward cache starts afresh.
+const sent = new WeakSet();
+for (const form of document.querySelectorAll("form[method=post]")) {
+  form.addEventListener("submit", (event) => {
+    if (sent.has(form)) event.preventDefault();
+    else sent.add(form);
+  });
+}
+window.addEventListener("pageshow", () => {
+  for (const form of document.querySelectorAll("form[method=post]")) sent.delete(form);
+});
 
 // Committee board: live updates over SSE (spec §4.2). An event carries a
 // type and a request id only: the board fetches itself again and swaps its

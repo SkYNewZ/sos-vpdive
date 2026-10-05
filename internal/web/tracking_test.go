@@ -350,3 +350,27 @@ func TestTrackingTokenNeverReachesLogsOrSpans(t *testing.T) {
 		assert.NotContains(t, dump.String(), secret)
 	}
 }
+
+func TestMemberReplyCaptureLimitMessage(t *testing.T) {
+	e := newTestEnv(t)
+	tk := e.submitTicket(t, "lea.martin@example.org")
+	img := pngBytes(t)
+	for range 3 { // 9 stored: fewer than 10, yet 3 more do not fit
+		require.Equal(t, http.StatusSeeOther, e.reply(t, tk.Token, "Voici.", img, img, img).Code)
+	}
+	rec := e.reply(t, tk.Token, "Et encore.", img, img, img)
+	assert.Equal(t, http.StatusUnprocessableEntity, rec.Code)
+	assert.Contains(t, html.UnescapeString(rec.Body.String()), "Une demande garde 10 captures au plus")
+}
+
+func TestMemberReplyOnARequestDeletedMeanwhileShowsTheGonePage(t *testing.T) {
+	e := newTestEnv(t)
+	tk := e.submitTicket(t, "lea.martin@example.org")
+	// The reply limiter runs between the token lookup and the reply: delete
+	// the request there, as a committee member would concurrently.
+	_, err := e.db.ExecContext(context.Background(), `CREATE TRIGGER delete_meanwhile AFTER INSERT ON counters
+		WHEN NEW.key LIKE 'reply-ticket:%' BEGIN DELETE FROM tickets; END`)
+	require.NoError(t, err)
+	rec := e.reply(t, tk.Token, "Trop tard.")
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}

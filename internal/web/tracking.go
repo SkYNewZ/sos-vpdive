@@ -115,7 +115,9 @@ func (s *Server) memberReply(w http.ResponseWriter, r *http.Request) {
 		s.renderTracking(w, r, http.StatusUnprocessableEntity, d, reply, "Écris ton message : 4 000 caractères au plus.")
 	case errors.Is(err, tickets.ErrTooManyCaptures):
 		s.renderTracking(w, r, http.StatusUnprocessableEntity, d, reply,
-			"Cette demande a déjà 10 captures : envoie ton message sans capture.")
+			"Une demande garde 10 captures au plus : envoie-en moins, ou ton message sans capture.")
+	case errors.Is(err, tickets.ErrNotFound): // deleted since the link was opened
+		s.renderGone(w, r)
 	case errors.Is(err, tickets.ErrStorage):
 		s.logger.WarnContext(ctx, "capture storage unavailable", "error", err)
 		s.renderTracking(w, r, http.StatusServiceUnavailable, d, reply,
@@ -142,7 +144,12 @@ func (s *Server) memberClose(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := s.tickets.MemberClose(r.Context(), d.ID); err != nil && !errors.Is(err, tickets.ErrNotAllowed) {
+	err := s.tickets.MemberClose(r.Context(), d.ID)
+	if errors.Is(err, tickets.ErrNotFound) { // deleted since the link was opened
+		s.renderGone(w, r)
+		return
+	}
+	if err != nil && !errors.Is(err, tickets.ErrNotAllowed) {
 		s.serverError(w, r, err)
 		return
 	}

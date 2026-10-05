@@ -38,7 +38,7 @@ var (
 )
 
 // ponytail: one decode at a time bounds memory to a single 40 Mpx image
-// (about 160 MB); a per-request memory budget if uploads become frequent.
+// (about 320 MB: a 16-bit PNG decodes to 8 bytes per pixel); a per-request memory budget if uploads become frequent.
 var decodeMu sync.Mutex
 
 type codec struct {

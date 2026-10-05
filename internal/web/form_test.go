@@ -284,3 +284,10 @@ func TestTurnstileOnTheMemberForm(t *testing.T) {
 	assert.Equal(t, http.StatusSeeOther, e.sendRequest(t, v).Code)
 	assert.Equal(t, 1, e.count(t, "tickets"))
 }
+
+func TestFormKeyIsNotRestoredByTheBrowser(t *testing.T) {
+	e := newTestEnv(t)
+	e.importMembers(t, "members_valid.xlsx")
+	page := e.do(t, http.MethodGet, publicHost, "/", nil).Body.String()
+	assert.Regexp(t, `name="cle" value="[A-Za-z0-9_-]{43}" autocomplete="off"`, page)
+}
