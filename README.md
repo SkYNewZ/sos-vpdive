@@ -72,9 +72,10 @@ picked up by the hot reload).
   proxy's read timeout above 60 seconds (nginx: `proxy_buffering off;
   proxy_read_timeout 1h;`). Without the stream, the board still works and is
   refreshed by hand.
-- Allow request bodies up to 16 MB on the members host name: a request or a
-  reply carries up to three 5 MB screenshots plus its fields (nginx:
-  `client_max_body_size 16m;`).
+- Allow request bodies up to 16 MB on both host names: a request or a reply
+  carries up to three 5 MB screenshots plus its fields, and the committee host
+  takes members-import uploads (5 MiB plus fields), above nginx's 1 MB default
+  (nginx: `client_max_body_size 16m;` in both server blocks).
 - Serve HTTP/2 to browsers (nginx: `http2 on;`). The board and each request
   page hold a live stream open; over HTTP/1.1 six open tabs exhaust the
   browser's connection limit per host name.
