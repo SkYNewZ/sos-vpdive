@@ -122,22 +122,25 @@ const (
 	actorSystem = "system"
 )
 
-// Journal event types, as stored in events.type.
+// eventType is a journal event type, as stored in events.type.
+type eventType string
+
+// Journal event types.
 const (
-	eventSubmitted       = "submitted"
-	eventTaken           = "taken"
-	eventReassigned      = "reassigned"
-	eventUnassigned      = "unassigned"
-	eventWaiting         = "waiting"
-	eventResumed         = "resumed"
-	eventMemberReplied   = "member_replied"
-	eventReopened        = "reopened"
-	eventCategoryChanged = "category_changed"
-	eventClosed          = "closed"
-	eventClosedByMember  = "closed_by_member"
-	eventReleased        = "released"
-	eventCaptureDeleted  = "capture_deleted"
-	eventMessageDeleted  = "message_deleted"
+	eventSubmitted       eventType = "submitted"
+	eventTaken           eventType = "taken"
+	eventReassigned      eventType = "reassigned"
+	eventUnassigned      eventType = "unassigned"
+	eventWaiting         eventType = "waiting"
+	eventResumed         eventType = "resumed"
+	eventMemberReplied   eventType = "member_replied"
+	eventReopened        eventType = "reopened"
+	eventCategoryChanged eventType = "category_changed"
+	eventClosed          eventType = "closed"
+	eventClosedByMember  eventType = "closed_by_member"
+	eventReleased        eventType = "released"
+	eventCaptureDeleted  eventType = "capture_deleted"
+	eventMessageDeleted  eventType = "message_deleted"
 )
 
 // CleanText turns CRLF and CR into LF and trims spaces; ok is false when the
@@ -258,7 +261,7 @@ func (s *Store) openAll(dst []*string, sealed ...[]byte) error {
 }
 
 // addEvent journals an event. data never holds personal data.
-func (s *Store) addEvent(ctx context.Context, tx *sql.Tx, ticketID int64, typ, actor string, data map[string]string) error {
+func (s *Store) addEvent(ctx context.Context, tx *sql.Tx, ticketID int64, typ eventType, actor string, data map[string]string) error {
 	raw := []byte("{}")
 	if len(data) > 0 {
 		var err error
@@ -268,7 +271,7 @@ func (s *Store) addEvent(ctx context.Context, tx *sql.Tx, ticketID int64, typ, a
 	}
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO events (ticket_id, type, actor, data, created_at) VALUES (?, ?, ?, ?, ?)`,
-		ticketID, typ, actor, string(raw), s.Now().Unix()); err != nil {
+		ticketID, string(typ), actor, string(raw), s.Now().Unix()); err != nil {
 		return fmt.Errorf("journal %s: %w", typ, err)
 	}
 	return nil

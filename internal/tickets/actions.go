@@ -155,7 +155,7 @@ func (s *Store) apply(ctx context.Context, tx *sql.Tx, t ticketRow, cmd Command)
 }
 
 // transition saves after and journals the change.
-func (s *Store) transition(ctx context.Context, tx *sql.Tx, before, after ticketRow, actor, typ string, data map[string]string) error {
+func (s *Store) transition(ctx context.Context, tx *sql.Tx, before, after ticketRow, actor string, typ eventType, data map[string]string) error {
 	if err := s.save(ctx, tx, before, after); err != nil {
 		return err
 	}
@@ -181,7 +181,7 @@ func (s *Store) reply(ctx context.Context, tx *sql.Tx, t ticketRow, cmd Command)
 	if err != nil {
 		return err
 	}
-	after, typ := t, ""
+	after, typ := t, eventType("")
 	d := mailData{Resolver: s.resolverText(cmd.Actor), Excerpt: truncate(cmd.Body, replyExcerpt)}
 	if cmd.Action == ActionReplyWait {
 		d.Waiting = true
@@ -252,7 +252,7 @@ func (s *Store) memberReply(ctx context.Context, tx *sql.Tx, t ticketRow, body s
 	if err := s.insertAttachments(ctx, tx, t.id, msgID, captures, keys); err != nil {
 		return err
 	}
-	after, typ, data := t, "", map[string]string(nil)
+	after, typ, data := t, eventType(""), map[string]string(nil)
 	if t.status == StatusWaiting {
 		after.status, typ = StatusInProgress, eventMemberReplied
 	}
