@@ -170,6 +170,18 @@ func TestBackupThenRestoreOnABlankMachine(t *testing.T) {
 	require.ErrorIs(t, run(ctx, []string{"restore", backupFile}, getenv(wrong), nil, &bytes.Buffer{}), store.ErrWrongKey)
 }
 
+func TestBackupRefusesMissingDatabase(t *testing.T) {
+	env := devEnv(t, freePort(t))
+	env["DATA_DIR"] = t.TempDir()
+	backupFile := filepath.Join(t.TempDir(), "backup.db")
+	err := run(context.Background(), []string{"backup", backupFile}, getenv(env), nil, &bytes.Buffer{})
+	require.ErrorContains(t, err, "no database to back up")
+	entries, err := os.ReadDir(env["DATA_DIR"])
+	require.NoError(t, err)
+	assert.Empty(t, entries)
+	assert.NoFileExists(t, backupFile)
+}
+
 func TestServeAnswersHealthcheckAndStops(t *testing.T) {
 	env := devEnv(t, freePort(t))
 	ctx, cancel := context.WithCancel(context.Background())

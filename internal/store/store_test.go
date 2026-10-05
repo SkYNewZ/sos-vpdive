@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -140,6 +141,36 @@ func TestBackupAndRestore(t *testing.T) {
 	var n int
 	require.NoError(t, restored.QueryRowContext(ctx, `SELECT count FROM counters WHERE key = 'k'`).Scan(&n))
 	assert.Equal(t, 42, n)
+}
+
+func TestBackupIsARollbackJournalFile(t *testing.T) {
+	ctx := context.Background()
+	db, _ := openTemp(t)
+	require.NoError(t, CheckKey(ctx, db, keys(t, 1)))
+	backup := filepath.Join(t.TempDir(), "backup.db")
+	require.NoError(t, Backup(ctx, db, backup))
+	header, err := os.ReadFile(backup)
+	require.NoError(t, err)
+	assert.Equal(t, []byte{1, 1}, header[18:20], "file format write/read versions: 1 is rollback journal, 2 is WAL")
+}
+
+func TestRestoreFromReadOnlyBackup(t *testing.T) {
+	ctx := context.Background()
+	db, _ := openTemp(t)
+	require.NoError(t, CheckKey(ctx, db, keys(t, 1)))
+	dir := t.TempDir()
+	backup := filepath.Join(dir, "backup.db")
+	require.NoError(t, Backup(ctx, db, backup))
+	require.NoError(t, os.Chmod(backup, 0o444))
+	require.NoError(t, os.Chmod(dir, 0o555))
+	t.Cleanup(func() { assert.NoError(t, os.Chmod(dir, 0o700)) })
+
+	require.NoError(t, Restore(ctx, backup, filepath.Join(t.TempDir(), FileName), keys(t, 1)))
+}
+
+func TestRestoreFromMissingFile(t *testing.T) {
+	err := Restore(context.Background(), filepath.Join(t.TempDir(), "nope.db"), filepath.Join(t.TempDir(), FileName), keys(t, 1))
+	require.ErrorIs(t, err, os.ErrNotExist)
 }
 
 func TestRestoreRefusesForeignFile(t *testing.T) {

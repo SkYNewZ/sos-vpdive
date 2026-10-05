@@ -86,7 +86,11 @@ func backup(ctx context.Context, getenv func(string) string, dest string, stdout
 	if err != nil {
 		return err
 	}
-	db, err := store.Open(ctx, filepath.Join(cfg.DataDir, store.FileName))
+	path := filepath.Join(cfg.DataDir, store.FileName)
+	if _, err := os.Stat(path); err != nil {
+		return fmt.Errorf("no database to back up: %w", err)
+	}
+	db, err := store.Open(ctx, path)
 	if err != nil {
 		return err
 	}

@@ -34,7 +34,12 @@ func Backup(ctx context.Context, db *sql.DB, dest string) (err error) {
 		return fmt.Errorf("backup: %w", err)
 	}
 	defer func() { err = errors.Join(err, conn.Close()) }()
-	return conn.Raw(func(dc any) error {
+	defer func() {
+		if err != nil {
+			err = errors.Join(err, removePartial(dest))
+		}
+	}()
+	err = conn.Raw(func(dc any) error {
 		b, ok := dc.(backuper)
 		if !ok {
 			return errors.New("backup: driver lacks the backup API")
@@ -45,6 +50,33 @@ func Backup(ctx context.Context, db *sql.DB, dest string) (err error) {
 		}
 		return copyPages(bk)
 	})
+	if err != nil {
+		return err
+	}
+	return setRollbackJournal(ctx, dest)
+}
+
+// removePartial deletes a backup file left behind by a failed Backup.
+func removePartial(dest string) error {
+	if err := os.Remove(dest); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("backup: remove partial %s: %w", dest, err)
+	}
+	return nil
+}
+
+// setRollbackJournal makes the copy a self-contained file: the page copy keeps
+// the source's WAL flag, and a WAL database cannot be opened read-only without
+// creating -shm and -wal files next to it (fails on a read-only mount).
+func setRollbackJournal(ctx context.Context, dest string) (err error) {
+	db, err := sql.Open("sqlite", dest)
+	if err != nil {
+		return fmt.Errorf("backup: open %s: %w", dest, err)
+	}
+	defer func() { err = errors.Join(err, db.Close()) }()
+	if _, err := db.ExecContext(ctx, `PRAGMA journal_mode=DELETE`); err != nil {
+		return fmt.Errorf("backup: journal mode: %w", err)
+	}
+	return nil
 }
 
 // Restore replaces the database at dest with the backup at src, after checking
@@ -85,6 +117,9 @@ func checkBackup(ctx context.Context, src string, keys *secure.Keys) (err error)
 		return fmt.Errorf("restore: open %s: %w", src, err)
 	}
 	defer func() { err = errors.Join(err, db.Close()) }()
+	if err := db.PingContext(ctx); err != nil {
+		return fmt.Errorf("restore: cannot open %s: %w", src, err)
+	}
 	var sealed []byte
 	if err := db.QueryRowContext(ctx, `SELECT value FROM meta WHERE key = 'key_check'`).Scan(&sealed); err != nil {
 		return fmt.Errorf("restore: %s is not a backup of this application: %w", src, err)
