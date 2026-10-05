@@ -97,12 +97,13 @@ func (s *Store) queue(ctx context.Context, tx *sql.Tx, m mail.Mail, d mailData) 
 	return nil
 }
 
-// resolverText names a resolver the way member mails do: "Alice, présidente".
+// resolverText names a resolver the way member mails do, with the apposition
+// closed so it reads in a sentence: "Alice, présidente,".
 func (s *Store) resolverText(username string) string {
 	a, ok := s.Account(username)
 	if !ok {
 		return "Un membre du comité"
 	}
 	r, size := utf8.DecodeRuneInString(a.Role)
-	return a.Name + ", " + string(unicode.ToLower(r)) + a.Role[size:]
+	return a.Name + ", " + string(unicode.ToLower(r)) + a.Role[size:] + ","
 }
