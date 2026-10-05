@@ -28,13 +28,13 @@ func (s *Server) loginForm(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
-	s.renderLogin(w, r, http.StatusOK, "", nil)
+	s.renderLogin(w, r, http.StatusOK, "", notice{})
 }
 
-func (s *Server) renderLogin(w http.ResponseWriter, r *http.Request, status int, username string, n *notice) {
+func (s *Server) renderLogin(w http.ResponseWriter, r *http.Request, status int, username string, n notice) {
 	p := s.newPage(r, "Connexion")
-	if n != nil {
-		p.Notices = append(p.Notices, *n)
+	if n.Kind != "" {
+		p.Notices = append(p.Notices, n)
 	}
 	data := loginData{Username: username}
 	if s.turnstile != nil {
@@ -50,7 +50,7 @@ func (s *Server) renderLogin(w http.ResponseWriter, r *http.Request, status int,
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, loginBodyLimit)
 	if err := r.ParseForm(); err != nil {
-		s.renderLogin(w, r, http.StatusBadRequest, "", &notice{Kind: noticeError, Text: "Formulaire illisible. Réessaie."})
+		s.renderLogin(w, r, http.StatusBadRequest, "", notice{Kind: noticeError, Text: "Formulaire illisible. Réessaie."})
 		return
 	}
 	ctx := r.Context()
@@ -64,11 +64,11 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.Is(err, ErrBotCheckUnavailable):
 			s.logger.WarnContext(ctx, "turnstile unavailable", "error", err)
-			s.renderLogin(w, r, http.StatusServiceUnavailable, username, &notice{Kind: noticeError,
+			s.renderLogin(w, r, http.StatusServiceUnavailable, username, notice{Kind: noticeError,
 				Text: "Le contrôle anti-robot ne répond pas. Réessaie dans un instant, ou écris au club : " + s.cfg.NotifyEmail.Address + "."})
 			return
 		case err != nil:
-			s.renderLogin(w, r, http.StatusForbidden, username, &notice{Kind: noticeError, Text: "Le contrôle anti-robot a échoué. Réessaie."})
+			s.renderLogin(w, r, http.StatusForbidden, username, notice{Kind: noticeError, Text: "Le contrôle anti-robot a échoué. Réessaie."})
 			return
 		}
 	}
@@ -83,7 +83,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if wait > 0 {
-		s.renderLogin(w, r, http.StatusTooManyRequests, username, &notice{Kind: noticeError,
+		s.renderLogin(w, r, http.StatusTooManyRequests, username, notice{Kind: noticeError,
 			Text: "Trop d'essais. Réessaie dans " + humanDuration(wait) + "."})
 		return
 	}
@@ -103,7 +103,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 			s.serverError(w, r, err)
 			return
 		}
-		s.renderLogin(w, r, http.StatusUnauthorized, username, &notice{Kind: noticeError, Text: "Identifiant ou mot de passe incorrect."})
+		s.renderLogin(w, r, http.StatusUnauthorized, username, notice{Kind: noticeError, Text: "Identifiant ou mot de passe incorrect."})
 		return
 	}
 	if err := s.limiter.succeed(ctx, username); err != nil {
@@ -117,10 +117,24 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
-func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
+// forbidCSRF refuses a form whose anti-CSRF token is missing or invalid.
+func (s *Server) forbidCSRF(w http.ResponseWriter, r *http.Request) {
+	s.writeText(w, r, http.StatusForbidden, "Requête refusée : jeton de formulaire invalide.\n")
+}
+
+// postForm parses a small urlencoded form and checks its CSRF token; it has
+// already answered 403 when it returns false.
+func (s *Server) postForm(w http.ResponseWriter, r *http.Request) bool {
 	r.Body = http.MaxBytesReader(w, r.Body, loginBodyLimit)
 	if err := r.ParseForm(); err != nil || !s.csrfValid(r, r.PostForm.Get("csrf")) {
-		s.writeText(w, r, http.StatusForbidden, "Requête refusée : jeton de formulaire invalide.\n")
+		s.forbidCSRF(w, r)
+		return false
+	}
+	return true
+}
+
+func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
+	if !s.postForm(w, r) {
 		return
 	}
 	sess, _ := sessionFrom(r.Context())
@@ -173,7 +187,7 @@ func (s *Server) adminNotices(ctx context.Context) ([]notice, error) {
 	}
 	if ok && s.now().Sub(last.ImportedAt) > s.cfg.MembersMaxAge {
 		out = append(out, notice{Kind: noticeWarning,
-			Text: fmt.Sprintf("La liste des membres date du %s. Pense à refaire l'import.", last.ImportedAt.In(s.paris).Format("02/01/2006")),
+			Text: fmt.Sprintf("La liste des membres date du %s. Pense à refaire l'import.", s.formatDate(last.ImportedAt)),
 			Link: "/imports", LinkText: "Refaire l'import"})
 	}
 	return out, nil

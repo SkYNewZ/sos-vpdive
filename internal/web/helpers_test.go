@@ -26,10 +26,10 @@ import (
 	"github.com/SkYNewZ/sos-vpdive/internal/admins"
 	"github.com/SkYNewZ/sos-vpdive/internal/config"
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
+	"github.com/SkYNewZ/sos-vpdive/internal/members/memberstest"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 	"github.com/SkYNewZ/sos-vpdive/internal/store"
 	"github.com/SkYNewZ/sos-vpdive/internal/telemetry"
-	"github.com/SkYNewZ/sos-vpdive/internal/xlsx"
 )
 
 const (
@@ -175,8 +175,6 @@ func (e *testEnv) do(t *testing.T, method, host, target string, body io.Reader, 
 	return rec
 }
 
-var fixtureLimits = xlsx.Limits{MaxUncompressed: 50 << 20, MaxRows: 20_000, MaxCells: 1_000_000}
-
 var csrfPattern = regexp.MustCompile(`name="csrf" value="([^"]+)"`)
 
 func formBody(v url.Values) io.Reader { return strings.NewReader(v.Encode()) }
@@ -225,14 +223,5 @@ func (e *testEnv) csrf(t *testing.T, cookie *http.Cookie, path string) string {
 // importMembers imports a fixture directly through the members store.
 func (e *testEnv) importMembers(t *testing.T, fixture string) {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "fixtures", fixture))
-	require.NoError(t, err)
-	rows, err := xlsx.ReadFirstSheet(data, fixtureLimits)
-	require.NoError(t, err)
-	exp, err := members.Parse(rows, time.UTC)
-	require.NoError(t, err)
-	p, err := e.deps.Members.NewPreview(context.Background(), "alice", exp)
-	require.NoError(t, err)
-	_, err = e.deps.Members.Confirm(context.Background(), p.ID, "alice", true)
-	require.NoError(t, err)
+	memberstest.Import(t, e.deps.Members, fixture)
 }

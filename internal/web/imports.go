@@ -9,8 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"go.opentelemetry.io/otel"
-
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
 	"github.com/SkYNewZ/sos-vpdive/internal/telemetry"
 	"github.com/SkYNewZ/sos-vpdive/internal/xlsx"
@@ -23,17 +21,17 @@ const (
 	maxFieldBytes  = 1 << 10
 	maxListedRows  = 20
 	dateTimeFormat = "02/01/2006 à 15:04"
+	dateFormat     = "02/01/2006"
 )
 
-var importLimits = xlsx.Limits{MaxUncompressed: 50 << 20, MaxRows: 20_000, MaxCells: 1_000_000}
-
+// importsData embeds the message: Upload and Confirm errors sit next to their
+// form's action (spec §12.1).
 type importsData struct {
+	importMessage
+
 	MembersLink vpdiveLink
 	Last        *importView
-	Preview     *previewView
-	// UploadError and ConfirmError sit next to their form's action (spec §12.1).
-	UploadError  string
-	ConfirmError string
+	Preview     *members.Preview
 }
 
 // importMessage is what a page render reports: a page-level notice, or an
@@ -49,19 +47,6 @@ type importView struct {
 	Author     string
 	Rows       int
 	Skipped    int
-}
-
-type previewView struct {
-	ID                 string
-	ExportedAt         string
-	Total              int
-	Added              int
-	Removed            int
-	Current            int
-	Skipped            int
-	AmbiguousGroups    int
-	AmbiguousAccounts  int
-	NeedsSecondConfirm bool
 }
 
 func (s *Server) importsPage(w http.ResponseWriter, r *http.Request) {
@@ -81,7 +66,7 @@ func (s *Server) renderImports(w http.ResponseWriter, r *http.Request, status in
 	if m.Notice != nil {
 		p.Notices = append(p.Notices, *m.Notice)
 	}
-	data := importsData{MembersLink: s.vpdive["membres"], UploadError: m.Upload, ConfirmError: m.Confirm}
+	data := importsData{importMessage: m, MembersLink: s.vpdive["membres"], Preview: preview}
 	last, ok, err := s.members.LastImport(r.Context())
 	if err != nil {
 		s.serverError(w, r, err)
@@ -94,14 +79,6 @@ func (s *Server) renderImports(w http.ResponseWriter, r *http.Request, status in
 			Author:     s.author(last.ImportedBy),
 			Rows:       last.Rows,
 			Skipped:    last.Skipped,
-		}
-	}
-	if preview != nil {
-		data.Preview = &previewView{
-			ID: preview.ID, ExportedAt: s.formatTime(preview.ExportedAt),
-			Total: preview.Total, Added: preview.Added, Removed: preview.Removed, Current: preview.Current,
-			Skipped: preview.Skipped, AmbiguousGroups: preview.AmbiguousGroups,
-			AmbiguousAccounts: preview.AmbiguousAccounts, NeedsSecondConfirm: preview.NeedsSecondConfirm,
 		}
 	}
 	p.Data = data
@@ -118,9 +95,9 @@ func (s *Server) uploadImport(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	var rows []xlsx.Row
-	if err := traced(ctx, "import.read", func(context.Context) error {
+	if err := telemetry.Trace(ctx, s.tracer, "import.read", func(context.Context) error {
 		var err error
-		rows, err = xlsx.ReadFirstSheet(data, importLimits)
+		rows, err = xlsx.ReadFirstSheet(data, members.ImportLimits())
 		return err
 	}); err != nil {
 		s.renderImports(w, r, http.StatusUnprocessableEntity, nil, importMessage{Upload: workbookMessage(err)})
@@ -129,7 +106,7 @@ func (s *Server) uploadImport(w http.ResponseWriter, r *http.Request) {
 	sess, _ := sessionFrom(ctx)
 	var preview *members.Preview
 	var parseErr *members.ParseError
-	err := traced(ctx, "import.validate", func(ctx context.Context) error {
+	err := telemetry.Trace(ctx, s.tracer, "import.validate", func(ctx context.Context) error {
 		exp, err := members.Parse(rows, s.paris)
 		if err != nil {
 			return err
@@ -158,12 +135,12 @@ func (s *Server) readUpload(w http.ResponseWriter, r *http.Request) ([]byte, boo
 	}
 	part, err := mr.NextPart()
 	if err != nil || part.FormName() != "csrf" {
-		s.writeText(w, r, http.StatusForbidden, "Requête refusée : jeton de formulaire invalide.\n")
+		s.forbidCSRF(w, r)
 		return nil, false
 	}
 	token, err := io.ReadAll(io.LimitReader(part, maxFieldBytes))
 	if err != nil || !s.csrfValid(r, string(token)) {
-		s.writeText(w, r, http.StatusForbidden, "Requête refusée : jeton de formulaire invalide.\n")
+		s.forbidCSRF(w, r)
 		return nil, false
 	}
 	missing := importMessage{Upload: "Choisis le fichier exporté depuis VPDive avant d'envoyer."}
@@ -190,15 +167,13 @@ func (s *Server) readUpload(w http.ResponseWriter, r *http.Request) ([]byte, boo
 }
 
 func (s *Server) confirmImport(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, loginBodyLimit)
-	if err := r.ParseForm(); err != nil || !s.csrfValid(r, r.PostForm.Get("csrf")) {
-		s.writeText(w, r, http.StatusForbidden, "Requête refusée : jeton de formulaire invalide.\n")
+	if !s.postForm(w, r) {
 		return
 	}
 	sess, _ := sessionFrom(r.Context())
 	username := sess.account.Username
 	id := r.PostForm.Get("apercu")
-	err := traced(r.Context(), "import.replace", func(ctx context.Context) error {
+	err := telemetry.Trace(r.Context(), s.tracer, "import.replace", func(ctx context.Context) error {
 		_, err := s.members.Confirm(ctx, id, username, r.PostForm.Get("confirmer_moitie") == "oui")
 		return err
 	})
@@ -225,17 +200,6 @@ func (s *Server) confirmImport(w http.ResponseWriter, r *http.Request) {
 
 func expiredNotice() *notice {
 	return &notice{Kind: noticeWarning, Text: "Cet aperçu a expiré ou a déjà servi. Dépose de nouveau le fichier si besoin."}
-}
-
-// traced runs fn in a span; a failure records a stable code.
-func traced(ctx context.Context, name string, fn func(context.Context) error) error {
-	ctx, span := otel.Tracer(tracerName).Start(ctx, name)
-	defer span.End()
-	err := fn(ctx)
-	if err != nil {
-		telemetry.Fail(span, name+".failed")
-	}
-	return err
 }
 
 func workbookMessage(err error) string {
@@ -286,6 +250,10 @@ func (s *Server) formatTime(t time.Time) string {
 		return ""
 	}
 	return t.In(s.paris).Format(dateTimeFormat)
+}
+
+func (s *Server) formatDate(t time.Time) string {
+	return t.In(s.paris).Format(dateFormat)
 }
 
 // author names the committee member of an import, or their username when the

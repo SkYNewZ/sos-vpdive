@@ -14,6 +14,9 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/SkYNewZ/sos-vpdive/internal/admins"
 	"github.com/SkYNewZ/sos-vpdive/internal/config"
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
@@ -44,6 +47,10 @@ type Server struct {
 	logger  *slog.Logger
 	now     func() time.Time
 	paris   *time.Location
+	tracer  trace.Tracer
+
+	// publicHost and adminHost are the normalised host keys of the two sites.
+	publicHost, adminHost string
 
 	turnstile *Turnstile
 	limiter   *limiter
@@ -81,15 +88,18 @@ func New(d Deps) (*Server, error) {
 	}
 	s := &Server{
 		cfg: d.Config, db: d.DB, keys: d.Keys, members: d.Members, admins: d.Admins,
-		logger: d.Logger, now: d.Now, paris: paris,
-		robots: robots, vpdive: links, assets: static,
+		logger: d.Logger, now: d.Now, paris: paris, tracer: otel.Tracer(tracerName),
+		publicHost: hostKey(d.Config.BaseURL.Host, d.Config.BaseURL.Scheme),
+		adminHost:  hostKey(d.Config.AdminBaseURL.Host, d.Config.AdminBaseURL.Scheme),
+		turnstile:  d.Turnstile,
+		limiter:    &limiter{db: d.DB, keys: d.Keys, now: d.Now},
+		robots:     robots, vpdive: links, assets: static,
 	}
-	s.turnstile = d.Turnstile
-	s.limiter = &limiter{db: d.DB, keys: d.Keys, now: d.Now}
-	if s.dummyHash, err = admins.HashPassword("dummy password for unknown usernames"); err != nil {
+	if s.dummyHash, err = dummyHash(); err != nil {
 		return nil, err
 	}
-	if s.pages, err = parsePages(s.templateFuncs()); err != nil {
+	funcs := template.FuncMap{"static": s.assets.URL, "formatTime": s.formatTime}
+	if s.pages, err = parsePages(funcs); err != nil {
 		return nil, err
 	}
 	s.public = s.requireOrigin(d.Config.BaseURL, s.publicRoutes())
@@ -97,6 +107,12 @@ func New(d Deps) (*Server, error) {
 	s.handler = s.recoverPanics(s.withClientIP(securityHeaders(s.refuseAIRobots(http.HandlerFunc(s.route)))))
 	return s, nil
 }
+
+// dummyHash is computed once per process: unknown usernames are verified
+// against it so that login time does not reveal which accounts exist.
+var dummyHash = sync.OnceValues(func() (string, error) {
+	return admins.HashPassword("dummy password for unknown usernames")
+})
 
 // ServeHTTP implements http.Handler.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -106,13 +122,17 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // route picks the site by host name. An unknown host gets a 404 (spec §9.6).
 func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 	switch {
-	case matchHost(r.Host, s.cfg.BaseURL):
+	case hostKey(r.Host, s.cfg.BaseURL.Scheme) == s.publicHost:
 		s.public.ServeHTTP(w, r)
-	case matchHost(r.Host, s.cfg.AdminBaseURL):
+	case s.isAdminHost(r):
 		s.admin.ServeHTTP(w, r)
 	default:
-		s.writeText(w, r, http.StatusNotFound, "Page introuvable.\n")
+		s.notFound(w, r)
 	}
+}
+
+func (s *Server) isAdminHost(r *http.Request) bool {
+	return hostKey(r.Host, s.cfg.AdminBaseURL.Scheme) == s.adminHost
 }
 
 func (s *Server) publicRoutes() *http.ServeMux {
@@ -153,10 +173,6 @@ func (s *Server) handle(mux *http.ServeMux, pattern string, h http.HandlerFunc) 
 		route = "unmatched"
 	}
 	mux.Handle(pattern, s.instrument(route, h))
-}
-
-func (s *Server) templateFuncs() template.FuncMap {
-	return template.FuncMap{"static": s.assets.URL}
 }
 
 func (s *Server) publicHome(w http.ResponseWriter, r *http.Request) {

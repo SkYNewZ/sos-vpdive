@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
@@ -96,12 +95,7 @@ func remoteAddr(r *http.Request) netip.Addr {
 }
 
 func (s *Server) trusted(ip netip.Addr) bool {
-	for _, p := range s.cfg.TrustedProxies {
-		if p.Contains(ip) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(s.cfg.TrustedProxies, func(p netip.Prefix) bool { return p.Contains(ip) })
 }
 
 // securityHeaders sets the headers of spec §11.5 and §11.8 on every response.
@@ -156,7 +150,7 @@ func (s *Server) requireOrigin(site *url.URL, next http.Handler) http.Handler {
 // named after the route pattern, never the path (spec §9.9). Incoming trace
 // context is honoured only from trusted proxies.
 func (s *Server) instrument(route string, next http.Handler) http.Handler {
-	tracer := otel.Tracer(tracerName)
+	tracer := s.tracer
 	_, routePath, found := strings.Cut(route, " ")
 	if !found {
 		routePath = route
@@ -211,12 +205,8 @@ func (r *statusRecorder) Unwrap() http.ResponseWriter {
 	return r.ResponseWriter
 }
 
-// matchHost compares a request Host with a configured URL, ignoring case and
-// the scheme's default port.
-func matchHost(host string, site *url.URL) bool {
-	return hostKey(host, site.Scheme) == hostKey(site.Host, site.Scheme)
-}
-
+// hostKey normalises a host for comparison: lower case, without the
+// scheme's default port.
 func hostKey(host, scheme string) string {
 	host = strings.ToLower(host)
 	h, port, err := net.SplitHostPort(host)

@@ -8,7 +8,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -19,13 +18,15 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace/noop"
+
+	"github.com/SkYNewZ/sos-vpdive/internal/members/memberstest"
 )
 
 var previewPattern = regexp.MustCompile(`name="apercu" value="([^"]+)"`)
 
 func fixtureBytes(t *testing.T, name string) []byte {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "fixtures", name))
+	data, err := os.ReadFile(memberstest.FixturePath(name))
 	require.NoError(t, err)
 	return data
 }
