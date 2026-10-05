@@ -1,0 +1,6 @@
+Bonjour {{.FirstName}},
+
+Ta demande {{.Ref}} est réglée. Si ce n'est pas le cas, tu peux encore répondre pendant 14 jours depuis sa page :
+{{.Link}}
+
+Ne réponds pas à ce mail, ta réponse ne serait pas lue : écris-nous depuis la page de ta demande.

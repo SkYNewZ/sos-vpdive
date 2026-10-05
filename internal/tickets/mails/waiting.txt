@@ -1,0 +1,7 @@
+Bonjour {{.FirstName}},
+
+Pour avancer sur ta demande {{.Ref}}, nous attendons une réponse de ta part.
+
+Répondre : {{.Link}}
+
+Ne réponds pas à ce mail, ta réponse ne serait pas lue : écris-nous depuis la page de ta demande.

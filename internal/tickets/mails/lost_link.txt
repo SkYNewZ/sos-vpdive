@@ -1,0 +1,10 @@
+Bonjour,
+
+Voici les liens de suivi de tes demandes :
+{{range .Links}}
+{{.Ref}} : {{.Link}}
+{{- end}}
+
+Garde ce mail : ces liens sont le seul accès à tes demandes. Ne les transmets à personne. Si tu n'as rien demandé, ignore ce mail.
+
+Ne réponds pas à ce mail, ta réponse ne serait pas lue : écris-nous depuis la page de ta demande.

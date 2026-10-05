@@ -1,0 +1,17 @@
+Bonjour {{.FirstName}},
+
+{{.Resolver}} a répondu à ta demande {{.Ref}} :
+
+{{.Excerpt}}
+{{- if .Waiting}}
+
+Une réponse de ta part est attendue pour avancer.
+{{- end}}
+{{- if .Closed}}
+
+Ta demande est maintenant réglée. Si ce n'est pas le cas, tu peux encore répondre pendant 14 jours depuis sa page.
+{{- end}}
+
+Lire la réponse complète et répondre : {{.Link}}
+
+Ne réponds pas à ce mail, ta réponse ne serait pas lue : écris-nous depuis la page de ta demande.
