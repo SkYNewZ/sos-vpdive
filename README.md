@@ -72,6 +72,12 @@ picked up by the hot reload).
   proxy's read timeout above 60 seconds (nginx: `proxy_buffering off;
   proxy_read_timeout 1h;`). Without the stream, the board still works and is
   refreshed by hand.
+- Allow request bodies up to 16 MB on the members host name: a request or a
+  reply carries up to three 5 MB screenshots plus its fields (nginx:
+  `client_max_body_size 16m;`).
+- Serve HTTP/2 to browsers (nginx: `http2 on;`). The board and each request
+  page hold a live stream open; over HTTP/1.1 six open tabs exhaust the
+  browser's connection limit per host name.
 
 ## Configuration
 
@@ -116,13 +122,16 @@ Screenshots live in an S3-compatible bucket, Cloudflare R2 in production:
   object read and write on this bucket only.
 - The service encrypts every screenshot before upload and serves it itself;
   browsers never get a bucket URL. A daily job removes objects left without a
-  request for more than 24 hours.
+  request for more than 24 hours. For that reason the bucket must hold
+  nothing else and must not be shared between instances: that job deletes
+  every object it does not recognise once it is older than 24 hours.
 - `backup` covers the database only; screenshots stay in the bucket.
 
 ## Data protection
 
-- Personal data (names, emails, imported VPDive fields) is encrypted with
-  AES-256-GCM before it reaches SQLite. Keys derive from `SECRET_KEY`.
+- Personal data (names, emails, imported VPDive fields, request descriptions
+  and fields, messages and committee notes, tracking tokens, queued mails) is
+  encrypted with AES-256-GCM before it reaches SQLite. Keys derive from `SECRET_KEY`.
 - At startup the service checks that `SECRET_KEY` decrypts the existing data
   and refuses to start otherwise.
 - There is no key rotation. Changing `SECRET_KEY` makes existing data
@@ -173,7 +182,7 @@ are allowed), and an image build. No image is published.
 | `go.yaml.in/yaml/v3` | YAML content and accounts files (maintained successor of `gopkg.in/yaml.v3`) |
 | `go.opentelemetry.io/otel`, `otel/trace`, `otel/sdk`, `otlptracehttp` | Traces over OTLP/HTTP, exported only when configured |
 | `github.com/dicebear/dicebear-go/v10`, `github.com/dicebear/styles/v10` | Committee avatars generated offline (Voxel Art style, CC0); they pull `github.com/dicebear/schema` and `github.com/santhosh-tekuri/jsonschema/v6` indirectly |
-| `github.com/minio/minio-go/v7` | S3 client for the private screenshot bucket (Cloudflare R2, any S3-compatible store); it pulls `klauspost/compress`, `minio/md5-simd`, `minio/crc64nvme`, `rs/xid`, `tinylib/msgp`, `zeebo/xxh3` and `gopkg.in/ini.v1` indirectly |
+| `github.com/minio/minio-go/v7` | S3 client for the private screenshot bucket (Cloudflare R2, any S3-compatible store); it pulls `klauspost/compress`, `klauspost/cpuid`, `klauspost/crc32`, `minio/crc64nvme`, `minio/md5-simd`, `philhofer/fwd`, `rs/xid`, `tinylib/msgp`, `zeebo/xxh3` and `gopkg.in/ini.v1` indirectly |
 | `github.com/stretchr/testify` | Tests only |
 | Tailwind CSS standalone CLI v4, daisyUI 5 (vendored `.mjs`) | Stylesheet built without Node or npm, checksums verified |
 | Atkinson Hyperlegible Next | Self-hosted font, SIL Open Font License (`internal/web/static/fonts/OFL.txt`) |
