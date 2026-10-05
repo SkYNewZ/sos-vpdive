@@ -22,6 +22,7 @@ import (
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
 	"github.com/SkYNewZ/sos-vpdive/internal/members/memberstest"
 	"github.com/SkYNewZ/sos-vpdive/internal/store"
+	"github.com/SkYNewZ/sos-vpdive/internal/tickets"
 )
 
 var testHash = sync.OnceValue(func() string {
@@ -212,4 +213,57 @@ func TestServeAnswersHealthcheckAndStops(t *testing.T) {
 func importFixture(t *testing.T, s *members.Store) {
 	t.Helper()
 	memberstest.Import(t, s, "members_valid.xlsx")
+}
+
+// writeAccounts replaces the accounts file with one account per username.
+func writeAccounts(t *testing.T, path string, usernames ...string) {
+	t.Helper()
+	var b strings.Builder
+	b.WriteString("admins:\n")
+	for _, u := range usernames {
+		b.WriteString("  - username: " + u + "\n    name: " + strings.ToUpper(u[:1]) + u[1:] +
+			"\n    role: Membre du comité\n    password_hash: \"" + testHash() + "\"\n")
+	}
+	require.NoError(t, os.WriteFile(path, []byte(b.String()), 0o600))
+}
+
+// An account removed while the service was stopped must not keep requests:
+// setup releases them before serving (spec §4.1, §8.1).
+func TestSetupReleasesRequestsOfAccountsRemovedWhileStopped(t *testing.T) {
+	ctx := context.Background()
+	env := devEnv(t, freePort(t))
+	writeAccounts(t, env["ADMINS_FILE"], "alice", "bob")
+	cfg, err := config.Load(getenv(env))
+	require.NoError(t, err)
+
+	a, err := setup(ctx, cfg, quietLogger())
+	require.NoError(t, err)
+	importFixture(t, a.members)
+	_, err = a.tickets.Submit(ctx, tickets.Submission{
+		FormKey:     "acceptance-form-key",
+		FirstName:   "Léa",
+		LastName:    "Martin",
+		Email:       "lea.martin@example.org",
+		Fields:      tickets.Fields{Category: "autre", Values: map[string]string{}},
+		Description: "Je ne retrouve pas mon inscription à la sortie de samedi.",
+	})
+	require.NoError(t, err)
+	rows, err := a.tickets.Board(ctx, tickets.Filter{})
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	d, err := a.tickets.Detail(ctx, rows[0].ID)
+	require.NoError(t, err)
+	require.NoError(t, a.tickets.Apply(ctx, tickets.Command{
+		Action: tickets.ActionTake, TicketID: d.ID, Version: d.Version, Actor: "bob",
+	}))
+	require.NoError(t, a.db.Close())
+
+	writeAccounts(t, env["ADMINS_FILE"], "alice")
+	again, err := setup(ctx, cfg, quietLogger())
+	require.NoError(t, err)
+	defer func() { assert.NoError(t, again.db.Close()) }()
+	d, err = again.tickets.Detail(ctx, d.ID)
+	require.NoError(t, err)
+	assert.Equal(t, tickets.StatusTodo, d.Status)
+	assert.Empty(t, d.Assignee)
 }

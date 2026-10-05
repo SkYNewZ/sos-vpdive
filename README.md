@@ -5,8 +5,10 @@ VPDive platform. Members file requests through a public form; a few committee
 members handle them. One Go binary serves two host names: the members site
 and the committee site. Simplicity and robustness beat features.
 
-Status: lot 1 (foundation and members whitelist). The request form, mails and
-the requests board come next.
+Status: lot 2 (complete support, without the model): request form with
+screenshots, tracking page and lost link, committee board with live updates,
+assignment, internal notes, journal, deletions and mails. Knowledge-base
+suggestions come next.
 
 ## Run it locally
 
@@ -27,6 +29,11 @@ machine and accept the `__Host-` session cookie there) and import the members
 list on the Imports page. http://sos.localhost:8080 is the members site.
 
 `make test` runs the tests, `make lint` the linter, `make css` the stylesheet.
+
+Without `S3_*` variables, development stores screenshots under
+`DATA_DIR/captures`. Mails go through a queue in the database to the SMTP
+relay of `.env`: with an unreachable relay they stay queued, are retried, and
+show on the committee's « Envois » page after 7 days.
 
 ## Deploy with Docker Compose
 
@@ -60,6 +67,11 @@ picked up by the hot reload).
 - The example compose file publishes the port on 127.0.0.1 only, so the proxy
   must run on the same host; with a remote proxy, change the binding and
   firewall the port so only the proxy reaches it.
+- Do not buffer `/evenements` on the committee host name: it is a
+  Server-Sent Events stream with a keepalive every 25 seconds. Keep the
+  proxy's read timeout above 60 seconds (nginx: `proxy_buffering off;
+  proxy_read_timeout 1h;`). Without the stream, the board still works and is
+  refreshed by hand.
 
 ## Configuration
 
@@ -69,6 +81,44 @@ required one is missing or invalid. Business content lives in versioned files
 embedded in the binary: `config/robots.yaml` (AI robots refused) and
 `config/vpdive.yaml` (links to VPDive pages).
 
+## Request categories and products
+
+`config/categories.yaml` lists the categories of the form, their dedicated
+fields (`text`, `textarea`, `choice`, `date`, `number`) and help texts;
+`config/products.yaml` lists the products offered by `options_from: products`.
+Ids are stable: a request keeps the ids in force when it was filed, and the
+committee sees « retiré » next to a value whose field or option disappeared.
+A category marked `committee_only` is never offered on the form; only a
+reclassification leads to it. Both files are checked at startup.
+
+## Mails
+
+Mails leave through the SMTP relay of `SMTP_*`, always encrypted before
+authentication: implicit TLS (`SMTP_TLS=implicit`, port 465) or STARTTLS
+(`SMTP_TLS=starttls`, port 587). Resend works without dedicated code
+(host `smtp.resend.com`, user `resend`, the API key as password). Verify the
+domain of `MAIL_FROM` (SPF, DKIM) before going live.
+
+Every notification is written in the database with the event that causes it,
+then sent by a background worker: retries after 1 minute, 5 minutes,
+30 minutes, 2 hours, 12 hours, then every 24 hours. After 7 days, or on a
+definitive refusal, the mail is marked failed and listed on the committee's
+« Envois » page, where it can be sent again.
+
+## Screenshot storage
+
+Screenshots live in an S3-compatible bucket, Cloudflare R2 in production:
+
+- Create the bucket in the EU jurisdiction (it cannot change later); the
+  endpoint is `https://<account>.eu.r2.cloudflarestorage.com` with
+  `S3_REGION=auto`.
+- Keep it private: no public access, no custom domain. Scope the API token to
+  object read and write on this bucket only.
+- The service encrypts every screenshot before upload and serves it itself;
+  browsers never get a bucket URL. A daily job removes objects left without a
+  request for more than 24 hours.
+- `backup` covers the database only; screenshots stay in the bucket.
+
 ## Data protection
 
 - Personal data (names, emails, imported VPDive fields) is encrypted with
@@ -77,6 +127,8 @@ embedded in the binary: `config/robots.yaml` (AI robots refused) and
   and refuses to start otherwise.
 - There is no key rotation. Changing `SECRET_KEY` makes existing data
   unreadable. Back the key up separately from the database.
+- Screenshots are re-encoded on arrival (metadata dropped), encrypted the
+  same way, then stored under random names.
 - Logs and traces never contain a token, an email address, a name or a
   request body; spans are named after route patterns.
 
