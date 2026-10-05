@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"strings"
 	"time"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
@@ -14,16 +15,18 @@ import (
 
 // Login limits (spec §11.3): 10 failures per hour per address; per username,
 // from the 5th consecutive failure, a wait of one minute doubled at each
-// further failure, capped at one hour and reset by a success. Counters live
-// in the database and survive a restart; their keys are HMACs because an
-// address is personal data.
+// further failure, capped at one hour and reset by a success. The other
+// limits of §11.3 use allow. Counters live in the database and survive a
+// restart; their keys are HMACs because addresses and emails are personal
+// data.
 const (
 	ipFailureLimit   = 10
 	ipWindow         = time.Hour
 	userFailureLimit = 5
 	userBaseDelay    = time.Minute
 	userMaxDelay     = time.Hour
-	counterRetention = 24 * time.Hour
+	// counterRetention outlives the longest window (one day for lost links).
+	counterRetention = 48 * time.Hour
 )
 
 type limiter struct {
@@ -32,12 +35,40 @@ type limiter struct {
 	now  func() time.Time
 }
 
+// hashedKey keeps the purpose of "purpose:value" readable and hides the value.
+func (l *limiter) hashedKey(key string) string {
+	purpose, _, _ := strings.Cut(key, ":")
+	return purpose + ":" + l.keys.HashHex(key)
+}
+
 func (l *limiter) ipKey(ip netip.Addr) string {
-	return "login-ip:" + l.keys.HashHex("login-ip:"+ip.String())
+	return l.hashedKey("login-ip:" + ip.String())
 }
 
 func (l *limiter) userKey(username string) string {
-	return "login-user:" + l.keys.HashHex("login-user:"+username)
+	return l.hashedKey("login-user:" + username)
+}
+
+// allow counts one more event under key ("purpose:value") in a fixed window
+// that starts with its first event, and reports whether the count stays
+// within limit.
+func (l *limiter) allow(ctx context.Context, key string, limit int, window time.Duration) (bool, error) {
+	now := l.now().Unix()
+	windowEnd := now - int64(window/time.Second)
+	var count int
+	err := store.Tx(ctx, l.db, "limit.count", func(ctx context.Context, tx *sql.Tx) error {
+		return tx.QueryRowContext(ctx,
+			`INSERT INTO counters (key, window_start, count) VALUES (?, ?, 1)
+			 ON CONFLICT (key) DO UPDATE SET
+			   count = CASE WHEN window_start <= ? THEN 1 ELSE count + 1 END,
+			   window_start = CASE WHEN window_start <= ? THEN excluded.window_start ELSE window_start END
+			 RETURNING count`,
+			l.hashedKey(key), now, windowEnd, windowEnd).Scan(&count)
+	})
+	if err != nil {
+		return false, fmt.Errorf("rate limit: %w", err)
+	}
+	return count <= limit, nil
 }
 
 // userDelay is the wait after count consecutive failures.
@@ -108,11 +139,11 @@ func (l *limiter) succeed(ctx context.Context, username string) error {
 	return nil
 }
 
-// purge drops login counters untouched for a day: they block nothing.
+// purge drops counters untouched for two days: they block nothing.
 func (l *limiter) purge(ctx context.Context) error {
 	cutoff := l.now().Add(-counterRetention).Unix()
-	if _, err := l.db.ExecContext(ctx, `DELETE FROM counters WHERE key LIKE 'login-%' AND window_start < ?`, cutoff); err != nil {
-		return fmt.Errorf("purge login counters: %w", err)
+	if _, err := l.db.ExecContext(ctx, `DELETE FROM counters WHERE window_start < ?`, cutoff); err != nil {
+		return fmt.Errorf("purge counters: %w", err)
 	}
 	return nil
 }

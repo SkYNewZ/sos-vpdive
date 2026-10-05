@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/admins"
@@ -116,9 +117,9 @@ func (s *Server) csrfValid(r *http.Request, token string) bool {
 }
 
 // RevokeSessions deletes the sessions of accounts removed from the accounts
-// file or whose password changed (spec §4.1).
+// file or whose password changed, and closes their event streams (spec §4.1).
 func (s *Server) RevokeSessions(ctx context.Context, usernames []string) error {
-	return store.Tx(ctx, s.db, "sessions.revoke", func(ctx context.Context, tx *sql.Tx) error {
+	err := store.Tx(ctx, s.db, "sessions.revoke", func(ctx context.Context, tx *sql.Tx) error {
 		for _, u := range usernames {
 			if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE username = ?`, u); err != nil {
 				return fmt.Errorf("revoke sessions: %w", err)
@@ -126,6 +127,11 @@ func (s *Server) RevokeSessions(ctx context.Context, usernames []string) error {
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	s.broker.disconnect(func(sub *subscriber) bool { return slices.Contains(usernames, sub.username) })
+	return nil
 }
 
 // Purge applies the retention of spec §8.3 to sessions (expired for a day)

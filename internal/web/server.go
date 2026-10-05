@@ -19,8 +19,10 @@ import (
 
 	"github.com/SkYNewZ/sos-vpdive/internal/admins"
 	"github.com/SkYNewZ/sos-vpdive/internal/config"
+	"github.com/SkYNewZ/sos-vpdive/internal/mail"
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
+	"github.com/SkYNewZ/sos-vpdive/internal/tickets"
 )
 
 // Deps are the server's collaborators.
@@ -30,6 +32,10 @@ type Deps struct {
 	Keys    *secure.Keys
 	Members *members.Store
 	Admins  *admins.Registry
+	Tickets *tickets.Store
+	Catalog *tickets.Catalog
+	Outbox  *mail.Outbox
+	Broker  *Broker // shared with tickets.Deps.OnChange
 	Content fs.FS
 	Logger  *slog.Logger
 	Now     func() time.Time
@@ -44,6 +50,10 @@ type Server struct {
 	keys    *secure.Keys
 	members *members.Store
 	admins  *admins.Registry
+	tickets *tickets.Store
+	catalog *tickets.Catalog
+	outbox  *mail.Outbox
+	broker  *Broker
 	logger  *slog.Logger
 	now     func() time.Time
 	paris   *time.Location
@@ -85,6 +95,7 @@ func New(d Deps) (*Server, error) {
 	}
 	s := &Server{
 		cfg: d.Config, db: d.DB, keys: d.Keys, members: d.Members, admins: d.Admins,
+		tickets: d.Tickets, catalog: d.Catalog, outbox: d.Outbox, broker: d.Broker,
 		logger: d.Logger, now: d.Now, paris: paris, tracer: otel.Tracer(tracerName),
 		turnstile: d.Turnstile,
 		limiter:   &limiter{db: d.DB, keys: d.Keys, now: d.Now},
@@ -93,7 +104,11 @@ func New(d Deps) (*Server, error) {
 	if s.dummyHash, err = dummyHash(); err != nil {
 		return nil, err
 	}
-	funcs := template.FuncMap{"static": s.assets.URL, "formatTime": s.formatTime, "author": s.author}
+	funcs := template.FuncMap{
+		"static": s.assets.URL, "formatTime": s.formatTime, "formatDate": s.formatDate, "author": s.author,
+		"age": s.age, "accountOf": s.accountOf, "actor": s.actorName, "isoDate": isoDate,
+		"fieldName": tickets.FieldName, "categoryLabel": s.catalog.CategoryLabel, "describe": s.tickets.Describe,
+	}
 	if s.pages, err = parsePages(funcs); err != nil {
 		return nil, err
 	}

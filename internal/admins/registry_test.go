@@ -104,3 +104,11 @@ func TestWatchCallsOnChangeAndStops(t *testing.T) {
 	cancel()
 	<-done
 }
+
+func TestAccountsAreSortedByName(t *testing.T) {
+	r, _ := newRegistry(t, accountsYAML(bob(), alice()))
+	accounts := r.Accounts()
+	require.Len(t, accounts, 2)
+	assert.Equal(t, "alice", accounts[0].Username)
+	assert.Equal(t, "bob", accounts[1].Username)
+}

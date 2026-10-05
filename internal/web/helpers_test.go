@@ -4,11 +4,15 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"fmt"
+	"image"
+	"image/png"
 	"io"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
-	"net/mail"
+	netmail "net/mail"
 	"net/netip"
 	"net/url"
 	"os"
@@ -24,17 +28,21 @@ import (
 
 	sosvpdive "github.com/SkYNewZ/sos-vpdive"
 	"github.com/SkYNewZ/sos-vpdive/internal/admins"
+	"github.com/SkYNewZ/sos-vpdive/internal/blobs"
 	"github.com/SkYNewZ/sos-vpdive/internal/config"
+	"github.com/SkYNewZ/sos-vpdive/internal/mail"
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
 	"github.com/SkYNewZ/sos-vpdive/internal/members/memberstest"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 	"github.com/SkYNewZ/sos-vpdive/internal/store"
 	"github.com/SkYNewZ/sos-vpdive/internal/telemetry"
+	"github.com/SkYNewZ/sos-vpdive/internal/tickets"
 )
 
 const (
 	publicHost   = "sos.example.org"
 	adminHost    = "comite.example.org"
+	clubEmail    = "club@example.org"
 	testPassword = "correct horse battery staple"
 )
 
@@ -64,6 +72,24 @@ func (c *testClock) advance(d time.Duration) {
 	c.t = c.t.Add(d)
 }
 
+// fakeSender stands for the SMTP relay: it keeps every mail it accepts, or
+// fails with err.
+type fakeSender struct {
+	mu   sync.Mutex
+	sent []mail.Message
+	err  error
+}
+
+func (f *fakeSender) Send(_ context.Context, m mail.Message) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.err != nil {
+		return f.err
+	}
+	f.sent = append(f.sent, m)
+	return nil
+}
+
 type testEnv struct {
 	srv        *Server
 	deps       Deps
@@ -71,6 +97,8 @@ type testEnv struct {
 	logs       *syncBuffer
 	clock      *testClock
 	adminsPath string
+	sender     *fakeSender
+	blobs      blobs.Store
 }
 
 // syncBuffer collects logs written from several goroutines.
@@ -131,30 +159,45 @@ func newTestEnv(t *testing.T, opts ...func(*Deps)) *testEnv {
 	require.NoError(t, err)
 
 	clock := &testClock{t: time.Date(2026, 9, 2, 10, 0, 0, 0, time.UTC)}
+	cfg := &config.Config{
+		Env:            config.EnvDevelopment,
+		BaseURL:        mustURL(t, "https://"+publicHost),
+		AdminBaseURL:   mustURL(t, "https://"+adminHost),
+		VPDiveBaseURL:  mustURL(t, "https://vpdive.example.org"),
+		NotifyEmail:    &netmail.Address{Address: clubEmail},
+		MembersMaxAge:  336 * time.Hour,
+		TrustedProxies: []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")},
+		AgeWarnAfter:   48 * time.Hour,
+		AgeAlertAfter:  168 * time.Hour,
+		RetentionDays:  365,
+		FormRateLimit:  20,
+	}
+	catalog, err := tickets.LoadCatalog(sosvpdive.Content)
+	require.NoError(t, err)
+	blobStore, err := blobs.NewDir(filepath.Join(dir, "captures"))
+	require.NoError(t, err)
+	memberStore := members.NewStore(db, keys, clock.now)
+	outbox := mail.NewOutbox(db, keys, clock.now)
+	broker := NewBroker()
+	ticketStore := tickets.NewStore(tickets.Deps{
+		DB: db, Keys: keys, Catalog: catalog, Members: memberStore, Outbox: outbox, Blobs: blobStore,
+		Account: registry.Get, BaseURL: cfg.BaseURL, AdminBaseURL: cfg.AdminBaseURL, ClubEmail: clubEmail,
+		RetentionDays: cfg.RetentionDays, Now: clock.now, Logger: logger, OnChange: broker.Publish,
+	})
 	deps := Deps{
-		Config: &config.Config{
-			Env:            config.EnvDevelopment,
-			BaseURL:        mustURL(t, "https://"+publicHost),
-			AdminBaseURL:   mustURL(t, "https://"+adminHost),
-			VPDiveBaseURL:  mustURL(t, "https://vpdive.example.org"),
-			NotifyEmail:    &mail.Address{Address: "club@example.org"},
-			MembersMaxAge:  336 * time.Hour,
-			TrustedProxies: []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")},
-		},
-		DB:      db,
-		Keys:    keys,
-		Members: members.NewStore(db, keys, clock.now),
-		Admins:  registry,
-		Content: sosvpdive.Content,
-		Logger:  logger,
-		Now:     clock.now,
+		Config: cfg, DB: db, Keys: keys, Members: memberStore, Admins: registry,
+		Tickets: ticketStore, Catalog: catalog, Outbox: outbox, Broker: broker,
+		Content: sosvpdive.Content, Logger: logger, Now: clock.now,
 	}
 	for _, opt := range opts {
 		opt(&deps)
 	}
 	srv, err := New(deps)
 	require.NoError(t, err)
-	return &testEnv{srv: srv, deps: deps, db: db, logs: logs, clock: clock, adminsPath: adminsPath}
+	return &testEnv{
+		srv: srv, deps: deps, db: db, logs: logs, clock: clock, adminsPath: adminsPath,
+		sender: &fakeSender{}, blobs: blobStore,
+	}
 }
 
 // do sends a request to host. Mutations carry the host's Origin unless a
@@ -224,4 +267,40 @@ func (e *testEnv) csrf(t *testing.T, cookie *http.Cookie, path string) string {
 func (e *testEnv) importMembers(t *testing.T, fixture string) {
 	t.Helper()
 	memberstest.Import(t, e.deps.Members, fixture)
+}
+
+// count counts the rows of a table.
+func (e *testEnv) count(t *testing.T, table string) int {
+	t.Helper()
+	var n int
+	require.NoError(t, e.db.QueryRowContext(context.Background(), "SELECT count(*) FROM "+table).Scan(&n))
+	return n
+}
+
+// pngBytes encodes a small valid PNG screenshot.
+func pngBytes(t *testing.T) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	require.NoError(t, png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 4, 3))))
+	return buf.Bytes()
+}
+
+// multipartBody encodes values and files (field "captures") as a member form.
+func multipartBody(t *testing.T, values url.Values, files ...[]byte) (io.Reader, func(*http.Request)) {
+	t.Helper()
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	for name, vs := range values {
+		for _, v := range vs {
+			require.NoError(t, mw.WriteField(name, v))
+		}
+	}
+	for i, data := range files {
+		fw, err := mw.CreateFormFile("captures", fmt.Sprintf("capture-%d.png", i+1))
+		require.NoError(t, err)
+		_, err = fw.Write(data)
+		require.NoError(t, err)
+	}
+	require.NoError(t, mw.Close())
+	return &buf, func(r *http.Request) { r.Header.Set("Content-Type", mw.FormDataContentType()) }
 }

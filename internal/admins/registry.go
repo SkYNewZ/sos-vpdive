@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 )
@@ -45,6 +46,19 @@ func (r *Registry) Get(username string) (Account, bool) {
 	defer r.mu.RUnlock()
 	a, ok := r.accounts[username]
 	return a, ok
+}
+
+// Accounts returns the current accounts sorted by display name, for the
+// committee's reassignment and filter lists.
+func (r *Registry) Accounts() []Account {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]Account, 0, len(r.accounts))
+	for _, a := range r.accounts {
+		out = append(out, a)
+	}
+	slices.SortFunc(out, func(a, b Account) int { return strings.Compare(a.Name, b.Name) })
+	return out
 }
 
 // Err returns why the file in place was refused, or nil when it is in use.
