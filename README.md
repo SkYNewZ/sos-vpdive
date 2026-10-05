@@ -51,6 +51,9 @@ shell, user 65532, read-only root file system. The database lives in the
 - Do not log request paths of the members site: tracking links carry a secret.
 - You may restrict the committee host name (by address, for instance) without
   touching the members site.
+- The example compose file publishes the port on 127.0.0.1 only, so the proxy
+  must run on the same host; with a remote proxy, change the binding and
+  firewall the port so only the proxy reaches it.
 
 ## Configuration
 
