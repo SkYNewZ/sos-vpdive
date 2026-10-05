@@ -100,7 +100,7 @@ func Parse(data []byte) ([]Account, error) {
 	if err := errors.Join(errs...); err != nil {
 		return nil, err
 	}
-	style, err := dicebear.NewStyle([]byte(styles.Identicon))
+	style, err := dicebear.NewStyle([]byte(styles.VoxelArt))
 	if err != nil {
 		return nil, fmt.Errorf("avatar style: %w", err)
 	}
