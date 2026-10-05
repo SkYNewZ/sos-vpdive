@@ -85,7 +85,7 @@ func freePort(t *testing.T) int {
 	return port
 }
 
-func quietLogger() *slog.Logger { return slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)) }
+func quietLogger() *slog.Logger { return slog.New(slog.DiscardHandler) }
 
 func TestUsage(t *testing.T) {
 	var u usageError

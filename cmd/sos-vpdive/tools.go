@@ -75,14 +75,31 @@ func prompt(f *os.File, label string) (string, error) {
 	return string(b), nil
 }
 
+// loadKeys reads the configuration and derives the keys from SECRET_KEY.
+func loadKeys(getenv func(string) string) (*config.Config, *secure.Keys, error) {
+	cfg, err := config.Load(getenv)
+	if err != nil {
+		return nil, nil, err
+	}
+	keys, err := secure.NewKeys(cfg.SecretKey)
+	if err != nil {
+		return nil, nil, err
+	}
+	return cfg, keys, nil
+}
+
+// ensureDataDir creates the data directory, private to the service user.
+func ensureDataDir(cfg *config.Config) error {
+	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
+		return fmt.Errorf("create %s: %w", cfg.DataDir, err)
+	}
+	return nil
+}
+
 // backup copies the database with SQLite's backup API, after checking that
 // SECRET_KEY matches it: a backup is useless without its key.
 func backup(ctx context.Context, getenv func(string) string, dest string, stdout io.Writer) (err error) {
-	cfg, err := config.Load(getenv)
-	if err != nil {
-		return err
-	}
-	keys, err := secure.NewKeys(cfg.SecretKey)
+	cfg, keys, err := loadKeys(getenv)
 	if err != nil {
 		return err
 	}
@@ -107,16 +124,12 @@ func backup(ctx context.Context, getenv func(string) string, dest string, stdout
 
 // restore puts a backup in place of the database. Stop the service first.
 func restore(ctx context.Context, getenv func(string) string, src string, stdout io.Writer) error {
-	cfg, err := config.Load(getenv)
+	cfg, keys, err := loadKeys(getenv)
 	if err != nil {
 		return err
 	}
-	keys, err := secure.NewKeys(cfg.SecretKey)
-	if err != nil {
+	if err := ensureDataDir(cfg); err != nil {
 		return err
-	}
-	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
-		return fmt.Errorf("create %s: %w", cfg.DataDir, err)
 	}
 	dest := filepath.Join(cfg.DataDir, store.FileName)
 	if err := store.Restore(ctx, src, dest, keys); err != nil {

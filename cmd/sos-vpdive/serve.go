@@ -29,6 +29,7 @@ import (
 )
 
 const (
+	tracerName           = "github.com/SkYNewZ/sos-vpdive/cmd/sos-vpdive"
 	accountsPollInterval = 10 * time.Second
 	purgeInterval        = 24 * time.Hour
 	shutdownTimeout      = 30 * time.Second
@@ -51,8 +52,8 @@ func setup(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*app, 
 	if err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
-		return nil, fmt.Errorf("create %s: %w", cfg.DataDir, err)
+	if err := ensureDataDir(cfg); err != nil {
+		return nil, err
 	}
 	db, err := store.Open(ctx, filepath.Join(cfg.DataDir, store.FileName))
 	if err != nil {
@@ -158,7 +159,7 @@ func (a *app) runPurges(ctx context.Context) {
 }
 
 func (a *app) purge(ctx context.Context) {
-	ctx, span := otel.Tracer("github.com/SkYNewZ/sos-vpdive/cmd/sos-vpdive").Start(ctx, "job.purge")
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "job.purge")
 	defer span.End()
 	if err := a.web.Purge(ctx); err != nil && ctx.Err() == nil {
 		telemetry.Fail(span, "purge_sessions")
