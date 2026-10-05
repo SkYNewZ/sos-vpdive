@@ -3,6 +3,7 @@ package blobs
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -58,11 +59,9 @@ func newS3(cfg config.S3, transport http.RoundTripper) (*S3, error) {
 // Put uploads an object.
 func (s *S3) Put(ctx context.Context, key string, data []byte) error {
 	return s.call(ctx, "blobs.put", func(ctx context.Context) error {
-		if _, err := s.client.PutObject(ctx, s.bucket, key, bytes.NewReader(data), int64(len(data)),
-			minio.PutObjectOptions{ContentType: "application/octet-stream"}); err != nil {
-			return fmt.Errorf("put object: %w", scrub(err))
-		}
-		return nil
+		_, err := s.client.PutObject(ctx, s.bucket, key, bytes.NewReader(data), int64(len(data)),
+			minio.PutObjectOptions{ContentType: "application/octet-stream"})
+		return err
 	})
 }
 
@@ -74,11 +73,7 @@ func (s *S3) Get(ctx context.Context, key string) ([]byte, error) {
 		if err != nil {
 			return getError(err)
 		}
-		defer func() {
-			if cerr := obj.Close(); cerr != nil && err == nil {
-				err = fmt.Errorf("get object: %w", scrub(cerr))
-			}
-		}()
+		defer func() { err = errors.Join(err, obj.Close()) }()
 		if data, err = io.ReadAll(obj); err != nil {
 			return getError(err)
 		}
@@ -91,16 +86,13 @@ func getError(err error) error {
 	if minio.ToErrorResponse(err).Code == "NoSuchKey" {
 		return ErrNotFound
 	}
-	return fmt.Errorf("get object: %w", scrub(err))
+	return err
 }
 
 // Delete removes an object; S3 answers a missing key with success.
 func (s *S3) Delete(ctx context.Context, key string) error {
 	return s.call(ctx, "blobs.delete", func(ctx context.Context) error {
-		if err := s.client.RemoveObject(ctx, s.bucket, key, minio.RemoveObjectOptions{}); err != nil {
-			return fmt.Errorf("delete object: %w", scrub(err))
-		}
-		return nil
+		return s.client.RemoveObject(ctx, s.bucket, key, minio.RemoveObjectOptions{})
 	})
 }
 
@@ -113,7 +105,7 @@ func (s *S3) List(ctx context.Context) ([]Object, error) {
 		for info := range s.client.ListObjects(ctx, s.bucket, minio.ListObjectsOptions{Recursive: true}) {
 			if info.Err != nil {
 				if listErr == nil {
-					listErr = fmt.Errorf("list objects: %w", scrub(info.Err))
+					listErr = info.Err
 				}
 				continue
 			}
@@ -124,9 +116,13 @@ func (s *S3) List(ctx context.Context) ([]Object, error) {
 	return out, err
 }
 
-// call bounds fn by callTimeout inside a span named after the operation.
+// call bounds fn by callTimeout inside a span named after the operation. It is
+// the one place that scrubs transport errors of the object key.
 func (s *S3) call(ctx context.Context, name string, fn func(context.Context) error) error {
 	ctx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
-	return telemetry.Trace(ctx, s.tracer, name, fn)
+	if err := telemetry.Trace(ctx, s.tracer, name, fn); err != nil {
+		return wrap(name, err)
+	}
+	return nil
 }

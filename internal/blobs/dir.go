@@ -3,7 +3,6 @@ package blobs
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io/fs"
 	"os"
 )
@@ -17,11 +16,11 @@ type Dir struct {
 // NewDir creates dir if needed and opens it.
 func NewDir(dir string) (*Dir, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, fmt.Errorf("captures directory: %w", scrub(err))
+		return nil, wrap("captures directory", err)
 	}
 	root, err := os.OpenRoot(dir)
 	if err != nil {
-		return nil, fmt.Errorf("captures directory: %w", scrub(err))
+		return nil, wrap("captures directory", err)
 	}
 	return &Dir{root: root}, nil
 }
@@ -34,10 +33,10 @@ func (d *Dir) Put(_ context.Context, key string, data []byte) error {
 	}
 	tmp := ".put-" + key
 	if err := d.root.WriteFile(tmp, data, 0o600); err != nil {
-		return fmt.Errorf("write object: %w", scrub(err))
+		return wrap("write object", err)
 	}
 	if err := d.root.Rename(tmp, key); err != nil {
-		return errors.Join(fmt.Errorf("store object: %w", scrub(err)), scrub(d.root.Remove(tmp)))
+		return errors.Join(wrap("store object", err), scrub(d.root.Remove(tmp)))
 	}
 	return nil
 }
@@ -52,7 +51,7 @@ func (d *Dir) Get(_ context.Context, key string) ([]byte, error) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
-		return nil, fmt.Errorf("read object: %w", scrub(err))
+		return nil, wrap("read object", err)
 	}
 	return data, nil
 }
@@ -63,7 +62,7 @@ func (d *Dir) Delete(_ context.Context, key string) error {
 		return errInvalidKey
 	}
 	if err := d.root.Remove(key); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("delete object: %w", scrub(err))
+		return wrap("delete object", err)
 	}
 	return nil
 }
@@ -73,7 +72,7 @@ func (d *Dir) Delete(_ context.Context, key string) error {
 func (d *Dir) List(_ context.Context) ([]Object, error) {
 	entries, err := fs.ReadDir(d.root.FS(), ".")
 	if err != nil {
-		return nil, fmt.Errorf("list objects: %w", scrub(err))
+		return nil, wrap("list objects", err)
 	}
 	var out []Object
 	for _, e := range entries {
@@ -82,7 +81,7 @@ func (d *Dir) List(_ context.Context) ([]Object, error) {
 		}
 		info, err := e.Info()
 		if err != nil {
-			return nil, fmt.Errorf("list objects: %w", scrub(err))
+			return nil, wrap("list objects", err)
 		}
 		out = append(out, Object{Key: e.Name(), Modified: info.ModTime().UTC()})
 	}

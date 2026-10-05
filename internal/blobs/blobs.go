@@ -6,6 +6,7 @@ package blobs
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"net/url"
 	"os"
@@ -60,6 +61,11 @@ func New(cfg *config.Config) (Store, error) {
 // NewKey returns a random object key, unrelated to any ticket or file name.
 func NewKey() (string, error) {
 	return secure.NewToken()
+}
+
+// wrap names the failed operation and scrubs err of the object key.
+func wrap(op string, err error) error {
+	return fmt.Errorf("%s: %w", op, scrub(err))
 }
 
 // scrub drops the object key that transport and file errors carry (the
