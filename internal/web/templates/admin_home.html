@@ -30,20 +30,20 @@
 <div class="mt-6" data-board>
 {{if $d.Rows}}
 <div class="overflow-x-auto">
-<table class="table">
+<table class="table table-xs sm:table-md">
 <thead><tr>
-<th scope="col">Demande</th><th scope="col">Nom</th><th scope="col">Catégorie</th>
-<th scope="col" class="hidden md:table-cell">Résumé</th><th scope="col">Ancienneté</th>
-<th scope="col">Statut</th><th scope="col">Résolveur</th>
+<th scope="col">Demande</th><th scope="col" class="hidden sm:table-cell">Nom</th><th scope="col" class="hidden sm:table-cell">Catégorie</th>
+<th scope="col" class="hidden sm:table-cell">Résumé</th><th scope="col" class="max-sm:px-1">Ancienneté</th>
+<th scope="col" class="max-sm:px-1">Statut</th><th scope="col">Résolveur</th>
 </tr></thead>
 <tbody>
 {{range $d.Rows}}<tr data-ticket="{{.ID}}">
-<td class="whitespace-nowrap"><a class="link link-primary font-semibold" href="/demandes/{{.ID}}">{{.Ref}}</a>{{if .MemberRepliedLast}} <span class="badge badge-soft badge-info whitespace-nowrap">a répondu</span>{{end}}</td>
-<td class="break-words">{{.FirstName}} {{.LastName}}</td>
-<td>{{categoryLabel .Category}}</td>
-<td class="hidden max-w-xs break-words md:table-cell">{{.Excerpt}}</td>
-<td class="whitespace-nowrap">{{template "age" (age .SubmittedAt .ClosedAt)}}</td>
-<td>{{template "status" .Status}}</td>
+<td><a class="link link-primary inline-flex min-h-11 items-center font-semibold" href="/demandes/{{.ID}}">{{.Ref}}</a>{{if .MemberRepliedLast}} <span class="badge badge-soft badge-info whitespace-nowrap">a répondu</span>{{end}}<span class="block break-words sm:hidden">{{.FirstName}} {{.LastName}}</span></td>
+<td class="hidden break-words sm:table-cell">{{.FirstName}} {{.LastName}}</td>
+<td class="hidden sm:table-cell">{{categoryLabel .Category}}</td>
+<td class="hidden max-w-xs break-words sm:table-cell">{{.Excerpt}}</td>
+<td class="whitespace-nowrap max-sm:px-1">{{template "age" (age .SubmittedAt .ClosedAt)}}</td>
+<td class="max-sm:px-1">{{template "status" .Status}}</td>
 <td>{{with accountOf .Assignee}}<span class="inline-flex items-center gap-2"><img src="{{.Avatar}}" alt="" width="24" height="24" class="size-6"><span>{{.Name}}</span></span>{{else}}{{if .Assignee}}{{.Assignee}}{{else}}Personne{{end}}{{end}}</td>
 </tr>
 {{end}}</tbody>

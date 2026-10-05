@@ -291,3 +291,17 @@ func TestFormKeyIsNotRestoredByTheBrowser(t *testing.T) {
 	page := e.do(t, http.MethodGet, publicHost, "/", nil).Body.String()
 	assert.Regexp(t, `name="cle" value="[A-Za-z0-9_-]{43}" autocomplete="off"`, page)
 }
+
+func TestDuplicateOfFiledRequestIsNotRateLimited(t *testing.T) {
+	e := newTestEnv(t)
+	e.importMembers(t, "members_minimal.xlsx")
+	key := e.formKey(t)
+	first := e.sendRequest(t, validRequest(key))
+	require.Equal(t, http.StatusSeeOther, first.Code)
+	for i := 1; i < formEmailLimit; i++ {
+		require.Equal(t, http.StatusSeeOther, e.sendRequest(t, validRequest(e.formKey(t))).Code)
+	}
+	dup := e.sendRequest(t, validRequest(key))
+	assert.Equal(t, http.StatusSeeOther, dup.Code)
+	assert.Equal(t, first.Header().Get("Location"), dup.Header().Get("Location"))
+}

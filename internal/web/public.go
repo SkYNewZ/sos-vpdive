@@ -140,6 +140,12 @@ func (s *Server) submit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !allowed {
+		// A duplicate POST can land while the first is still being filed and
+		// count against the limit: the request exists, so confirm it.
+		if ref, found, err := s.tickets.Resubmitted(ctx, d.FormKey); err == nil && found {
+			redirectSent(w, r, ref)
+			return
+		}
 		s.renderForm(w, r, http.StatusTooManyRequests, d, &notice{Kind: noticeError,
 			Text: "Trop d'envois en peu de temps. Réessaie dans une heure, ou écris au club : " + s.cfg.NotifyEmail.Address + "."})
 		return

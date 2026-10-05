@@ -30,7 +30,8 @@ for (const form of document.querySelectorAll("form[method=post]")) {
     else sent.add(form);
   });
 }
-window.addEventListener("pageshow", () => {
+window.addEventListener("pageshow", (event) => {
+  if (!event.persisted) return;
   for (const form of document.querySelectorAll("form[method=post]")) sent.delete(form);
 });
 
