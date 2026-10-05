@@ -59,3 +59,15 @@ func Fail(span trace.Span, code string) {
 	span.SetStatus(codes.Error, code)
 	span.SetAttributes(attribute.String("error.code", code))
 }
+
+// Trace runs fn in a span named name; a failure records the stable code
+// name+".failed".
+func Trace(ctx context.Context, tracer trace.Tracer, name string, fn func(context.Context) error) error {
+	ctx, span := tracer.Start(ctx, name)
+	defer span.End()
+	err := fn(ctx)
+	if err != nil {
+		Fail(span, name+".failed")
+	}
+	return err
+}
