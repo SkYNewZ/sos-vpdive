@@ -13,7 +13,9 @@ import (
 )
 
 const (
-	loginBodyLimit  = 16 << 10
+	loginBodyLimit = 16 << 10
+	// postFormLimit fits a 4 000-rune reply once URL-encoded.
+	postFormLimit   = 64 << 10
 	turnstileAction = "connexion"
 )
 
@@ -115,7 +117,7 @@ func (s *Server) forbidCSRF(w http.ResponseWriter, r *http.Request) {
 // postForm parses a small urlencoded form and checks its CSRF token; it has
 // already answered 403 when it returns false.
 func (s *Server) postForm(w http.ResponseWriter, r *http.Request) bool {
-	r.Body = http.MaxBytesReader(w, r.Body, loginBodyLimit)
+	r.Body = http.MaxBytesReader(w, r.Body, postFormLimit)
 	if err := r.ParseForm(); err != nil || !s.csrfValid(r, r.PostForm.Get("csrf")) {
 		s.forbidCSRF(w, r)
 		return false

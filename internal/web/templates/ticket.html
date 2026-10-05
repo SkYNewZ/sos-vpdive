@@ -1,0 +1,168 @@
+{{define "main"}}
+{{$d := .Data}}{{$t := $d.Ticket}}
+<div data-ticket-page="{{$t.ID}}">
+<div data-changed-banner hidden role="status" class="alert alert-soft alert-info mb-4"><span>Cette demande a changé ailleurs. <a class="link font-semibold" href="/demandes/{{$t.ID}}">Recharger</a></span></div>
+<p><a class="link link-primary inline-flex min-h-11 items-center" href="/">Toutes les demandes</a></p>
+
+<header class="flex flex-col gap-3 border-b border-base-300 pb-4">
+<h1 class="text-2xl font-bold text-primary">Demande {{$t.Ref}}</h1>
+<div class="flex flex-wrap items-center gap-x-6 gap-y-2">
+{{template "status" $t.Status}}
+<span>Ancienneté : {{template "age" (age $t.SubmittedAt $t.ClosedAt)}}</span>
+<span>Résolveur : {{with $d.Assignee}}<span class="inline-flex items-center gap-2 align-middle"><img src="{{.Avatar}}" alt="" width="24" height="24" class="size-6"><span class="font-semibold">{{.Name}}</span> · {{.Role}}</span>{{else}}{{if $t.Assignee}}{{$t.Assignee}} (compte retiré){{else}}personne{{end}}{{end}}</span>
+</div>
+{{if $t.Status.Open}}
+<div class="flex flex-wrap items-end gap-3">
+{{if eq $t.Status "todo"}}
+<form method="post" action="/demandes/{{$t.ID}}/actions">{{template "actionFields" $}}<button class="btn btn-primary min-h-11" name="action" value="take">Je prends</button></form>
+{{else}}
+<form method="post" action="/demandes/{{$t.ID}}/actions" class="flex flex-wrap items-end gap-2">{{template "actionFields" $}}
+<div class="flex flex-col gap-1">
+<label class="font-semibold" for="assignee">Réassigner à</label>
+<select class="select" id="assignee" name="assignee">{{range $d.Accounts}}<option value="{{.Username}}"{{if eq .Username $t.Assignee}} selected{{end}}>{{.Name}} · {{.Role}}</option>{{end}}</select>
+</div>
+<button class="btn btn-outline min-h-11" name="action" value="reassign">Réassigner</button>
+</form>
+<form method="post" action="/demandes/{{$t.ID}}/actions">{{template "actionFields" $}}<button class="btn btn-outline min-h-11" name="action" value="unassign">Retirer l'assignation</button></form>
+{{if eq $t.Status "in_progress"}}<form method="post" action="/demandes/{{$t.ID}}/actions">{{template "actionFields" $}}<button class="btn btn-outline min-h-11" name="action" value="wait">Attendre l'adhérent</button></form>{{end}}
+{{if eq $t.Status "waiting"}}<form method="post" action="/demandes/{{$t.ID}}/actions">{{template "actionFields" $}}<button class="btn btn-outline min-h-11" name="action" value="resume">Reprendre sans attendre</button></form>{{end}}
+{{end}}
+<form method="post" action="/demandes/{{$t.ID}}/actions">{{template "actionFields" $}}<button class="btn btn-outline min-h-11" name="action" value="close">Clore la demande</button></form>
+</div>
+{{end}}
+</header>
+
+<section class="mt-6" aria-labelledby="demandeur">
+<h2 id="demandeur" class="text-xl font-semibold">Demandeur</h2>
+<dl class="mt-3 grid grid-cols-1 gap-x-4 sm:grid-cols-[auto_1fr] sm:gap-y-2">
+<dt class="font-semibold">Nom</dt>
+<dd class="mb-2 flex flex-wrap items-center gap-2 sm:mb-0"><span class="break-words">{{$t.FirstName}} {{$t.LastName}}</span><button type="button" class="btn btn-outline btn-sm min-h-11" data-copy="{{$t.FirstName}} {{$t.LastName}}" hidden>Copier le nom</button></dd>
+<dt class="font-semibold">Adresse mail</dt><dd class="mb-2 break-words sm:mb-0">{{$t.Email}}</dd>
+{{with $d.Profile}}
+<dt class="font-semibold">Saisons d'adhésion</dt><dd class="mb-2 sm:mb-0">{{.Seasons}}</dd>
+<dt class="font-semibold">Licence valable jusqu'au</dt><dd class="mb-2 sm:mb-0">{{.Licence}}</dd>
+{{else}}
+<dt class="font-semibold">Liste des membres</dt><dd class="mb-2 sm:mb-0">Cette adresse n'est plus dans la liste des membres.</dd>
+{{end}}
+</dl>
+<p class="mt-2 text-sm">Saisons et licence d'après le dernier import de la liste des membres.</p>
+</section>
+
+<section class="mt-8" aria-labelledby="demande">
+<h2 id="demande" class="text-xl font-semibold">Demande</h2>
+<dl class="mt-3 grid grid-cols-1 gap-x-4 sm:grid-cols-[auto_1fr] sm:gap-y-2">
+<dt class="font-semibold">Catégorie</dt><dd class="mb-2 sm:mb-0">{{categoryLabel $t.Category}}</dd>
+<dt class="font-semibold">Envoyée le</dt><dd class="mb-2 sm:mb-0">{{formatTime $t.SubmittedAt}}</dd>
+{{range $d.Fields}}<dt class="font-semibold">{{.Label}}</dt><dd class="mb-2 break-words sm:mb-0">{{.Value}}{{if .Removed}} <span class="badge badge-soft">retiré</span>{{end}}</dd>
+{{end}}</dl>
+{{if $t.Status.Open}}
+<form method="post" action="/demandes/{{$t.ID}}/actions" class="mt-3 flex flex-wrap items-end gap-2">{{template "actionFields" $}}
+<div class="flex flex-col gap-1">
+<label class="font-semibold" for="categorie">Reclasser dans</label>
+<select class="select" id="categorie" name="categorie">{{range $d.Categories}}<option value="{{.Value}}"{{if eq .Value $t.Category}} selected{{end}}>{{.Label}}</option>{{end}}</select>
+</div>
+<button class="btn btn-outline min-h-11" name="action" value="category">Reclasser</button>
+</form>
+{{end}}
+<h3 class="mt-4 font-semibold">Description</h3>
+<p class="mt-1 whitespace-pre-line break-words">{{$t.Description}}</p>
+{{with $t.Captures}}
+<h3 class="mt-4 font-semibold">Captures</h3>
+<ul class="mt-2 flex flex-wrap gap-4">{{range .}}<li class="flex flex-col gap-2">
+<a href="/demandes/{{$t.ID}}/captures/{{.ID}}" target="_blank" rel="noopener"><img src="/demandes/{{$t.ID}}/captures/{{.ID}}" alt="Capture jointe à la demande" class="h-32 w-auto border border-base-300" loading="lazy"></a>
+<details><summary class="link inline-flex min-h-11 items-center">Supprimer cette capture</summary>
+<form method="post" action="/demandes/{{$t.ID}}/actions" class="mt-2 flex flex-col gap-2">{{template "actionFields" $}}<input type="hidden" name="capture" value="{{.ID}}">
+<p class="text-sm">La capture sera effacée. Un mail déjà remis ne peut pas être rappelé.</p>
+<button class="btn btn-error btn-outline min-h-11 self-start" name="action" value="delete_capture">Confirmer la suppression</button>
+</form>
+</details>
+</li>{{end}}</ul>
+{{end}}
+</section>
+
+<section class="mt-8" aria-labelledby="autres">
+<h2 id="autres" class="text-xl font-semibold">Autres demandes de cette adresse</h2>
+{{with $d.Others}}<ul class="mt-3 flex flex-col gap-1">{{range .}}<li><a class="link link-primary" href="/demandes/{{.ID}}">{{.Ref}}</a> · {{categoryLabel .Category}} · {{.Status.Label}} · envoyée le {{formatDate .SubmittedAt}}</li>{{end}}</ul>{{else}}<p class="mt-3">Aucune.</p>{{end}}
+</section>
+
+<section class="mt-8" aria-labelledby="vpdive">
+<h2 id="vpdive" class="text-xl font-semibold">VPDive</h2>
+<ul class="mt-3 flex flex-wrap gap-3">{{range $d.Links}}<li><a class="btn btn-outline min-h-11" href="{{.URL}}" target="_blank" rel="noopener">{{.Label}}</a></li>{{end}}</ul>
+<h3 class="mt-4 font-semibold">Filtre à saisir sur la page des paiements</h3>
+<div class="overflow-x-auto">
+<table class="table mt-2"><tbody>
+<tr><th scope="row">Affichage par</th><td>Membres</td></tr>
+<tr><th scope="row">Nom du membre</th><td><span class="break-words">{{$d.Filter.Name}}</span> <button type="button" class="btn btn-outline btn-sm min-h-11" data-copy="{{$d.Filter.Name}}" hidden>Copier</button></td></tr>
+<tr><th scope="row">Type de produit</th><td>{{with $d.Filter.Product}}{{.}}{{else}}Tous{{end}}</td></tr>
+<tr><th scope="row">État</th><td>Tous</td></tr>
+<tr><th scope="row">Champ de date</th><td>Date de création</td></tr>
+<tr><th scope="row">Du, au</th><td>{{$d.Filter.From}} au {{$d.Filter.To}}</td></tr>
+</tbody></table>
+</div>
+<p class="mt-2 text-sm">Clique ensuite sur « Rechercher », puis déplie les lignes du membre.</p>
+</section>
+
+<section class="mt-8" aria-labelledby="fil">
+<h2 id="fil" class="text-xl font-semibold">Fil de la demande</h2>
+{{with $t.Messages}}<ol class="mt-3 flex flex-col gap-4">{{range .}}
+<li class="border p-4 {{if .Internal}}border-warning bg-warning/10{{else if .FromMember}}border-base-300{{else}}border-primary{{end}}">
+<p class="text-sm">{{if .Internal}}<span class="font-semibold">Note interne, visible du comité seulement</span> · {{author .Author}}{{else if .FromMember}}<span class="font-semibold">{{$t.FirstName}} {{$t.LastName}}</span> (adhérent){{else}}<span class="font-semibold">Réponse à l'adhérent</span> · {{author .Author}}{{end}} · {{formatTime .CreatedAt}}</p>
+<p class="mt-2 whitespace-pre-line break-words">{{.Body}}</p>
+{{with .Captures}}<ul class="mt-3 flex flex-wrap gap-3">{{range .}}<li><a href="/demandes/{{$t.ID}}/captures/{{.ID}}" target="_blank" rel="noopener"><img src="/demandes/{{$t.ID}}/captures/{{.ID}}" alt="Capture jointe au message" class="h-32 w-auto border border-base-300" loading="lazy"></a></li>{{end}}</ul>{{end}}
+<details class="mt-2"><summary class="link inline-flex min-h-11 items-center">Supprimer ce message</summary>
+<form method="post" action="/demandes/{{$t.ID}}/actions" class="mt-2 flex flex-col gap-2">{{template "actionFields" $}}<input type="hidden" name="message_id" value="{{.ID}}">
+<p class="text-sm">Le message et ses captures seront effacés. Un mail déjà remis à l'adhérent ne peut pas être rappelé.</p>
+<button class="btn btn-error btn-outline min-h-11 self-start" name="action" value="delete_message">Confirmer la suppression</button>
+</form>
+</details>
+</li>{{end}}</ol>{{else}}<p class="mt-3">Aucun message pour l'instant.</p>{{end}}
+</section>
+
+{{if or (eq $t.Status "in_progress") (eq $t.Status "waiting")}}
+<section class="mt-8" aria-labelledby="repondre">
+<h2 id="repondre" class="text-xl font-semibold">Répondre à l'adhérent</h2>
+<p class="text-sm">Ta réponse est visible de l'adhérent et lui part par mail.</p>
+<form method="post" action="/demandes/{{$t.ID}}/actions" class="mt-3 flex flex-col gap-3">{{template "actionFields" $}}
+<label class="font-semibold" for="message">Réponse</label>
+<textarea class="textarea w-full" id="message" name="message" rows="6" maxlength="4000" required{{if $d.ReplyError}} aria-invalid="true" aria-describedby="message-erreur"{{end}}>{{$d.Reply}}</textarea>
+{{with $d.ReplyError}}<p id="message-erreur" class="font-semibold text-error">{{.}}</p>{{end}}
+<div class="flex flex-wrap gap-3">
+<button class="btn btn-primary min-h-11" name="action" value="reply">Envoyer</button>
+<button class="btn btn-outline min-h-11" name="action" value="reply_wait">Envoyer et attendre sa réponse</button>
+<button class="btn btn-outline min-h-11" name="action" value="reply_close">Envoyer et clore</button>
+</div>
+</form>
+</section>
+<section class="mt-8 border border-warning bg-warning/10 p-4" aria-labelledby="note">
+<h2 id="note" class="text-xl font-semibold">Note interne</h2>
+<p class="text-sm font-semibold">Visible du comité seulement : l'adhérent ne la voit jamais et ne reçoit aucun mail.</p>
+<form method="post" action="/demandes/{{$t.ID}}/actions" class="mt-3 flex flex-col gap-3">{{template "actionFields" $}}
+<label class="font-semibold" for="note-texte">Note</label>
+<textarea class="textarea w-full" id="note-texte" name="note" rows="4" maxlength="4000" required{{if $d.NoteError}} aria-invalid="true" aria-describedby="note-erreur"{{end}}>{{$d.Note}}</textarea>
+{{with $d.NoteError}}<p id="note-erreur" class="font-semibold text-error">{{.}}</p>{{end}}
+<button class="btn btn-outline min-h-11 self-start" name="action" value="note">Ajouter la note</button>
+</form>
+</section>
+{{else if eq $t.Status "todo"}}
+<p class="mt-8">Prends la demande pour répondre à l'adhérent ou écrire une note interne.</p>
+{{end}}
+
+<section class="mt-8" aria-labelledby="journal">
+<h2 id="journal" class="text-xl font-semibold">Journal</h2>
+<ol class="mt-3 flex flex-col gap-1 text-sm">{{range $t.Events}}<li>{{formatTime .CreatedAt}} · {{describe .}} · {{actor .Actor}}</li>{{end}}</ol>
+</section>
+
+<section class="mt-10 border-t border-base-300 pt-6" aria-labelledby="suppression">
+<h2 id="suppression" class="text-xl font-semibold">Suppression</h2>
+<details class="mt-3"><summary class="link inline-flex min-h-11 items-center">Supprimer cette demande</summary>
+<form method="post" action="/demandes/{{$t.ID}}/actions" class="mt-2 flex flex-col gap-2">{{template "actionFields" $}}
+<p>La demande, ses messages, ses captures et son journal seront effacés, et son lien de suivi cessera de fonctionner. Un mail déjà remis ne peut pas être rappelé.</p>
+<button class="btn btn-error min-h-11 self-start" name="action" value="delete">Confirmer la suppression</button>
+</form>
+</details>
+<p class="mt-3"><a class="link link-primary inline-flex min-h-11 items-center" href="/effacement?demande={{$t.ID}}">Effacer toutes les données de cette personne</a></p>
+</section>
+</div>
+{{end}}
+
+{{define "actionFields"}}<input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="version" value="{{.Data.Ticket.Version}}">{{end}}

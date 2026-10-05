@@ -95,3 +95,16 @@ if (ticketPage) {
     });
   }
 }
+
+// Request page: copy buttons, shown only when this script runs.
+for (const button of document.querySelectorAll("[data-copy]")) {
+  button.hidden = false;
+  button.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(button.dataset.copy);
+      button.textContent = "Copié";
+    } catch {
+      button.textContent = "Copie impossible";
+    }
+  });
+}

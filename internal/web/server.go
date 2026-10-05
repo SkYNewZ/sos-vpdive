@@ -171,6 +171,9 @@ func (s *Server) adminRoutes() *http.ServeMux {
 	s.handle(mux, "POST /imports/confirmer", s.signedIn(s.confirmImport))
 	// The event stream is neither traced nor logged (spec §9.9).
 	mux.HandleFunc("GET /evenements", s.events)
+	s.handle(mux, "GET /demandes/{id}", s.signedIn(s.ticketPage))
+	s.handle(mux, "POST /demandes/{id}/actions", s.signedIn(s.ticketAction))
+	s.handle(mux, "GET /demandes/{id}/captures/{cid}", s.signedIn(s.adminCapture))
 	s.handle(mux, "GET /{$}", s.signedIn(s.board))
 	return mux
 }
