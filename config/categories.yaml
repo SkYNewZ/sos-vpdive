@@ -1,0 +1,141 @@
+# Request categories and their dedicated fields (spec §3.1, §9.7). Adding a
+# category or a field needs no code. Ids are stored with requests: never
+# change or reuse one; labels may change.
+#
+# Field types: text, textarea, choice, date, number. A choice lists its
+# options, or takes the products with `options_from: products`. Fields are
+# optional unless `required: true`. A `committee_only` category is never
+# offered on the form: only a resolver moves a request into it.
+categories:
+  - id: carnet
+    label: Carnet, solde de plongées
+    help: >-
+      Dans VPDive, ton carnet apparaît en euros, avec un montant négatif sous
+      « reste à payer ». Ce n'est pas une dette, c'est ton avoir. Exemple :
+      -180,00 € veut dire qu'il te reste 180 € sur ton carnet.
+    fields:
+      - id: carnet
+        label: Carnet concerné
+        type: choice
+        options:
+          - {id: 5-n1n2, label: "5 plongées, N1-N2"}
+          - {id: 10-n1n2, label: "10 plongées, N1-N2"}
+          - {id: 5-n3, label: "5 plongées, N3 et plus"}
+          - {id: 10-n3, label: "10 plongées, N3 et plus"}
+      - id: plongees
+        label: Nombre de plongées que tu penses avoir
+        type: number
+      - id: montant
+        label: Montant affiché par VPDive
+        hint: "Exemple : -180,00 €"
+        type: text
+      - id: sortie
+        label: Date de la sortie en cause
+        type: date
+
+  - id: remboursement
+    label: Remboursement, avoir
+    fields:
+      - id: produit
+        label: Produit concerné
+        type: choice
+        options_from: products
+        required: true
+      - id: sortie
+        label: Sortie concernée, s'il y en a une
+        type: text
+      - id: date
+        label: Date de la sortie
+        type: date
+      - id: motif
+        label: Motif
+        type: choice
+        options:
+          - {id: annulation-club, label: Activité annulée par le club}
+          - {id: desistement, label: Désistement}
+          - {id: double-paiement, label: Double paiement}
+          - {id: autre, label: Autre}
+
+  - id: inscription
+    label: Inscription à une activité
+    fields:
+      - id: activite
+        label: Activité
+        hint: Le nom de la sortie ou de la formation, tel qu'il apparaît dans VPDive.
+        type: text
+        required: true
+      - id: date
+        label: Date de l'activité
+        type: date
+        required: true
+      - id: nature
+        label: Ta demande
+        type: choice
+        options:
+          - {id: inscris-moi, label: Inscris-moi}
+          - {id: bloque, label: Je n'y arrive pas}
+      - id: erreur
+        label: Message d'erreur affiché
+        type: textarea
+
+  - id: paiement
+    label: Paiement
+    fields:
+      - id: produit
+        label: Produit concerné
+        type: choice
+        options_from: products
+      - id: moyen
+        label: Moyen de paiement
+        type: choice
+        options:
+          - {id: vpaydive, label: VPayDive}
+          - {id: virement, label: Virement}
+      - id: blocage
+        label: Ce qui bloque
+        type: textarea
+
+  - id: compte
+    label: Compte et profil
+    fields:
+      - id: nature
+        label: Nature du problème
+        type: choice
+        options:
+          - {id: connexion, label: Connexion}
+          - {id: mot-de-passe, label: Mot de passe}
+          - {id: champ-bloque, label: Champ bloqué}
+          - {id: autre, label: Autre}
+      - id: appareil
+        label: Appareil
+        type: choice
+        options:
+          - {id: telephone, label: Téléphone}
+          - {id: ordinateur, label: Ordinateur}
+
+  - id: adhesion
+    label: Adhésion, licence, CACI, niveaux
+    fields:
+      - id: etape
+        label: Étape de la campagne qui bloque
+        type: choice
+        options:
+          - {id: adhesion, label: 1. Adhésion}
+          - {id: certificat, label: 2. Certificat médical}
+          - {id: licences, label: 3. Licences}
+          - {id: documents, label: 4. Documents}
+          - {id: souscriptions, label: 5. Souscriptions}
+          - {id: panier, label: 6. Panier}
+          - {id: preferences, label: 7. Préférences}
+          - {id: validation, label: 8. Validation}
+      - id: affichage
+        label: Ce qui s'affiche
+        type: textarea
+
+  - id: autre
+    label: Autre
+
+  # Spec §4.6: offered to nobody on the form, reached by reclassification.
+  - id: bug
+    label: Bug VPDive
+    committee_only: true

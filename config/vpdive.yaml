@@ -13,3 +13,9 @@ links:
   - key: support
     label: Support de l'éditeur, nouveau ticket
     path: /app/support/new
+  - key: faq
+    label: Questions fréquentes
+    path: /w/f-a-q
+  - key: tarifs
+    label: Tarifs
+    path: /w/tarifs

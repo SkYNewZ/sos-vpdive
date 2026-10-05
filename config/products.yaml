@@ -1,0 +1,21 @@
+# Products offered in the form's product lists (spec §3.1). Labels follow
+# VPDive and the club's price page, so a resolver finds the payment line
+# without translating. Ids are stored with requests: never change or reuse
+# one; remove a product by deleting its line (old requests show « retiré »).
+products:
+  - {id: adhesion, label: Adhésion}
+  - {id: licence, label: Licence fédérale}
+  - {id: bapteme, label: Baptême}
+  - {id: formation-n1, label: Formation N1}
+  - {id: formation-n2, label: Formation N2}
+  - {id: formation-n3, label: Formation N3}
+  - {id: formation-pe40, label: Formation PE40}
+  - {id: formation-pa20, label: Formation PA20}
+  - {id: formation-rifap, label: Formation RIFAP}
+  - {id: plongee, label: Plongée unitaire}
+  - {id: carnet-5-n1n2, label: "Carnet de 5 plongées, N1-N2"}
+  - {id: carnet-10-n1n2, label: "Carnet de 10 plongées, N1-N2"}
+  - {id: carnet-5-n3, label: "Carnet de 5 plongées, N3 et plus"}
+  - {id: carnet-10-n3, label: "Carnet de 10 plongées, N3 et plus"}
+  - {id: location, label: Location de matériel}
+  - {id: autre, label: Autre}
