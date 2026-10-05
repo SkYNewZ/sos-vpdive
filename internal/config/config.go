@@ -40,7 +40,7 @@ var ErrMissing = errors.New("required variable is missing")
 
 const secretKeySize = 32
 
-// SMTP holds the mail relay settings. Lot 2 sends mails; lot 1 validates them.
+// SMTP holds the mail relay settings.
 type SMTP struct {
 	Host     string
 	Port     int
@@ -77,6 +77,10 @@ type Config struct {
 	TurnstileSiteKey   string
 	TurnstileSecretKey string
 	MembersMaxAge      time.Duration
+	AgeWarnAfter       time.Duration // open request shown in orange from this age
+	AgeAlertAfter      time.Duration // and in red from this one
+	RetentionDays      int           // days a closed request is kept
+	FormRateLimit      int           // form submissions per hour and IP address
 }
 
 // TurnstileEnabled reports whether the anti-bot check is configured.
@@ -108,12 +112,19 @@ func Load(getenv func(string) string) (*Config, error) {
 		TurnstileSiteKey:   p.optional("TURNSTILE_SITE_KEY", ""),
 		TurnstileSecretKey: p.optional("TURNSTILE_SECRET_KEY", ""),
 		MembersMaxAge:      p.duration("MEMBERS_MAX_AGE", "336h"),
+		AgeWarnAfter:       p.duration("AGE_WARN_AFTER", "48h"),
+		AgeAlertAfter:      p.duration("AGE_ALERT_AFTER", "168h"),
+		RetentionDays:      p.int("RETENTION_DAYS", "365", 1, 3650),
+		FormRateLimit:      p.perHour("FORM_RATE_LIMIT", "20/h", 1, 10000),
 		VPDiveBaseURL:      p.url("VPDIVE_BASE_URL", p.optional("VPDIVE_BASE_URL", "https://plongee-pradet.fr")),
 	}
 	c.BaseURL = p.url("BASE_URL", p.required("BASE_URL"))
 	c.AdminBaseURL = p.url("ADMIN_BASE_URL", p.required("ADMIN_BASE_URL"))
 	if c.BaseURL != nil && c.AdminBaseURL != nil && strings.EqualFold(c.BaseURL.Hostname(), c.AdminBaseURL.Hostname()) {
 		p.fail("ADMIN_BASE_URL", errors.New("must use another host than BASE_URL"))
+	}
+	if c.AgeWarnAfter > 0 && c.AgeAlertAfter > 0 && c.AgeAlertAfter <= c.AgeWarnAfter {
+		p.fail("AGE_ALERT_AFTER", errors.New("must be longer than AGE_WARN_AFTER"))
 	}
 	p.turnstile(c)
 	c.S3 = p.s3(c.Env)
@@ -199,6 +210,17 @@ func (p *parser) duration(name, def string) time.Duration {
 		return 0
 	}
 	return d
+}
+
+// perHour reads a rate written "<n>/h", such as 20/h.
+func (p *parser) perHour(name, def string, minimum, maximum int) int {
+	count, ok := strings.CutSuffix(p.optional(name, def), "/h")
+	n, err := strconv.Atoi(strings.TrimSpace(count))
+	if !ok || err != nil || n < minimum || n > maximum {
+		p.fail(name, fmt.Errorf("must be a rate per hour such as 20/h, between %d/h and %d/h", minimum, maximum))
+		return 0
+	}
+	return n
 }
 
 func (p *parser) level(name string) slog.Level {
