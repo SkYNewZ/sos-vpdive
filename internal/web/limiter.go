@@ -49,22 +49,32 @@ func (l *limiter) userKey(username string) string {
 	return l.hashedKey("login-user:" + username)
 }
 
-// allow counts one more event under key ("purpose:value") in a fixed window
-// that starts with its first event, and reports whether the count stays
-// within limit.
-func (l *limiter) allow(ctx context.Context, key string, limit int, window time.Duration) (bool, error) {
+// rowQuerier is what *sql.DB and *sql.Tx share.
+type rowQuerier interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+// countInWindow counts one more event under the hashed key in a fixed window
+// that starts with its first event, and returns the count. It is the single
+// window rule of every limit.
+func (l *limiter) countInWindow(ctx context.Context, q rowQuerier, key string, window time.Duration) (int, error) {
 	now := l.now().Unix()
 	windowEnd := now - int64(window/time.Second)
 	var count int
-	err := store.Tx(ctx, l.db, "limit.count", func(ctx context.Context, tx *sql.Tx) error {
-		return tx.QueryRowContext(ctx,
-			`INSERT INTO counters (key, window_start, count) VALUES (?, ?, 1)
-			 ON CONFLICT (key) DO UPDATE SET
-			   count = CASE WHEN window_start <= ? THEN 1 ELSE count + 1 END,
-			   window_start = CASE WHEN window_start <= ? THEN excluded.window_start ELSE window_start END
-			 RETURNING count`,
-			l.hashedKey(key), now, windowEnd, windowEnd).Scan(&count)
-	})
+	err := q.QueryRowContext(ctx,
+		`INSERT INTO counters (key, window_start, count) VALUES (?, ?, 1)
+		 ON CONFLICT (key) DO UPDATE SET
+		   count = CASE WHEN window_start <= ? THEN 1 ELSE count + 1 END,
+		   window_start = CASE WHEN window_start <= ? THEN excluded.window_start ELSE window_start END
+		 RETURNING count`,
+		key, now, windowEnd, windowEnd).Scan(&count)
+	return count, err
+}
+
+// allow counts one more event under key ("purpose:value") and reports whether
+// the count stays within limit.
+func (l *limiter) allow(ctx context.Context, key string, limit int, window time.Duration) (bool, error) {
+	count, err := l.countInWindow(ctx, l.db, l.hashedKey(key), window)
 	if err != nil {
 		return false, fmt.Errorf("rate limit: %w", err)
 	}
@@ -110,21 +120,14 @@ func (l *limiter) retryAfter(ctx context.Context, ip netip.Addr, username string
 // window; the username counts consecutive failures, window_start holding the
 // last one.
 func (l *limiter) fail(ctx context.Context, ip netip.Addr, username string) error {
-	now := l.now().Unix()
-	windowEnd := now - int64(ipWindow/time.Second)
 	return store.Tx(ctx, l.db, "login.fail", func(ctx context.Context, tx *sql.Tx) error {
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO counters (key, window_start, count) VALUES (?, ?, 1)
-			 ON CONFLICT (key) DO UPDATE SET
-			   count = CASE WHEN window_start <= ? THEN 1 ELSE count + 1 END,
-			   window_start = CASE WHEN window_start <= ? THEN excluded.window_start ELSE window_start END`,
-			l.ipKey(ip), now, windowEnd, windowEnd); err != nil {
+		if _, err := l.countInWindow(ctx, tx, l.ipKey(ip), ipWindow); err != nil {
 			return fmt.Errorf("count address failure: %w", err)
 		}
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO counters (key, window_start, count) VALUES (?, ?, 1)
 			 ON CONFLICT (key) DO UPDATE SET count = count + 1, window_start = excluded.window_start`,
-			l.userKey(username), now); err != nil {
+			l.userKey(username), l.now().Unix()); err != nil {
 			return fmt.Errorf("count username failure: %w", err)
 		}
 		return nil
