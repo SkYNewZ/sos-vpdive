@@ -112,7 +112,7 @@ func Load(getenv func(string) string) (*Config, error) {
 	}
 	c.BaseURL = p.url("BASE_URL", p.required("BASE_URL"))
 	c.AdminBaseURL = p.url("ADMIN_BASE_URL", p.required("ADMIN_BASE_URL"))
-	if c.BaseURL != nil && c.AdminBaseURL != nil && c.BaseURL.Host == c.AdminBaseURL.Host {
+	if c.BaseURL != nil && c.AdminBaseURL != nil && strings.EqualFold(c.BaseURL.Hostname(), c.AdminBaseURL.Hostname()) {
 		p.fail("ADMIN_BASE_URL", errors.New("must use another host than BASE_URL"))
 	}
 	p.turnstile(c)

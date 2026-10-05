@@ -126,6 +126,7 @@ func TestLoadProductionRules(t *testing.T) {
 		{"half turnstile", func(m map[string]string) { delete(m, "TURNSTILE_SECRET_KEY") }, "TURNSTILE_SECRET_KEY"},
 		{"no s3", func(m map[string]string) { delete(m, "S3_BUCKET") }, "S3_BUCKET"},
 		{"same hosts", func(m map[string]string) { m["ADMIN_BASE_URL"] = "https://SOS.example.org" }, "ADMIN_BASE_URL"},
+		{"same hostname other port", func(m map[string]string) { m["ADMIN_BASE_URL"] = "https://sos.example.org:8443" }, "ADMIN_BASE_URL"},
 		{"url with path", func(m map[string]string) { m["ADMIN_BASE_URL"] = "https://comite.example.org/admin" }, "ADMIN_BASE_URL"},
 		{"bad env", func(m map[string]string) { m["APP_ENV"] = "staging" }, "APP_ENV"},
 		{"bad smtp tls", func(m map[string]string) { m["SMTP_TLS"] = "none" }, "SMTP_TLS"},
