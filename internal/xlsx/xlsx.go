@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"path"
 	"strconv"
 	"strings"
@@ -37,6 +38,12 @@ const (
 
 // tagPhonetic is the phonetic-run element, whose text is never read.
 const tagPhonetic = "rPh"
+
+// maxTextBytes bounds one cell text: Excel allows 32 767 characters, at most
+// 4 bytes each in UTF-8.
+const maxTextBytes = 4 * 32767
+
+var errTextTooLong = fmt.Errorf("%w: text longer than Excel allows", ErrInvalid)
 
 // maxColumns is Excel's column limit (XFD).
 const maxColumns = 16384
@@ -97,7 +104,7 @@ type Limits struct {
 
 // SerialDate converts an Excel serial date (1900 date system) to a UTC date.
 func SerialDate(serial float64) (time.Time, bool) {
-	if serial < 1 || serial >= 2958466 { // 2958466 is 10000-01-01
+	if !(serial >= 1 && serial < 2958466) { // 2958466 is 10000-01-01
 		return time.Time{}, false
 	}
 	return time.Date(1899, 12, 30, 0, 0, 0, 0, time.UTC).AddDate(0, 0, int(serial)), true
@@ -145,7 +152,7 @@ func ReadFirstSheet(data []byte, lim Limits) ([]Row, error) {
 	}
 	var shared []string
 	if ssPath, ok := wbRels.target(wbPath, relSharedStrings); ok {
-		if shared, err = r.sharedStrings(ssPath); err != nil {
+		if shared, err = r.sharedStrings(ssPath, lim); err != nil {
 			return nil, err
 		}
 	}
@@ -251,7 +258,7 @@ func xmlError(name string, err error) error {
 
 // sharedStrings reads the shared string table. Rich text runs are joined;
 // phonetic runs (<rPh>) are skipped.
-func (r *reader) sharedStrings(name string) ([]string, error) {
+func (r *reader) sharedStrings(name string, lim Limits) ([]string, error) {
 	var out []string
 	err := r.open(name, func(src io.Reader) error {
 		d := xml.NewDecoder(src)
@@ -279,6 +286,9 @@ func (r *reader) sharedStrings(name string) ([]string, error) {
 			case xml.EndElement:
 				switch t.Name.Local {
 				case "si":
+					if len(out) >= lim.MaxCells {
+						return ErrTooManyCells
+					}
 					out = append(out, cur.String())
 					inItem = false
 				case tagPhonetic:
@@ -288,6 +298,9 @@ func (r *reader) sharedStrings(name string) ([]string, error) {
 				}
 			case xml.CharData:
 				if inText {
+					if cur.Len()+len(t) > maxTextBytes {
+						return errTextTooLong
+					}
 					cur.Write(t)
 				}
 			}
@@ -334,6 +347,9 @@ func (r *reader) sheet(name string, shared []string, lim Limits) ([]Row, error) 
 				}
 			case xml.CharData:
 				if st.inValue || (st.inInline && st.phonetic == 0) {
+					if st.text.Len()+len(t) > maxTextBytes {
+						return errTextTooLong
+					}
 					st.text.Write(t)
 				}
 			}
@@ -430,7 +446,7 @@ func makeCell(col int, typ, raw string, shared []string) (Cell, bool, error) {
 		if raw == "" {
 			return Cell{}, false, nil
 		}
-		if _, err := strconv.ParseFloat(raw, 64); err != nil {
+		if f, err := strconv.ParseFloat(raw, 64); err != nil || math.IsNaN(f) || math.IsInf(f, 0) {
 			return Cell{}, false, fmt.Errorf("%w: number %q", ErrInvalid, raw)
 		}
 		return Cell{Col: col, Kind: KindNumber, Text: raw}, true, nil

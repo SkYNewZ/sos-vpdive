@@ -3,6 +3,7 @@ package xlsx
 import (
 	"archive/zip"
 	"bytes"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -126,4 +127,28 @@ func TestBuildIsDeterministic(t *testing.T) {
 	s := xlsxtest.Sheet{{"a", 1, 2.5, true, xlsxtest.Inline("b")}, nil, {nil, "a"}}
 	first, second := xlsxtest.MustBuild(t, s), xlsxtest.MustBuild(t, s)
 	assert.Equal(t, first, second)
+}
+
+func TestReadBoundsTextAndSharedStrings(t *testing.T) {
+	_, err := ReadFirstSheet(xlsxtest.MustRaw(t, `<row r="1"><c r="A1"><v>1</v></c></row>`,
+		strings.Repeat(`<si/>`, 20)), Limits{MaxUncompressed: 1 << 20, MaxRows: 10, MaxCells: 10})
+	require.ErrorIs(t, err, ErrTooManyCells)
+
+	long := strings.Repeat("x", maxTextBytes+1)
+	lim := Limits{MaxUncompressed: 1 << 20, MaxRows: 10, MaxCells: 10}
+	_, err = ReadFirstSheet(xlsxtest.MustRaw(t, `<row r="1"><c r="A1" t="s"><v>0</v></c></row>`,
+		`<si><t>`+long+`</t></si>`), lim)
+	require.ErrorIs(t, err, ErrInvalid)
+
+	_, err = ReadFirstSheet(xlsxtest.MustRaw(t, `<row r="1"><c r="A1" t="inlineStr"><is><t>`+long+`</t></is></c></row>`), lim)
+	require.ErrorIs(t, err, ErrInvalid)
+}
+
+func TestNonFiniteNumbers(t *testing.T) {
+	_, ok := SerialDate(math.NaN())
+	assert.False(t, ok)
+	_, ok = SerialDate(math.Inf(1))
+	assert.False(t, ok)
+	_, err := ReadFirstSheet(xlsxtest.MustRaw(t, `<row r="1"><c r="A1"><v>NaN</v></c></row>`), testLimits)
+	require.ErrorIs(t, err, ErrInvalid)
 }
