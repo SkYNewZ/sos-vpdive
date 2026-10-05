@@ -19,7 +19,10 @@ import (
 // FixturePath is the absolute path of testdata/fixtures/<name>, whatever the
 // package under test.
 func FixturePath(name string) string {
-	_, file, _, _ := runtime.Caller(0)
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		return filepath.Join("..", "..", "testdata", "fixtures", name) // from internal/<pkg>
+	}
 	// file is <module>/internal/members/memberstest/memberstest.go
 	root := filepath.Join(filepath.Dir(file), "..", "..", "..")
 	return filepath.Join(root, "testdata", "fixtures", name)
