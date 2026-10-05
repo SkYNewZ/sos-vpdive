@@ -82,9 +82,9 @@ func TestParseEmailWithSpaceListsRows(t *testing.T) {
 func TestParseHeaderVariants(t *testing.T) {
 	rows := []xlsx.Row{
 		{Num: 1, Cells: []xlsx.Cell{
-			{Col: 0, Kind: xlsx.KindString, Text: "Nom "},
-			{Col: 1, Kind: xlsx.KindString, Text: "Prénom "},
-			{Col: 2, Kind: xlsx.KindString, Text: " Email"},
+			{Col: 0, Kind: xlsx.KindString, Text: "Nom\u00a0"},
+			{Col: 1, Kind: xlsx.KindString, Text: "Pre\u0301nom\u00a0"},
+			{Col: 2, Kind: xlsx.KindString, Text: "\u00a0Email"},
 		}},
 		{Num: 2, Cells: []xlsx.Cell{
 			{Col: 0, Kind: xlsx.KindString, Text: "Martin"},
