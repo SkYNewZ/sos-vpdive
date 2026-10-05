@@ -112,7 +112,10 @@ func securityHeaders(next http.Handler) http.Handler {
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Strict-Transport-Security", "max-age=63072000")
 		h.Set("X-Robots-Tag", "noindex, nofollow, noai, noimageai")
-		h.Set("Referrer-Policy", "no-referrer")
+		// same-origin sends no referrer to other sites (tracking links carry secrets)
+		// but keeps the Origin header on our own form posts, which requireOrigin needs;
+		// no-referrer makes browsers send "Origin: null".
+		h.Set("Referrer-Policy", "same-origin")
 		if !strings.HasPrefix(r.URL.Path, "/static/") {
 			h.Set("Cache-Control", "no-store")
 		}

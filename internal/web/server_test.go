@@ -47,7 +47,8 @@ func TestSecurityHeadersOnEveryResponse(t *testing.T) {
 		assert.Equal(t, "nosniff", h.Get("X-Content-Type-Options"), path)
 		assert.NotEmpty(t, h.Get("Strict-Transport-Security"), path)
 		assert.Equal(t, "noindex, nofollow, noai, noimageai", h.Get("X-Robots-Tag"), path)
-		assert.Equal(t, "no-referrer", h.Get("Referrer-Policy"), path)
+		// Never no-referrer: browsers then send "Origin: null" and requireOrigin refuses every form post.
+		assert.Equal(t, "same-origin", h.Get("Referrer-Policy"), path)
 	}
 	assert.Equal(t, "no-store", e.do(t, http.MethodGet, publicHost, "/", nil).Header().Get("Cache-Control"))
 	assert.Contains(t, e.do(t, http.MethodGet, publicHost, "/", nil).Body.String(), `<meta name="robots" content="noindex, nofollow, noai, noimageai">`)
