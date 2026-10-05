@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -168,4 +170,35 @@ func TestNewPicksTheStore(t *testing.T) {
 	s, err = New(&config.Config{DataDir: dir, S3: &config.S3{Endpoint: endpoint, Bucket: "b", AccessKeyID: "i", SecretAccessKey: "s", Region: "auto"}})
 	require.NoError(t, err)
 	assert.IsType(t, &S3{}, s)
+}
+
+func TestErrorsCarryNoObjectKey(t *testing.T) {
+	ctx := context.Background()
+	key := newKey(t)
+
+	srv := httptest.NewServer(http.NotFoundHandler())
+	endpoint, err := url.Parse(srv.URL)
+	require.NoError(t, err)
+	srv.Close()
+	s3, err := NewS3(config.S3{Endpoint: endpoint, Bucket: "captures", AccessKeyID: "id", SecretAccessKey: "secret", Region: "auto"})
+	require.NoError(t, err)
+
+	// A directory in place of the object makes Remove fail with a *fs.PathError.
+	dirPath := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dirPath, key, "inner"), 0o700))
+	dir, err := NewDir(dirPath)
+	require.NoError(t, err)
+
+	for name, s := range map[string]Store{"s3": s3, "dir": dir} {
+		_, getErr := s.Get(ctx, key)
+		for op, err := range map[string]error{
+			"put": s.Put(ctx, key, []byte("x")), "get": getErr, "delete": s.Delete(ctx, key),
+		} {
+			if err != nil {
+				assert.NotContains(t, err.Error(), key, "%s %s", name, op)
+			}
+		}
+	}
+	require.Error(t, dir.Delete(ctx, key), "the directory case must fail")
+	require.Error(t, s3.Delete(ctx, key))
 }

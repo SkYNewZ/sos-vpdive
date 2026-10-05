@@ -60,7 +60,7 @@ func (s *S3) Put(ctx context.Context, key string, data []byte) error {
 	return s.call(ctx, "blobs.put", func(ctx context.Context) error {
 		if _, err := s.client.PutObject(ctx, s.bucket, key, bytes.NewReader(data), int64(len(data)),
 			minio.PutObjectOptions{ContentType: "application/octet-stream"}); err != nil {
-			return fmt.Errorf("put object: %w", err)
+			return fmt.Errorf("put object: %w", scrub(err))
 		}
 		return nil
 	})
@@ -76,7 +76,7 @@ func (s *S3) Get(ctx context.Context, key string) ([]byte, error) {
 		}
 		defer func() {
 			if cerr := obj.Close(); cerr != nil && err == nil {
-				err = fmt.Errorf("get object: %w", cerr)
+				err = fmt.Errorf("get object: %w", scrub(cerr))
 			}
 		}()
 		if data, err = io.ReadAll(obj); err != nil {
@@ -91,14 +91,14 @@ func getError(err error) error {
 	if minio.ToErrorResponse(err).Code == "NoSuchKey" {
 		return ErrNotFound
 	}
-	return fmt.Errorf("get object: %w", err)
+	return fmt.Errorf("get object: %w", scrub(err))
 }
 
 // Delete removes an object; S3 answers a missing key with success.
 func (s *S3) Delete(ctx context.Context, key string) error {
 	return s.call(ctx, "blobs.delete", func(ctx context.Context) error {
 		if err := s.client.RemoveObject(ctx, s.bucket, key, minio.RemoveObjectOptions{}); err != nil {
-			return fmt.Errorf("delete object: %w", err)
+			return fmt.Errorf("delete object: %w", scrub(err))
 		}
 		return nil
 	})
@@ -113,7 +113,7 @@ func (s *S3) List(ctx context.Context) ([]Object, error) {
 		for info := range s.client.ListObjects(ctx, s.bucket, minio.ListObjectsOptions{Recursive: true}) {
 			if info.Err != nil {
 				if listErr == nil {
-					listErr = fmt.Errorf("list objects: %w", info.Err)
+					listErr = fmt.Errorf("list objects: %w", scrub(info.Err))
 				}
 				continue
 			}

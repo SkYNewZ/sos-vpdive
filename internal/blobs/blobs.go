@@ -6,6 +6,9 @@ package blobs
 import (
 	"context"
 	"errors"
+	"io/fs"
+	"net/url"
+	"os"
 	"path/filepath"
 	"regexp"
 	"time"
@@ -57,4 +60,20 @@ func New(cfg *config.Config) (Store, error) {
 // NewKey returns a random object key, unrelated to any ticket or file name.
 func NewKey() (string, error) {
 	return secure.NewToken()
+}
+
+// scrub drops the object key that transport and file errors carry (the
+// request URL of a *url.Error, the path of a *fs.PathError or *os.LinkError): keys must not
+// reach the logs (design §4). Other errors pass unchanged.
+func scrub(err error) error {
+	if u, ok := errors.AsType[*url.Error](err); ok {
+		return u.Err
+	}
+	if p, ok := errors.AsType[*fs.PathError](err); ok {
+		return p.Err
+	}
+	if l, ok := errors.AsType[*os.LinkError](err); ok {
+		return l.Err
+	}
+	return err
 }
