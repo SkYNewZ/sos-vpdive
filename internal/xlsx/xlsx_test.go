@@ -17,7 +17,7 @@ import (
 var testLimits = Limits{MaxUncompressed: 1 << 20, MaxRows: 100, MaxCells: 1000}
 
 func TestReadCellKindsAndGaps(t *testing.T) {
-	data := xlsxtest.MustRaw(t,
+	data := xlsxtest.Raw(t,
 		`<row r="1"><c r="A1" t="s"><v>0</v></c><c r="C1" t="s"><v>1</v></c><c r="D1" t="s"><v>2</v></c></row>`+
 			`<row r="3"><c r="A3"><v>2026</v></c><c r="B3" t="b"><v>1</v></c>`+
 			`<c r="C3" t="inlineStr"><is><t>en ligne</t></is></c><c r="D3" t="str"><v>formule</v></c>`+
@@ -46,7 +46,7 @@ func TestReadCellKindsAndGaps(t *testing.T) {
 }
 
 func TestReadWithoutReferences(t *testing.T) {
-	data := xlsxtest.MustRaw(t, `<row><c t="s"><v>0</v></c><c><v>5</v></c></row><row><c><v>1</v></c></row>`, `<si><t>a</t></si>`)
+	data := xlsxtest.Raw(t, `<row><c t="s"><v>0</v></c><c><v>5</v></c></row><row><c><v>1</v></c></row>`, `<si><t>a</t></si>`)
 	rows, err := ReadFirstSheet(data, testLimits)
 	require.NoError(t, err)
 	assert.Equal(t, []Row{
@@ -56,7 +56,7 @@ func TestReadWithoutReferences(t *testing.T) {
 }
 
 func TestReadFirstSheetOnly(t *testing.T) {
-	data := xlsxtest.MustBuild(t, xlsxtest.Sheet{{"first"}}, xlsxtest.Sheet{{"second"}})
+	data := xlsxtest.Build(t, xlsxtest.Sheet{{"first"}}, xlsxtest.Sheet{{"second"}})
 	rows, err := ReadFirstSheet(data, testLimits)
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
@@ -83,10 +83,10 @@ func TestReadRejectsInvalidInput(t *testing.T) {
 	cases := map[string][]byte{
 		"not a zip":                 []byte("%PDF-1.7 not a workbook"),
 		"zip without workbook":      noWorkbook.Bytes(),
-		"shared index out of range": xlsxtest.MustRaw(t, `<row r="1"><c r="A1" t="s"><v>7</v></c></row>`),
-		"bad column reference":      xlsxtest.MustRaw(t, `<row r="1"><c r="ZZZZ1"><v>1</v></c></row>`),
-		"bad number":                xlsxtest.MustRaw(t, `<row r="1"><c r="A1"><v>abc</v></c></row>`),
-		"truncated xml":             xlsxtest.MustRaw(t, `<row r="1"><c r="A1"><v>1</v>`),
+		"shared index out of range": xlsxtest.Raw(t, `<row r="1"><c r="A1" t="s"><v>7</v></c></row>`),
+		"bad column reference":      xlsxtest.Raw(t, `<row r="1"><c r="ZZZZ1"><v>1</v></c></row>`),
+		"bad number":                xlsxtest.Raw(t, `<row r="1"><c r="A1"><v>abc</v></c></row>`),
+		"truncated xml":             xlsxtest.Raw(t, `<row r="1"><c r="A1"><v>1</v>`),
 	}
 	for name, data := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -101,12 +101,12 @@ func TestReadEnforcesLimits(t *testing.T) {
 	for range 30000 {
 		sheet = append(sheet, []any{strings.Repeat("x", 30)})
 	}
-	big := xlsxtest.MustBuild(t, sheet)
+	big := xlsxtest.Build(t, sheet)
 	require.Less(t, len(big), 200_000, "the bomb compresses well")
 	_, err := ReadFirstSheet(big, Limits{MaxUncompressed: 1 << 20, MaxRows: 100_000, MaxCells: 100_000})
 	require.ErrorIs(t, err, ErrTooLarge)
 
-	five := xlsxtest.MustBuild(t, xlsxtest.Sheet{{1}, {2}, {3}, {4}, {5}})
+	five := xlsxtest.Build(t, xlsxtest.Sheet{{1}, {2}, {3}, {4}, {5}})
 	_, err = ReadFirstSheet(five, Limits{MaxUncompressed: 1 << 20, MaxRows: 3, MaxCells: 100})
 	require.ErrorIs(t, err, ErrTooManyRows)
 	_, err = ReadFirstSheet(five, Limits{MaxUncompressed: 1 << 20, MaxRows: 100, MaxCells: 4})
@@ -125,22 +125,22 @@ func TestSerialDate(t *testing.T) {
 
 func TestBuildIsDeterministic(t *testing.T) {
 	s := xlsxtest.Sheet{{"a", 1, 2.5, true, xlsxtest.Inline("b")}, nil, {nil, "a"}}
-	first, second := xlsxtest.MustBuild(t, s), xlsxtest.MustBuild(t, s)
+	first, second := xlsxtest.Build(t, s), xlsxtest.Build(t, s)
 	assert.Equal(t, first, second)
 }
 
 func TestReadBoundsTextAndSharedStrings(t *testing.T) {
-	_, err := ReadFirstSheet(xlsxtest.MustRaw(t, `<row r="1"><c r="A1"><v>1</v></c></row>`,
+	_, err := ReadFirstSheet(xlsxtest.Raw(t, `<row r="1"><c r="A1"><v>1</v></c></row>`,
 		strings.Repeat(`<si/>`, 20)), Limits{MaxUncompressed: 1 << 20, MaxRows: 10, MaxCells: 10})
 	require.ErrorIs(t, err, ErrTooManyCells)
 
 	long := strings.Repeat("x", maxTextBytes+1)
 	lim := Limits{MaxUncompressed: 1 << 20, MaxRows: 10, MaxCells: 10}
-	_, err = ReadFirstSheet(xlsxtest.MustRaw(t, `<row r="1"><c r="A1" t="s"><v>0</v></c></row>`,
+	_, err = ReadFirstSheet(xlsxtest.Raw(t, `<row r="1"><c r="A1" t="s"><v>0</v></c></row>`,
 		`<si><t>`+long+`</t></si>`), lim)
 	require.ErrorIs(t, err, ErrInvalid)
 
-	_, err = ReadFirstSheet(xlsxtest.MustRaw(t, `<row r="1"><c r="A1" t="inlineStr"><is><t>`+long+`</t></is></c></row>`), lim)
+	_, err = ReadFirstSheet(xlsxtest.Raw(t, `<row r="1"><c r="A1" t="inlineStr"><is><t>`+long+`</t></is></c></row>`), lim)
 	require.ErrorIs(t, err, ErrInvalid)
 }
 
@@ -149,6 +149,6 @@ func TestNonFiniteNumbers(t *testing.T) {
 	assert.False(t, ok)
 	_, ok = SerialDate(math.Inf(1))
 	assert.False(t, ok)
-	_, err := ReadFirstSheet(xlsxtest.MustRaw(t, `<row r="1"><c r="A1"><v>NaN</v></c></row>`), testLimits)
+	_, err := ReadFirstSheet(xlsxtest.Raw(t, `<row r="1"><c r="A1"><v>NaN</v></c></row>`), testLimits)
 	require.ErrorIs(t, err, ErrInvalid)
 }

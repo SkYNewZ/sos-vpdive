@@ -32,34 +32,20 @@ const (
 // modified is fixed so that generated fixtures are byte-for-byte stable.
 var modified = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
-// MustBuild is Build for tests.
-func MustBuild(tb testing.TB, sheets ...Sheet) []byte {
-	tb.Helper()
-	b, err := Build(sheets...)
-	if err != nil {
-		tb.Fatal(err)
-	}
-	return b
-}
-
-// MustRaw is Raw for tests.
-func MustRaw(tb testing.TB, sheetData string, sharedItems ...string) []byte {
-	tb.Helper()
-	b, err := Raw(sheetData, sharedItems...)
-	if err != nil {
-		tb.Fatal(err)
-	}
-	return b
-}
-
 // Raw returns a one-sheet workbook whose <sheetData> content is sheetData and
 // whose shared strings are the given <si> elements, for edge cases.
-func Raw(sheetData string, sharedItems ...string) ([]byte, error) {
-	return assemble([]string{sheetData}, sharedItems)
+func Raw(tb testing.TB, sheetData string, sharedItems ...string) []byte {
+	tb.Helper()
+	b, err := assemble([]string{sheetData}, sharedItems)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	return b
 }
 
 // Build returns a workbook whose sheets appear in the given order.
-func Build(sheets ...Sheet) ([]byte, error) {
+func Build(tb testing.TB, sheets ...Sheet) []byte {
+	tb.Helper()
 	var shared []string
 	index := map[string]int{}
 	sheetXML := make([]string, len(sheets))
@@ -99,7 +85,11 @@ func Build(sheets ...Sheet) ([]byte, error) {
 		}
 		sheetXML[i] = b.String()
 	}
-	return assemble(sheetXML, shared)
+	b, err := assemble(sheetXML, shared)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	return b
 }
 
 func assemble(sheets, sharedItems []string) ([]byte, error) {
