@@ -1,0 +1,17 @@
+{{define "head"}}{{if .Data.SiteKey}}<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>{{end}}{{end}}
+{{define "main"}}
+<h1 class="text-2xl font-bold text-primary">Retrouver mes demandes</h1>
+<p class="mt-4">Indique ton adresse mail : si elle a des demandes, tu reçois un mail avec le lien de suivi de chacune.</p>
+<form method="post" action="/retrouver" class="mt-6 flex flex-col gap-4">
+<div class="flex flex-col gap-1">
+<label class="font-semibold" for="email">Adresse mail</label>
+<p class="text-sm" id="email-aide">Celle que tu as donnée en envoyant ta demande.</p>
+<input class="input w-full" id="email" name="email" type="email" autocomplete="email" inputmode="email" maxlength="254" required value="{{.Data.Email}}" aria-describedby="email-aide{{if .Data.Error}} email-erreur{{end}}"{{if .Data.Error}} aria-invalid="true"{{end}}>
+{{with .Data.Error}}<p id="email-erreur" class="font-semibold text-error">{{.}}</p>{{end}}
+</div>
+{{if .Data.SiteKey}}<div class="cf-turnstile" data-sitekey="{{.Data.SiteKey}}" data-action="retrouver"></div>
+<noscript><p class="font-semibold">L'envoi demande JavaScript, pour le contrôle anti-robot. Active-le, ou écris au club : {{.ClubEmail}}.</p></noscript>{{end}}
+<button class="btn btn-primary min-h-11 w-full sm:w-auto sm:self-start" type="submit">Recevoir mes liens</button>
+</form>
+<p class="mt-6"><a class="link link-primary" href="/">Faire une nouvelle demande</a></p>
+{{end}}

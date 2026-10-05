@@ -148,6 +148,12 @@ func (s *Server) publicRoutes() *http.ServeMux {
 	s.handle(mux, "GET /{$}", s.formPage)
 	s.handle(mux, "POST /demandes", s.submit)
 	s.handle(mux, "GET /demandes/envoyee", s.sentPage)
+	s.handle(mux, "GET /suivi/{jeton}", s.trackingPage)
+	s.handle(mux, "POST /suivi/{jeton}/reponse", s.memberReply)
+	s.handle(mux, "POST /suivi/{jeton}/cloture", s.memberClose)
+	s.handle(mux, "GET /suivi/{jeton}/captures/{id}", s.memberCapture)
+	s.handle(mux, "GET /retrouver", s.linksPage)
+	s.handle(mux, "POST /retrouver", s.requestLinks)
 	return mux
 }
 
