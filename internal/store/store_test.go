@@ -50,7 +50,10 @@ func TestOpenCreatesSchemaAndIsIdempotent(t *testing.T) {
 		tables = append(tables, n)
 	}
 	require.NoError(t, rows.Err())
-	assert.Equal(t, []string{"counters", "imports", "members", "meta", "sessions"}, tables)
+	assert.Equal(t, []string{
+		"attachments", "counters", "events", "imports", "members", "messages",
+		"meta", "outbox", "sessions", "stats_monthly", "tickets",
+	}, tables)
 
 	var mode string
 	require.NoError(t, db.QueryRowContext(ctx, `PRAGMA journal_mode`).Scan(&mode))
