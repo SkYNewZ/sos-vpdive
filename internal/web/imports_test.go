@@ -80,7 +80,7 @@ func TestImportPreviewThenConfirm(t *testing.T) {
 	rec := e.upload(t, cookie, csrf, fixtureBytes(t, "members_valid.xlsx"))
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	body := rec.Body.String()
-	for _, want := range []string{"Aperçu avant remplacement", "<dd>6</dd>", "01/09/2026 à 08:15", "1 groupe, 2 comptes", "Remplacer la liste"} {
+	for _, want := range []string{"Aperçu avant remplacement", `<dd class="mb-2 sm:mb-0">6</dd>`, "01/09/2026 à 08:15", "1 groupe, 2 comptes", "Remplacer la liste"} {
 		assert.Contains(t, body, want)
 	}
 	assert.NotContains(t, body, "confirmer_moitie")
