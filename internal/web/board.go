@@ -93,14 +93,14 @@ func (s *Server) board(w http.ResponseWriter, r *http.Request) {
 // categoryOptions lists every category, committee-only ones included. A
 // current value that left the catalog stays selectable, labelled « (retiré) ».
 func (s *Server) categoryOptions(current string) []option {
-	opts := make([]option, 0, len(s.catalog.Categories)+1)
+	opts := make([]option, 0, len(s.tickets.Catalog.Categories)+1)
 	found := current == ""
-	for _, c := range s.catalog.Categories {
+	for _, c := range s.tickets.Catalog.Categories {
 		opts = append(opts, option{c.ID, c.Label})
 		found = found || c.ID == current
 	}
 	if !found {
-		opts = append(opts, option{current, s.catalog.CategoryLabel(current)})
+		opts = append(opts, option{current, s.tickets.Catalog.CategoryLabel(current)})
 	}
 	return opts
 }

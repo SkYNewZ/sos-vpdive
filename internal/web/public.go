@@ -70,7 +70,7 @@ func (s *Server) formPage(w http.ResponseWriter, r *http.Request) {
 // renderForm shows the form; n, when set, says why it came back.
 func (s *Server) renderForm(w http.ResponseWriter, r *http.Request, status int, d formData, n *notice) {
 	p := s.newPage(r, "Demande d'aide")
-	d.Categories = s.catalog.Public()
+	d.Categories = s.tickets.Catalog.Public()
 	d.FAQ, d.Tarifs = s.vpdive["faq"], s.vpdive["tarifs"]
 	if s.turnstile != nil {
 		d.SiteKey = s.turnstile.SiteKey
@@ -166,7 +166,6 @@ func (s *Server) submit(w http.ResponseWriter, r *http.Request) {
 	ref, err = s.tickets.Submit(ctx, sub)
 	switch {
 	case errors.Is(err, tickets.ErrStorage):
-		s.logger.WarnContext(ctx, "capture storage unavailable", "error", err)
 		s.renderForm(w, r, http.StatusServiceUnavailable, d, &notice{Kind: noticeError,
 			Text: "Tes captures n'ont pas pu être enregistrées, et ta demande n'est pas partie. Réessaie, avec ou sans captures."})
 	case err != nil:
@@ -196,12 +195,12 @@ func (s *Server) readSubmission(d *formData) tickets.Submission {
 	if sub.Description, ok = tickets.CleanText(v.Get("description"), tickets.DescriptionMin, tickets.DescriptionMax); !ok {
 		d.Errors["description"] = "Décris ta demande en 20 à 4 000 caractères."
 	}
-	category, found := s.catalog.Category(d.Category)
+	category, found := s.tickets.Catalog.Category(d.Category)
 	if !found || category.CommitteeOnly {
 		d.Errors["categorie"] = "Choisis une catégorie dans la liste."
 		return sub
 	}
-	fields, problems := s.catalog.ReadFields(category.ID, v.Get)
+	fields, problems := s.tickets.Catalog.ReadFields(category.ID, v.Get)
 	for id, msg := range problems {
 		d.Errors[tickets.FieldName(category.ID, id)] = msg
 	}
@@ -213,11 +212,11 @@ func (s *Server) readSubmission(d *formData) tickets.Submission {
 // submitAllowed applies the form limits of spec §11.3: FORM_RATE_LIMIT per
 // address and per hour, then 5 per email and per hour.
 func (s *Server) submitAllowed(ctx context.Context, ip, email string) (bool, error) {
-	ok, err := s.limiter.allow(ctx, "form-ip:"+ip, s.cfg.FormRateLimit, time.Hour)
-	if err != nil || !ok || email == "" {
-		return ok, err
+	rules := []rule{{"form-ip:" + ip, s.cfg.FormRateLimit, time.Hour}}
+	if email != "" {
+		rules = append(rules, rule{"form-email:" + email, formEmailLimit, time.Hour})
 	}
-	return s.limiter.allow(ctx, "form-email:"+email, formEmailLimit, time.Hour)
+	return s.limiter.allowAll(ctx, rules...)
 }
 
 // checkMember blocks an address absent from the members list (spec §3.6),

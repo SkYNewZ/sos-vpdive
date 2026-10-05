@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/admins"
-	"github.com/SkYNewZ/sos-vpdive/internal/tickets"
 )
 
 const (
@@ -184,7 +183,7 @@ func (s *Server) adminNotices(ctx context.Context) ([]notice, error) {
 	if failed > 0 {
 		out = append(out, notice{Kind: noticeError, Text: failedMailsText(failed), Link: "/envois", LinkText: "Voir les envois en échec"})
 	}
-	idle, err := s.tickets.Idle(ctx)
+	idle, err := s.tickets.IdleRefs(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -203,15 +202,11 @@ func failedMailsText(n int) string {
 
 // idleText names the open requests without activity for 12 months: they are
 // flagged for review, never closed automatically (spec §8.3).
-func idleText(rows []tickets.Row) string {
-	refs := make([]string, len(rows))
-	for i, row := range rows {
-		refs[i] = row.Ref
-	}
-	if len(rows) == 1 {
+func idleText(refs []string) string {
+	if len(refs) == 1 {
 		return "1 demande ouverte est sans activité depuis 12 mois, à revoir : " + refs[0] + "."
 	}
-	return strconv.Itoa(len(rows)) + " demandes ouvertes sont sans activité depuis 12 mois, à revoir : " + strings.Join(refs, ", ") + "."
+	return strconv.Itoa(len(refs)) + " demandes ouvertes sont sans activité depuis 12 mois, à revoir : " + strings.Join(refs, ", ") + "."
 }
 
 // serverError logs an internal error and answers 500 without detail.

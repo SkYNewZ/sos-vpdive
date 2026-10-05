@@ -24,21 +24,6 @@ func inCategory(id string) func(*tickets.Submission) {
 	return func(s *tickets.Submission) { s.Fields = tickets.Fields{Category: id, Values: map[string]string{}} }
 }
 
-// withServer builds another server on the same database, stores and clock,
-// with changed dependencies (a smaller catalog, for instance).
-func (e *testEnv) withServer(t *testing.T, opts ...func(*Deps)) *testEnv {
-	t.Helper()
-	deps := e.deps
-	for _, opt := range opts {
-		opt(&deps)
-	}
-	srv, err := New(deps)
-	require.NoError(t, err)
-	other := *e
-	other.srv, other.deps = srv, deps
-	return &other
-}
-
 // boardRow returns the unescaped row of request id on the board.
 func boardRow(t *testing.T, body string, id int64) string {
 	t.Helper()
@@ -135,9 +120,9 @@ func TestBoardShowsRemovedCategories(t *testing.T) {
 		"config/products.yaml":   {Data: []byte("products:\n  - id: autre\n    label: Autre\n")},
 	})
 	require.NoError(t, err)
-	narrow := e.withServer(t, func(d *Deps) { d.Catalog = reduced })
+	e.deps.Tickets.Catalog = reduced
 
-	rec := narrow.do(t, http.MethodGet, adminHost, "/?categorie=carnet", nil, withCookie(cookie))
+	rec := e.do(t, http.MethodGet, adminHost, "/?categorie=carnet", nil, withCookie(cookie))
 	require.Equal(t, http.StatusOK, rec.Code)
 	body := html.UnescapeString(rec.Body.String())
 	assert.Contains(t, body, tk.Ref, "filtering by a removed category still works")

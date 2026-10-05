@@ -102,7 +102,7 @@ func setup(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*app, 
 	a.web, err = web.New(web.Deps{
 		Config: cfg, DB: db, Keys: keys, Members: memberStore, Admins: registry,
 		Content: sosvpdive.Content, Logger: logger, Now: time.Now, Turnstile: turnstile,
-		Tickets: ticketStore, Catalog: catalog, Outbox: outbox, Broker: broker,
+		Tickets: ticketStore, Outbox: outbox, Broker: broker,
 	})
 	if err != nil {
 		return fail(err)

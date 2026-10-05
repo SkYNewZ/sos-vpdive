@@ -81,7 +81,7 @@ func TestMemberFormPage(t *testing.T) {
 	} {
 		assert.Contains(t, body, want)
 	}
-	carnet, ok := e.deps.Catalog.Category("carnet")
+	carnet, ok := e.deps.Tickets.Catalog.Category("carnet")
 	require.True(t, ok)
 	assert.Contains(t, body, carnet.Help, "the category help is on the page, shown with its fields")
 	assert.NotContains(t, body, `value="bug"`, "a committee-only category is never offered")
@@ -198,7 +198,7 @@ func TestRequiredCategoryFieldErrorSitsBesideTheField(t *testing.T) {
 	e.importMembers(t, "members_valid.xlsx")
 	var category tickets.Category
 	var field tickets.Field
-	for _, c := range e.deps.Catalog.Public() {
+	for _, c := range e.deps.Tickets.Catalog.Public() {
 		for _, f := range c.Fields {
 			if f.Required && field.ID == "" {
 				category, field = c, f

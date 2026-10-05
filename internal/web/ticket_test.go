@@ -286,8 +286,8 @@ func TestRequestPageShowsRemovedCategory(t *testing.T) {
 		"config/products.yaml":   {Data: []byte("products:\n  - id: autre\n    label: Autre\n")},
 	})
 	require.NoError(t, err)
-	narrow := e.withServer(t, func(d *Deps) { d.Catalog = reduced })
-	page := narrow.openTicket(t, cookie, tk.ID)
+	e.deps.Tickets.Catalog = reduced
+	page := e.openTicket(t, cookie, tk.ID)
 	assert.Contains(t, page.body, "carnet (retiré)")
 	assert.Contains(t, page.body, "-180,00 €")
 	assert.Contains(t, page.body, "retiré")

@@ -34,21 +34,31 @@ type trackingData struct {
 // ticketByToken finds the request of the link. Anything else gets the
 // « ce lien ne fonctionne plus » page.
 func (s *Server) ticketByToken(w http.ResponseWriter, r *http.Request) (*tickets.Detail, bool) {
+	return findByToken(s, w, r, s.tickets.ByToken)
+}
+
+// idByToken is ticketByToken for handlers that only need the request id.
+func (s *Server) idByToken(w http.ResponseWriter, r *http.Request) (int64, bool) {
+	return findByToken(s, w, r, s.tickets.IDByToken)
+}
+
+func findByToken[T any](s *Server, w http.ResponseWriter, r *http.Request, find func(context.Context, string) (T, error)) (T, bool) {
+	var zero T
 	token := r.PathValue("jeton")
 	if !secure.IsToken(token) {
 		s.renderGone(w, r)
-		return nil, false
+		return zero, false
 	}
-	d, err := s.tickets.ByToken(r.Context(), token)
+	found, err := find(r.Context(), token)
 	if errors.Is(err, tickets.ErrNotFound) {
 		s.renderGone(w, r)
-		return nil, false
+		return zero, false
 	}
 	if err != nil {
 		s.serverError(w, r, err)
-		return nil, false
+		return zero, false
 	}
-	return d, true
+	return found, true
 }
 
 func (s *Server) renderGone(w http.ResponseWriter, r *http.Request) {
@@ -119,7 +129,6 @@ func (s *Server) memberReply(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, tickets.ErrNotFound): // deleted since the link was opened
 		s.renderGone(w, r)
 	case errors.Is(err, tickets.ErrStorage):
-		s.logger.WarnContext(ctx, "capture storage unavailable", "error", err)
 		s.renderTracking(w, r, http.StatusServiceUnavailable, d, reply,
 			"Tes captures n'ont pas pu être enregistrées, et ton message n'est pas parti. Réessaie, avec ou sans captures.")
 	default:
@@ -130,21 +139,19 @@ func (s *Server) memberReply(w http.ResponseWriter, r *http.Request) {
 // replyAllowed applies the reply limits of spec §11.3: 30 per hour per
 // address, 20 per hour per request.
 func (s *Server) replyAllowed(ctx context.Context, ip string, id int64) (bool, error) {
-	ok, err := s.limiter.allow(ctx, "reply-ip:"+ip, replyIPLimit, time.Hour)
-	if err != nil || !ok {
-		return ok, err
-	}
-	return s.limiter.allow(ctx, "reply-ticket:"+strconv.FormatInt(id, 10), replyTicketLimit, time.Hour)
+	return s.limiter.allowAll(ctx,
+		rule{"reply-ip:" + ip, replyIPLimit, time.Hour},
+		rule{"reply-ticket:" + strconv.FormatInt(id, 10), replyTicketLimit, time.Hour})
 }
 
 // memberClose marks the request settled by its member. A second tap on a
 // request already done changes nothing.
 func (s *Server) memberClose(w http.ResponseWriter, r *http.Request) {
-	d, ok := s.ticketByToken(w, r)
+	id, ok := s.idByToken(w, r)
 	if !ok {
 		return
 	}
-	err := s.tickets.MemberClose(r.Context(), d.ID)
+	err := s.tickets.MemberClose(r.Context(), id)
 	if errors.Is(err, tickets.ErrNotFound) { // deleted since the link was opened
 		s.renderGone(w, r)
 		return
@@ -157,16 +164,16 @@ func (s *Server) memberClose(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) memberCapture(w http.ResponseWriter, r *http.Request) {
-	d, ok := s.ticketByToken(w, r)
+	id, ok := s.idByToken(w, r)
 	if !ok {
 		return
 	}
-	id, ok := pathID(r, "id")
+	attachment, ok := pathID(r, "id")
 	if !ok {
 		s.notFound(w, r)
 		return
 	}
-	data, mime, err := s.tickets.Capture(r.Context(), d.ID, id)
+	data, mime, err := s.tickets.Capture(r.Context(), id, attachment)
 	s.writeCapture(w, r, data, mime, err)
 }
 

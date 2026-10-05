@@ -56,14 +56,19 @@ func (s *Server) requestLinks(w http.ResponseWriter, r *http.Request) {
 		s.renderLinks(w, r, status, d, n)
 		return
 	}
-	tooMany := &notice{Kind: noticeError, Text: "Trop de demandes de liens. Réessaie plus tard."}
-	ok, err := s.limiter.allow(ctx, "recover-ip:"+s.clientIP(r).String(), recoverIPLimit, time.Hour)
-	if err != nil {
-		s.serverError(w, r, err)
-		return
+	// refused answers for a rule that does not hold: true when the request is over.
+	refused := func(rl rule) bool {
+		ok, err := s.limiter.allowAll(ctx, rl)
+		switch {
+		case err != nil:
+			s.serverError(w, r, err)
+		case !ok:
+			s.renderLinks(w, r, http.StatusTooManyRequests, d,
+				&notice{Kind: noticeError, Text: "Trop de demandes de liens. Réessaie plus tard."})
+		}
+		return err != nil || !ok
 	}
-	if !ok {
-		s.renderLinks(w, r, http.StatusTooManyRequests, d, tooMany)
+	if refused(rule{"recover-ip:" + s.clientIP(r).String(), recoverIPLimit, time.Hour}) {
 		return
 	}
 	email, err := secure.NormalizeEmail(d.Email)
@@ -72,12 +77,7 @@ func (s *Server) requestLinks(w http.ResponseWriter, r *http.Request) {
 		s.renderLinks(w, r, http.StatusUnprocessableEntity, d, nil)
 		return
 	}
-	if ok, err = s.limiter.allow(ctx, "recover-email:"+email, recoverEmailLimit, 24*time.Hour); err != nil {
-		s.serverError(w, r, err)
-		return
-	}
-	if !ok {
-		s.renderLinks(w, r, http.StatusTooManyRequests, d, tooMany)
+	if refused(rule{"recover-email:" + email, recoverEmailLimit, 24 * time.Hour}) {
 		return
 	}
 	if err := s.tickets.SendLinks(ctx, email); err != nil {

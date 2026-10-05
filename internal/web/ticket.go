@@ -34,6 +34,7 @@ type ticketData struct {
 	ticketMessage
 
 	Ticket     *tickets.Detail
+	Can        map[string]bool // action name -> the status allows it (templates cannot index by tickets.Action)
 	Assignee   *admins.Account
 	Accounts   []admins.Account
 	Profile    *profileView // nil when the address left the members list
@@ -101,6 +102,21 @@ func (s *Server) renderTicket(w http.ResponseWriter, r *http.Request, status int
 	s.render(w, r, status, "ticket", p)
 }
 
+// pageActions are the actions whose forms the ticket page shows or hides by status.
+var pageActions = []tickets.Action{
+	tickets.ActionTake, tickets.ActionReassign, tickets.ActionWait, tickets.ActionResume,
+	tickets.ActionReply, tickets.ActionCategory, tickets.ActionClose,
+}
+
+// canDo maps pageActions to whether st allows them.
+func canDo(st tickets.Status) map[string]bool {
+	can := make(map[string]bool, len(pageActions))
+	for _, a := range pageActions {
+		can[string(a)] = tickets.Allowed(a, st)
+	}
+	return can
+}
+
 func (s *Server) ticketView(ctx context.Context, t *tickets.Detail) (ticketData, error) {
 	others, err := s.tickets.Others(ctx, t.ID)
 	if err != nil {
@@ -111,8 +127,8 @@ func (s *Server) ticketView(ctx context.Context, t *tickets.Detail) (ticketData,
 		return ticketData{}, err
 	}
 	d := ticketData{
-		Ticket: t, Assignee: s.accountOf(t.Assignee), Accounts: s.admins.Accounts(), Others: others,
-		Fields: s.catalog.Display(t.Fields), Categories: s.categoryOptions(t.Category),
+		Ticket: t, Can: canDo(t.Status), Assignee: s.accountOf(t.Assignee), Accounts: s.admins.Accounts(), Others: others,
+		Fields: s.tickets.Catalog.Display(t.Fields), Categories: s.categoryOptions(t.Category),
 	}
 	for _, key := range ticketLinks {
 		if l, ok := s.vpdive[key]; ok {
@@ -126,7 +142,7 @@ func (s *Server) ticketView(ctx context.Context, t *tickets.Detail) (ticketData,
 	}
 	today := s.now().In(s.paris)
 	d.Filter = paymentsFilter{
-		Name: name, Product: s.catalog.Product(t.Fields),
+		Name: name, Product: s.tickets.Catalog.Product(t.Fields),
 		From: time.Date(today.Year(), time.January, 1, 0, 0, 0, 0, s.paris).Format(dateFormat),
 		To:   today.Format(dateFormat),
 	}

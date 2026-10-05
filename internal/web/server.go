@@ -33,7 +33,6 @@ type Deps struct {
 	Members *members.Store
 	Admins  *admins.Registry
 	Tickets *tickets.Store
-	Catalog *tickets.Catalog
 	Outbox  *mail.Outbox
 	Broker  *Broker // shared with tickets.Deps.OnChange
 	Content fs.FS
@@ -51,7 +50,6 @@ type Server struct {
 	members   *members.Store
 	admins    *admins.Registry
 	tickets   *tickets.Store
-	catalog   *tickets.Catalog
 	outbox    *mail.Outbox
 	broker    *Broker
 	keepAlive time.Duration // event stream keepalive and session check, shortened by tests
@@ -96,7 +94,7 @@ func New(d Deps) (*Server, error) {
 	}
 	s := &Server{
 		cfg: d.Config, db: d.DB, keys: d.Keys, members: d.Members, admins: d.Admins,
-		tickets: d.Tickets, catalog: d.Catalog, outbox: d.Outbox, broker: d.Broker,
+		tickets: d.Tickets, outbox: d.Outbox, broker: d.Broker,
 		keepAlive: keepAliveInterval,
 		logger:    d.Logger, now: d.Now, paris: paris, tracer: otel.Tracer(tracerName),
 		turnstile: d.Turnstile,
@@ -109,7 +107,7 @@ func New(d Deps) (*Server, error) {
 	funcs := template.FuncMap{
 		"static": s.assets.URL, "formatTime": s.formatTime, "formatDate": s.formatDate, "author": s.tickets.AccountName,
 		"age": s.age, "accountOf": s.accountOf, "actor": s.actorName, "isoDate": isoDate,
-		"fieldName": tickets.FieldName, "categoryLabel": s.catalog.CategoryLabel, "describe": s.tickets.Describe,
+		"fieldName": tickets.FieldName, "categoryLabel": func(id string) string { return s.tickets.Catalog.CategoryLabel(id) }, "describe": s.tickets.Describe,
 		"formField": newFormField,
 	}
 	if s.pages, err = parsePages(funcs); err != nil {

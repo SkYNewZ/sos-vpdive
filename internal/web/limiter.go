@@ -76,6 +76,24 @@ func (l *limiter) allow(ctx context.Context, key string, limit int, window time.
 	return count <= limit, nil
 }
 
+// rule is one rule of allowAll: at most n events per window under key.
+type rule struct {
+	key    string
+	n      int
+	window time.Duration
+}
+
+// allowAll counts one more event under every rule in order and stops at the
+// first refusal: later rules do not count a refused event.
+func (l *limiter) allowAll(ctx context.Context, rules ...rule) (bool, error) {
+	for _, r := range rules {
+		if ok, err := l.allow(ctx, r.key, r.n, r.window); err != nil || !ok {
+			return false, err
+		}
+	}
+	return true, nil
+}
+
 // userDelay is the wait after count consecutive failures.
 func userDelay(count int) time.Duration {
 	d := userBaseDelay

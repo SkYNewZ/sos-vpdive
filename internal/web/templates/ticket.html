@@ -11,9 +11,9 @@
 <span>Ancienneté : {{template "age" (age $t.SubmittedAt $t.ClosedAt)}}</span>
 <span>Résolveur : {{with $d.Assignee}}<span class="inline-flex items-center gap-2 align-middle"><img src="{{.Avatar}}" alt="" width="24" height="24" class="size-6"><span class="font-semibold">{{.Name}}</span> · {{.Role}}</span>{{else}}{{if $t.Assignee}}{{$t.Assignee}} (compte retiré){{else}}personne{{end}}{{end}}</span>
 </div>
-{{if $t.Status.Open}}
+{{if $d.Can.close}}
 <div class="flex flex-wrap items-end gap-3">
-{{if eq $t.Status "todo"}}
+{{if $d.Can.take}}
 <form method="post" action="/demandes/{{$t.ID}}/actions">{{template "actionFields" $}}<button class="btn btn-primary min-h-11" name="action" value="take">Je prends</button></form>
 {{else}}
 <form method="post" action="/demandes/{{$t.ID}}/actions" class="flex flex-wrap items-end gap-2">{{template "actionFields" $}}
@@ -24,8 +24,8 @@
 <button class="btn btn-outline min-h-11" name="action" value="reassign">Réassigner</button>
 </form>
 <form method="post" action="/demandes/{{$t.ID}}/actions">{{template "actionFields" $}}<button class="btn btn-outline min-h-11" name="action" value="unassign">Retirer l'assignation</button></form>
-{{if eq $t.Status "in_progress"}}<form method="post" action="/demandes/{{$t.ID}}/actions">{{template "actionFields" $}}<button class="btn btn-outline min-h-11" name="action" value="wait">Attendre l'adhérent</button></form>{{end}}
-{{if eq $t.Status "waiting"}}<form method="post" action="/demandes/{{$t.ID}}/actions">{{template "actionFields" $}}<button class="btn btn-outline min-h-11" name="action" value="resume">Reprendre sans attendre</button></form>{{end}}
+{{if $d.Can.wait}}<form method="post" action="/demandes/{{$t.ID}}/actions">{{template "actionFields" $}}<button class="btn btn-outline min-h-11" name="action" value="wait">Attendre l'adhérent</button></form>{{end}}
+{{if $d.Can.resume}}<form method="post" action="/demandes/{{$t.ID}}/actions">{{template "actionFields" $}}<button class="btn btn-outline min-h-11" name="action" value="resume">Reprendre sans attendre</button></form>{{end}}
 {{end}}
 <form method="post" action="/demandes/{{$t.ID}}/actions">{{template "actionFields" $}}<button class="btn btn-outline min-h-11" name="action" value="close">Clore la demande</button></form>
 </div>
@@ -55,7 +55,7 @@
 <dt class="font-semibold">Envoyée le</dt><dd class="mb-2 sm:mb-0">{{formatTime $t.SubmittedAt}}</dd>
 {{range $d.Fields}}<dt class="font-semibold">{{.Label}}</dt><dd class="mb-2 break-words sm:mb-0">{{.Value}}{{if .Removed}} <span class="badge badge-soft">retiré</span>{{end}}</dd>
 {{end}}</dl>
-{{if $t.Status.Open}}
+{{if $d.Can.category}}
 <form method="post" action="/demandes/{{$t.ID}}/actions" class="mt-3 flex flex-wrap items-end gap-2">{{template "actionFields" $}}
 <div class="flex flex-col gap-1">
 <label class="font-semibold" for="categorie">Reclasser dans</label>
@@ -118,7 +118,7 @@
 </li>{{end}}</ol>{{else}}<p class="mt-3">Aucun message pour l'instant.</p>{{end}}
 </section>
 
-{{if or (eq $t.Status "in_progress") (eq $t.Status "waiting")}}
+{{if $d.Can.reply}}
 <section class="mt-8" aria-labelledby="repondre">
 <h2 id="repondre" class="text-xl font-semibold">Répondre à l'adhérent</h2>
 <p class="text-sm">Ta réponse est visible de l'adhérent et lui part par mail.</p>
@@ -146,7 +146,7 @@
 {{else}}
 {{if or $d.Reply $d.Note}}<section class="mt-8 border border-warning bg-warning/10 p-4" aria-labelledby="texte-perdu"><h2 id="texte-perdu" class="text-xl font-semibold">Ton texte</h2>
 {{with $d.Reply}}<p class="mt-2 whitespace-pre-line break-words">{{.}}</p>{{end}}{{with $d.Note}}<p class="mt-2 whitespace-pre-line break-words">{{.}}</p>{{end}}</section>{{end}}
-{{if eq $t.Status "todo"}}
+{{if $d.Can.take}}
 <p class="mt-8">Prends la demande pour répondre à l'adhérent ou écrire une note interne.</p>
 {{end}}
 {{end}}
