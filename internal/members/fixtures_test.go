@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/SkYNewZ/sos-vpdive/internal/imports"
 	"github.com/SkYNewZ/sos-vpdive/internal/xlsx"
 	"github.com/SkYNewZ/sos-vpdive/internal/xlsx/xlsxtest"
 )
@@ -116,7 +117,7 @@ func readFixture(t *testing.T, name string) []xlsx.Row {
 	t.Helper()
 	data, err := os.ReadFile(fixturePath(name))
 	require.NoError(t, err)
-	rows, err := xlsx.ReadFirstSheet(data, ImportLimits())
+	rows, err := xlsx.ReadFirstSheet(data, imports.Limits())
 	require.NoError(t, err)
 	return rows
 }

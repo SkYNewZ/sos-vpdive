@@ -1,6 +1,7 @@
 package payments
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 )
@@ -25,7 +26,7 @@ func (a Amount) Euros() string {
 	if a < 0 {
 		sign = "-"
 	}
-	return sign + groupThousands(strconv.FormatInt(int64(abs/100), 10)) + "," + twoDigits(int64(abs%100)) + "\u00a0€"
+	return sign + groupThousands(strconv.FormatInt(int64(abs/100), 10)) + fmt.Sprintf(",%02d\u00a0€", abs%100)
 }
 
 // Number formats a quantity: "1", "1,5", "-1,25".
@@ -36,16 +37,9 @@ func (a Amount) Number() string {
 	}
 	out := sign + strconv.FormatInt(int64(abs/100), 10)
 	if frac := abs % 100; frac != 0 {
-		out += "," + strings.TrimSuffix(twoDigits(int64(frac)), "0")
+		out += "," + strings.TrimSuffix(fmt.Sprintf("%02d", frac), "0")
 	}
 	return out
-}
-
-func twoDigits(n int64) string {
-	if n < 10 {
-		return "0" + strconv.FormatInt(n, 10)
-	}
-	return strconv.FormatInt(n, 10)
 }
 
 // groupThousands inserts a non-breaking space every three digits.

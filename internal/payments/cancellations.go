@@ -56,7 +56,7 @@ func (s *Store) Cancellations(ctx context.Context) (Cancellations, error) {
 		starts int64
 	}
 	index := map[key]int{}
-	payers := map[key]map[string]bool{}
+	var payers []map[string]bool // by outing index
 	for _, r := range found {
 		l, err := s.open(r.data)
 		if err != nil {
@@ -68,19 +68,21 @@ func (s *Store) Cancellations(ctx context.Context) (Cancellations, error) {
 		k := key{l.Product, l.Starts.Unix()}
 		i, ok := index[k]
 		if !ok {
-			i = len(c.Outings)
-			index[k], payers[k] = i, map[string]bool{}
+			i, index[k] = len(c.Outings), len(c.Outings)
 			c.Outings = append(c.Outings, Outing{Title: l.Product, Starts: l.Starts})
+			payers = append(payers, map[string]bool{})
 		}
 		o := &c.Outings[i]
 		o.Lines++
 		if l.Prepaid() {
-			o.ByCarnet += l.Settled()
+			o.ByCarnet += l.UnitPrice
 		} else {
-			o.ByMoney += l.Settled()
+			o.ByMoney += l.Paid
 		}
-		payers[k][string(r.nameHash)] = true
-		o.Persons = len(payers[k])
+		payers[i][string(r.nameHash)] = true
+	}
+	for i := range c.Outings {
+		c.Outings[i].Persons = len(payers[i])
 	}
 	slices.SortFunc(c.Outings, func(a, b Outing) int {
 		switch {

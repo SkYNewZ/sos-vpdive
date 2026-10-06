@@ -29,7 +29,6 @@ type Preview struct {
 	UnknownStates map[string]int
 	PeriodFrom    time.Time
 	PeriodTo      time.Time
-	ShortPeriod   bool // under 12 months: the VPDive filter was not set right
 
 	lines []Line
 }
@@ -70,7 +69,7 @@ func ShortPeriod(from, to time.Time) bool {
 // NewPreview compares exp with the lines in place and keeps the result for
 // 15 minutes, bound to username and to the import in place.
 func (s *Store) NewPreview(ctx context.Context, username string, exp *Export) (*Preview, error) {
-	base, err := imports.LatestID(ctx, s.db, imports.Payments)
+	last, _, err := imports.Last(ctx, s.db, imports.Payments)
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +80,7 @@ func (s *Store) NewPreview(ctx context.Context, username string, exp *Export) (*
 	p := &Preview{
 		Username:           username,
 		NeedsSecondConfirm: len(exp.Lines)*2 < current,
-		Base:               base,
+		Base:               last.ID,
 		Created:            exp.Created,
 		Lines:              len(exp.Lines),
 		Current:            current,
@@ -89,10 +88,9 @@ func (s *Store) NewPreview(ctx context.Context, username string, exp *Export) (*
 		UnknownStates:      exp.UnknownStates,
 		PeriodFrom:         exp.PeriodFrom,
 		PeriodTo:           exp.PeriodTo,
-		ShortPeriod:        ShortPeriod(exp.PeriodFrom, exp.PeriodTo),
 		lines:              exp.Lines,
 	}
-	if _, err := s.previews.Put(p); err != nil {
+	if err := s.previews.Put(p); err != nil {
 		return nil, err
 	}
 	return p, nil
@@ -158,21 +156,25 @@ func (s *Store) Report(ctx context.Context) (Report, error) {
 // Purge deletes every line when no payments import happened for 90 days
 // (spec §8.3). The imports journal holds no personal data and stays.
 func (s *Store) Purge(ctx context.Context) error {
-	cutoff := s.now().Add(-retention).Unix()
 	return store.Tx(ctx, s.db, "payments.purge", func(ctx context.Context, tx *sql.Tx) error {
-		var last sql.NullInt64
-		if err := tx.QueryRowContext(ctx, `SELECT MAX(imported_at) FROM imports WHERE kind = ?`,
-			string(imports.Payments)).Scan(&last); err != nil {
-			return fmt.Errorf("last payments import date: %w", err)
-		}
-		if !last.Valid || last.Int64 >= cutoff {
-			return nil
-		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM payment_lines`); err != nil {
+		// Never imported: MAX is NULL, the comparison is false, nothing goes.
+		if _, err := tx.ExecContext(ctx,
+			`DELETE FROM payment_lines WHERE (SELECT MAX(imported_at) FROM imports WHERE kind = ?) < ?`,
+			string(imports.Payments), s.now().Add(-retention).Unix()); err != nil {
 			return fmt.Errorf("purge payment lines: %w", err)
 		}
 		return nil
 	})
+}
+
+// HasLines reports whether payment lines are in place: none when nothing was
+// imported or after the 90-day purge.
+func (s *Store) HasLines(ctx context.Context) (bool, error) {
+	var found bool
+	if err := s.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM payment_lines)`).Scan(&found); err != nil {
+		return false, fmt.Errorf("payment lines presence: %w", err)
+	}
+	return found, nil
 }
 
 // Count returns the number of lines of nameHash, ambiguous ones included.

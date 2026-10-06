@@ -41,9 +41,8 @@ func openDB(t *testing.T) *sql.DB {
 func TestPreviewsBelongToTheirUploaderAndExpire(t *testing.T) {
 	ps, c := newPreviews()
 	p := &preview{Username: "alice", value: "export"}
-	id, err := ps.Put(p)
-	require.NoError(t, err)
-	assert.Equal(t, id, p.ID)
+	require.NoError(t, ps.Put(p))
+	id := p.ID
 	assert.Len(t, id, secure.TokenLength)
 
 	got, err := ps.Get(id, "alice")
@@ -61,10 +60,11 @@ func TestPreviewsBelongToTheirUploaderAndExpire(t *testing.T) {
 
 func TestTakeIsSingleUseAndAsksTheSecondConfirmation(t *testing.T) {
 	ps, _ := newPreviews()
-	id, err := ps.Put(&preview{Username: "alice", NeedsSecondConfirm: true})
-	require.NoError(t, err)
+	p := &preview{Username: "alice", NeedsSecondConfirm: true}
+	require.NoError(t, ps.Put(p))
+	id := p.ID
 
-	_, err = ps.Take(id, "bob", true)
+	_, err := ps.Take(id, "bob", true)
 	require.ErrorIs(t, err, ErrPreviewNotFound)
 	_, err = ps.Take(id, "alice", false)
 	require.ErrorIs(t, err, ErrSecondConfirmRequired)
@@ -78,8 +78,7 @@ func TestTakeIsSingleUseAndAsksTheSecondConfirmation(t *testing.T) {
 func TestPreviewsAreFreedWithoutFurtherAccess(t *testing.T) {
 	ps, _ := newPreviews()
 	ps.ttl = 20 * time.Millisecond
-	_, err := ps.Put(&preview{Username: "alice"})
-	require.NoError(t, err)
+	require.NoError(t, ps.Put(&preview{Username: "alice"}))
 	require.Eventually(t, func() bool {
 		ps.mu.Lock()
 		defer ps.mu.Unlock()
@@ -94,8 +93,9 @@ func TestReplaceJournalsAndRefusesStalePreviews(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, ok)
 
-	base, err := LatestID(ctx, db, Members)
+	none, _, err := Last(ctx, db, Members)
 	require.NoError(t, err)
+	base := none.ID
 	assert.Zero(t, base)
 
 	exported := time.Date(2026, 9, 1, 8, 15, 0, 0, time.UTC)
@@ -129,9 +129,9 @@ func TestReplaceJournalsAndRefusesStalePreviews(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, period, pay.Entry)
 	assert.True(t, pay.ExportedAt.IsZero(), "no export date stays zero")
-	latest, err := LatestID(ctx, db, Members)
+	latest, _, err := Last(ctx, db, Members)
 	require.NoError(t, err)
-	assert.Equal(t, last.ID, latest, "a payments import leaves members previews fresh")
+	assert.Equal(t, last.ID, latest.ID, "a payments import leaves members previews fresh")
 }
 
 func TestReplaceRollsBackOnError(t *testing.T) {

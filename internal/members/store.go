@@ -79,7 +79,7 @@ func (s *Store) NewPreview(ctx context.Context, username string, exp *Export) (*
 		AmbiguousAccounts:  accounts,
 		members:            exp.Members,
 	}
-	if _, err := s.previews.Put(p); err != nil {
+	if err := s.previews.Put(p); err != nil {
 		return nil, err
 	}
 	return p, nil
@@ -211,17 +211,11 @@ func (s *Store) HasList(ctx context.Context) (bool, error) {
 // Purge deletes the list when no members import happened for 12 months
 // (spec §8.3). The imports journal holds no personal data and stays.
 func (s *Store) Purge(ctx context.Context) error {
-	cutoff := s.now().AddDate(-1, 0, 0).Unix()
 	return store.Tx(ctx, s.db, "members.purge", func(ctx context.Context, tx *sql.Tx) error {
-		var last sql.NullInt64
-		if err := tx.QueryRowContext(ctx, `SELECT MAX(imported_at) FROM imports WHERE kind = ?`,
-			string(imports.Members)).Scan(&last); err != nil {
-			return fmt.Errorf("last import date: %w", err)
-		}
-		if !last.Valid || last.Int64 >= cutoff {
-			return nil
-		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM members`); err != nil {
+		// Never imported: MAX is NULL, the comparison is false, nothing goes.
+		if _, err := tx.ExecContext(ctx,
+			`DELETE FROM members WHERE (SELECT MAX(imported_at) FROM imports WHERE kind = ?) < ?`,
+			string(imports.Members), s.now().AddDate(-1, 0, 0).Unix()); err != nil {
 			return fmt.Errorf("purge members: %w", err)
 		}
 		return nil
@@ -231,7 +225,8 @@ func (s *Store) Purge(ctx context.Context) error {
 // current returns the latest members import id (0 when none) and the email
 // hashes of the list in place.
 func (s *Store) current(ctx context.Context) (base int64, current map[string]bool, err error) {
-	if base, err = imports.LatestID(ctx, s.db, imports.Members); err != nil {
+	last, _, err := imports.Last(ctx, s.db, imports.Members)
+	if err != nil {
 		return 0, nil, err
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT email_hash FROM members`)
@@ -242,7 +237,7 @@ func (s *Store) current(ctx context.Context) (base int64, current map[string]boo
 	if err != nil {
 		return 0, nil, fmt.Errorf("current members: %w", err)
 	}
-	current = make(map[string]bool, len(hashes))
+	base, current = last.ID, make(map[string]bool, len(hashes))
 	for _, h := range hashes {
 		current[string(h)] = true
 	}

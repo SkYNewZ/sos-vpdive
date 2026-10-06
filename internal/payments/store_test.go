@@ -89,7 +89,7 @@ func TestPreviewAndConfirm(t *testing.T) {
 	assert.Equal(t, 1, p.Skipped)
 	assert.Equal(t, map[string]int{"En attente": 1}, p.UnknownStates)
 	assert.True(t, fixtureCreated.Equal(p.Created))
-	assert.True(t, p.ShortPeriod, "January to June is under 12 months")
+	assert.True(t, ShortPeriod(p.PeriodFrom, p.PeriodTo), "January to June is under 12 months")
 	assert.False(t, p.NeedsSecondConfirm)
 	again, err := f.store.Preview(p.ID, "alice")
 	require.NoError(t, err)

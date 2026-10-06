@@ -3,13 +3,14 @@ package payments
 import (
 	"flag"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/SkYNewZ/sos-vpdive/internal/imports"
+	"github.com/SkYNewZ/sos-vpdive/internal/members/memberstest"
 	"github.com/SkYNewZ/sos-vpdive/internal/xlsx"
 	"github.com/SkYNewZ/sos-vpdive/internal/xlsx/xlsxtest"
 )
@@ -160,19 +161,15 @@ func fixtures(tb testing.TB) map[string][]byte {
 	}
 }
 
-func fixturePath(name string) string {
-	return filepath.Join("..", "..", "testdata", "fixtures", name)
-}
-
 // TestFixturesAreUpToDate keeps testdata/fixtures in sync with the definitions.
 // Regenerate with: make fixtures.
 func TestFixturesAreUpToDate(t *testing.T) {
 	for name, want := range fixtures(t) {
 		if *update {
-			require.NoError(t, os.WriteFile(fixturePath(name), want, 0o644))
+			require.NoError(t, os.WriteFile(memberstest.FixturePath(name), want, 0o644))
 			continue
 		}
-		got, err := os.ReadFile(fixturePath(name))
+		got, err := os.ReadFile(memberstest.FixturePath(name))
 		require.NoError(t, err, "regenerate with make fixtures")
 		assert.Equal(t, want, got, name)
 	}
@@ -181,10 +178,10 @@ func TestFixturesAreUpToDate(t *testing.T) {
 // readFixture runs a fixture through the real reader.
 func readFixture(t *testing.T, name string) ([]xlsx.Row, time.Time) {
 	t.Helper()
-	data, err := os.ReadFile(fixturePath(name))
+	data, err := os.ReadFile(memberstest.FixturePath(name))
 	require.NoError(t, err)
-	rows, err := xlsx.ReadFirstSheet(data, ImportLimits())
+	rows, err := xlsx.ReadFirstSheet(data, imports.Limits())
 	require.NoError(t, err)
-	created, _ := xlsx.Created(data, ImportLimits())
+	created, _ := xlsx.Created(data, imports.Limits())
 	return rows, created
 }

@@ -55,22 +55,25 @@ type membersSection struct {
 type paymentsSection struct {
 	importErrors
 
-	Link        vpdiveLink
-	Last        *imports.Info
-	ShortPeriod bool // under 12 months: the VPDive date filter was too narrow
-	Purged      bool // lines removed after 90 days without an import
-	Report      payments.Report
-	Preview     *payments.Preview
+	Link    vpdiveLink
+	Last    *imports.Info
+	Purged  bool // lines removed after 90 days without an import
+	Report  payments.Report
+	Preview *payments.Preview
+}
+
+// errs returns the error slots of the section of kind.
+func (d *importsData) errs(kind string) *importErrors {
+	if kind == kindPayments {
+		return &d.Payments.importErrors
+	}
+	return &d.Members.importErrors
 }
 
 // failed is the page with msg beside the upload form of kind.
 func failed(kind, msg string) importsData {
 	var d importsData
-	if kind == kindPayments {
-		d.Payments.Upload = msg
-	} else {
-		d.Members.Upload = msg
-	}
+	d.errs(kind).Upload = msg
 	return d
 }
 
@@ -117,13 +120,13 @@ func (s *Server) importsView(ctx context.Context, d *importsData) error {
 		return err
 	}
 	d.Payments.Last = &paid
-	d.Payments.ShortPeriod = payments.ShortPeriod(paid.PeriodFrom, paid.PeriodTo)
-	if d.Payments.Report, err = s.payments.Report(ctx); err != nil {
+	inPlace, err := s.payments.HasLines(ctx)
+	if err != nil {
 		return err
 	}
-	rep := d.Payments.Report
-	d.Payments.Purged = paid.Rows > 0 && rep.Attached.Lines+rep.Ambiguous.Lines+rep.Unmatched.Lines == 0
-	return nil
+	d.Payments.Purged = !inPlace
+	d.Payments.Report, err = s.payments.Report(ctx)
+	return err
 }
 
 // uploadImport reads, validates and previews an export. Nothing changes
@@ -135,18 +138,16 @@ func (s *Server) uploadImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	lim := members.ImportLimits()
-	if kind == kindPayments {
-		lim = payments.ImportLimits()
-	}
 	var (
 		rows    []xlsx.Row
-		created time.Time
+		created time.Time // payments only: the members export dates itself in row 2
 	)
 	if err := telemetry.Trace(ctx, s.tracer, "import.read", func(context.Context) error {
 		var err error
-		rows, err = xlsx.ReadFirstSheet(data, lim)
-		created, _ = xlsx.Created(data, lim)
+		rows, err = xlsx.ReadFirstSheet(data, imports.Limits())
+		if err == nil && kind == kindPayments {
+			created, _ = xlsx.Created(data, imports.Limits())
+		}
 		return err
 	}); err != nil {
 		s.renderImports(w, r, http.StatusUnprocessableEntity, nil, failed(kind, workbookMessage(kind, err)))
@@ -292,13 +293,14 @@ func (s *Server) livePreview(kind, id, username string) (importsData, error) {
 		d   importsData
 		err error
 	)
+	what := "des comptes de la liste actuelle"
 	if kind == kindPayments {
 		d.Payments.Preview, err = s.payments.Preview(id, username)
-		d.Payments.Confirm = "Coche la seconde confirmation : ce fichier contient moins de la moitié des lignes en place."
+		what = "des lignes en place"
 	} else {
 		d.Members.Preview, err = s.members.Preview(id, username)
-		d.Members.Confirm = "Coche la seconde confirmation : ce fichier contient moins de la moitié des comptes de la liste actuelle."
 	}
+	d.errs(kind).Confirm = "Coche la seconde confirmation : ce fichier contient moins de la moitié " + what + "."
 	return d, err
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"time"
 )
 
 // Querier is what *sql.DB and *sql.Tx share.
@@ -20,6 +21,22 @@ func NullIfZero[T comparable](v T) any {
 		return nil
 	}
 	return v
+}
+
+// UnixOrNull stores a time as Unix seconds, NULL when zero.
+func UnixOrNull(t time.Time) any {
+	if t.IsZero() {
+		return nil
+	}
+	return t.Unix()
+}
+
+// UnixTime reads Unix seconds back as a UTC time, zero when NULL.
+func UnixTime(v sql.NullInt64) time.Time {
+	if !v.Valid {
+		return time.Time{}
+	}
+	return time.Unix(v.Int64, 0).UTC()
 }
 
 // Collect scans every row of a query result into a slice. It takes the

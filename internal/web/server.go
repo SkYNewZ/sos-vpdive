@@ -124,7 +124,7 @@ func New(d Deps) (*Server, error) {
 		s.fiches = append(s.fiches, suggest.Fiche{ID: f.ID, Title: f.Title, Answer: f.AnswerText})
 	}
 	funcs := template.FuncMap{
-		"static": s.assets.URL, "formatTime": s.formatTime, "formatDate": s.formatDate, "author": s.tickets.AccountName,
+		"static": s.assets.URL, "formatTime": s.formatTime, "formatDate": s.formatDate, "shortPeriod": payments.ShortPeriod, "author": s.tickets.AccountName,
 		"age": s.age, "accountOf": s.accountOf, "actor": s.actorName, "isoDate": isoDate,
 		"fieldName": tickets.FieldName, "categoryLabel": func(id string) string { return s.tickets.Catalog.CategoryLabel(id) }, "describe": s.tickets.Describe,
 		"formField": newFormField, "themeColor": func() string { return themeColor },

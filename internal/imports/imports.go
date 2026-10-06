@@ -13,6 +13,7 @@ import (
 
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 	"github.com/SkYNewZ/sos-vpdive/internal/store"
+	"github.com/SkYNewZ/sos-vpdive/internal/xlsx"
 )
 
 // Import errors.
@@ -30,6 +31,12 @@ const (
 	Members  Kind = "members"
 	Payments Kind = "payments"
 )
+
+// Limits are the workbook limits applied to every upload (spec §7.2): 50 MiB
+// decompressed, 20 000 rows.
+func Limits() xlsx.Limits {
+	return xlsx.Limits{MaxUncompressed: 50 << 20, MaxRows: 20_000, MaxCells: 1_000_000}
+}
 
 // previewTTL is how long an unconfirmed preview lives in memory (spec §7.2).
 const previewTTL = 15 * time.Minute
@@ -70,19 +77,9 @@ func Last(ctx context.Context, q store.Querier, kind Kind) (Info, bool, error) {
 	if err != nil {
 		return Info{}, false, fmt.Errorf("last %s import: %w", kind, err)
 	}
-	info.ExportedAt, info.PeriodFrom, info.PeriodTo = unixTime(exported), unixTime(from), unixTime(to)
+	info.ExportedAt, info.PeriodFrom, info.PeriodTo = store.UnixTime(exported), store.UnixTime(from), store.UnixTime(to)
 	info.ImportedAt = time.Unix(imported, 0).UTC()
 	return info, true, nil
-}
-
-// LatestID returns the id of the latest import of kind, 0 when none.
-func LatestID(ctx context.Context, q store.Querier, kind Kind) (int64, error) {
-	var id int64
-	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(id), 0) FROM imports WHERE kind = ?`,
-		string(kind)).Scan(&id); err != nil {
-		return 0, fmt.Errorf("latest %s import: %w", kind, err)
-	}
-	return id, nil
 }
 
 // Replace confirms a preview in one transaction named span (spec §7.2): it
@@ -93,17 +90,17 @@ func Replace(ctx context.Context, db *sql.DB, span string, m *Meta, e Entry,
 	fn func(ctx context.Context, tx *sql.Tx, importID int64) error,
 ) error {
 	return store.Tx(ctx, db, span, func(ctx context.Context, tx *sql.Tx) error {
-		latest, err := LatestID(ctx, tx, e.Kind)
+		latest, _, err := Last(ctx, tx, e.Kind)
 		if err != nil {
 			return err
 		}
-		if latest != m.Base {
+		if latest.ID != m.Base {
 			return ErrStale
 		}
 		res, err := tx.ExecContext(ctx,
 			`INSERT INTO imports (kind, exported_at, period_from, period_to, imported_at, imported_by, row_count, skipped_count)
 			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-			string(e.Kind), unixOrNull(e.ExportedAt), unixOrNull(e.PeriodFrom), unixOrNull(e.PeriodTo),
+			string(e.Kind), store.UnixOrNull(e.ExportedAt), store.UnixOrNull(e.PeriodFrom), store.UnixOrNull(e.PeriodTo),
 			e.ImportedAt.Unix(), e.ImportedBy, e.Rows, e.Skipped)
 		if err != nil {
 			return fmt.Errorf("journal import: %w", err)
@@ -136,7 +133,7 @@ type Meta struct {
 	ID                 string // set by Put
 	Username           string // the uploader, the only one who may confirm
 	NeedsSecondConfirm bool
-	Base               int64 // latest import of the kind when the preview was made
+	Base               int64 // id of the latest import of the kind when the preview was made, 0 when none
 
 	created time.Time
 }
@@ -158,11 +155,11 @@ func NewPreviews[T interface{ PreviewMeta() *Meta }](now func() time.Time) *Prev
 	return &Previews[T]{now: now, ttl: previewTTL, items: map[string]T{}}
 }
 
-// Put keeps v under a new random id, which it also writes into v.
-func (ps *Previews[T]) Put(v T) (string, error) {
+// Put keeps v under a new random id, which it writes into v's Meta.
+func (ps *Previews[T]) Put(v T) error {
 	id, err := secure.NewToken()
 	if err != nil {
-		return "", err
+		return err
 	}
 	m := v.PreviewMeta()
 	m.ID, m.created = id, ps.now()
@@ -171,15 +168,14 @@ func (ps *Previews[T]) Put(v T) (string, error) {
 	ps.dropExpired()
 	ps.items[id] = v
 	// Free the export once the preview expires, even if nobody touches the
-	// store again; dropExpired still enforces the injected clock.
+	// store again; dropExpired still enforces the injected clock. The timer
+	// holds the id only, never the preview: ids are random and never reused.
 	time.AfterFunc(ps.ttl, func() {
 		ps.mu.Lock()
 		defer ps.mu.Unlock()
-		if cur, ok := ps.items[id]; ok && cur.PreviewMeta() == m {
-			delete(ps.items, id)
-		}
+		delete(ps.items, id)
 	})
-	return id, nil
+	return nil
 }
 
 // Get returns the live preview id of username.
@@ -217,26 +213,12 @@ func (ps *Previews[T]) lookup(id, username string) (T, error) {
 	return v, nil
 }
 
-// dropExpired removes previews older than previewTTL. Callers hold ps.mu.
+// dropExpired removes previews older than the TTL. Callers hold ps.mu.
 func (ps *Previews[T]) dropExpired() {
 	now := ps.now()
 	for id, v := range ps.items {
-		if now.Sub(v.PreviewMeta().created) > previewTTL {
+		if now.Sub(v.PreviewMeta().created) > ps.ttl {
 			delete(ps.items, id)
 		}
 	}
-}
-
-func unixOrNull(t time.Time) any {
-	if t.IsZero() {
-		return nil
-	}
-	return t.Unix()
-}
-
-func unixTime(v sql.NullInt64) time.Time {
-	if !v.Valid {
-		return time.Time{}
-	}
-	return time.Unix(v.Int64, 0).UTC()
 }

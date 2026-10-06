@@ -10,20 +10,28 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/SkYNewZ/sos-vpdive/internal/imports"
 	"github.com/SkYNewZ/sos-vpdive/internal/members/memberstest"
 	"github.com/SkYNewZ/sos-vpdive/internal/payments"
 	"github.com/SkYNewZ/sos-vpdive/internal/xlsx"
 )
 
 // Import reads testdata/fixtures/<name> and replaces the payment lines with
-// it, as alice. Dates are read in Paris time.
+// it, as alice.
 func Import(tb testing.TB, s *payments.Store, name string) {
 	tb.Helper()
 	data, err := os.ReadFile(memberstest.FixturePath(name))
 	require.NoError(tb, err)
-	rows, err := xlsx.ReadFirstSheet(data, payments.ImportLimits())
+	ImportBytes(tb, s, data)
+}
+
+// ImportBytes replaces the payment lines with the workbook data, as alice.
+// Dates are read in Paris time.
+func ImportBytes(tb testing.TB, s *payments.Store, data []byte) {
+	tb.Helper()
+	rows, err := xlsx.ReadFirstSheet(data, imports.Limits())
 	require.NoError(tb, err)
-	created, _ := xlsx.Created(data, payments.ImportLimits())
+	created, _ := xlsx.Created(data, imports.Limits())
 	paris, err := time.LoadLocation("Europe/Paris")
 	require.NoError(tb, err)
 	exp, err := payments.Parse(rows, created, paris)

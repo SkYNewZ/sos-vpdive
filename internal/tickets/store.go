@@ -353,13 +353,6 @@ func (s *Store) insertMessage(ctx context.Context, tx *sql.Tx, ticketID int64, a
 	return id, nil
 }
 
-func unixTime(v sql.NullInt64) time.Time {
-	if !v.Valid {
-		return time.Time{}
-	}
-	return time.Unix(v.Int64, 0).UTC()
-}
-
 // truncate cuts s to n runes, marking the cut with an ellipsis.
 func truncate(s string, n int) string {
 	if utf8.RuneCountInString(s) <= n {

@@ -3,10 +3,9 @@
 <h1 class="text-2xl font-bold text-primary">Sorties annulées</h1>
 <p class="mt-4">Cette page liste les sorties dont le titre contient « annul » et qui ont encore des inscriptions payées. Le trésorier rembourse les paiements en argent réel, puis supprime la sortie dans VPDive : la suppression recrédite les carnets.</p>
 {{if not $d.InPlace}}
-<p class="mt-4">{{if $d.Import.ID}}Plus de 90 jours sans import : les lignes de paiement ont été effacées.{{else}}Aucun paiement importé.{{end}} <a class="link link-primary inline-flex min-h-11 items-center" href="/imports">Importer l'export des paiements</a></p>
+{{template "noPayments" (ne $d.Import.ID 0)}}
 {{else}}
-<p class="mt-4">Export du fichier {{with formatDate $d.Import.ExportedAt}}créé le {{.}} (indicatif){{else}}sans date{{end}}, importé le {{formatDate $d.Import.ImportedAt}} par {{author $d.Import.ImportedBy}}.</p>
-<p class="mt-1 font-semibold">Ces données datent de l'import : vérifie dans VPDive avant d'agir.</p>
+{{template "paymentsImport" $d.Import}}
 {{with $d.Rows}}
 <p class="mt-6 font-semibold">{{len .}} sortie{{if gt (len .) 1}}s{{end}}, {{$d.Lines}} ligne{{if gt $d.Lines 1}}s{{end}}, {{$d.Persons}} inscription{{if gt $d.Persons 1}}s{{end}}.</p>
 <div class="overflow-x-auto"><table class="table mt-2 max-sm:[&_:is(th,td)]:px-1">

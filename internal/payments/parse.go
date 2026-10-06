@@ -16,12 +16,6 @@ import (
 	"github.com/SkYNewZ/sos-vpdive/internal/xlsx"
 )
 
-// ImportLimits are the workbook limits applied to an upload (spec §7.2):
-// 50 MiB decompressed, 20 000 rows.
-func ImportLimits() xlsx.Limits {
-	return xlsx.Limits{MaxUncompressed: 50 << 20, MaxRows: 20_000, MaxCells: 1_000_000}
-}
-
 // Columns read from the export. Commentaire, Civilité, Adresse, Code postal,
 // Ville and every other column are never read.
 const (

@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/SkYNewZ/sos-vpdive/internal/imports"
 	"github.com/SkYNewZ/sos-vpdive/internal/xlsx"
 	"github.com/SkYNewZ/sos-vpdive/internal/xlsx/xlsxtest"
 )
@@ -28,7 +29,7 @@ func parseError(t *testing.T, err error) *ParseError {
 // parseSheet runs an in-memory export through the real reader.
 func parseSheet(t *testing.T, lines ...line) (*Export, error) {
 	t.Helper()
-	rows, err := xlsx.ReadFirstSheet(xlsxtest.Build(t, sheet(lines...)), ImportLimits())
+	rows, err := xlsx.ReadFirstSheet(xlsxtest.Build(t, sheet(lines...)), imports.Limits())
 	require.NoError(t, err)
 	return Parse(rows, time.Time{}, paris(t))
 }
@@ -91,7 +92,7 @@ func TestParseNamesTheMissingColumn(t *testing.T) {
 	assert.Equal(t, ProblemMissingColumn, pe.Kind)
 	assert.Equal(t, "Montant paiement", pe.Column)
 
-	rows, err = xlsx.ReadFirstSheet(xlsxtest.Build(t, xlsxtest.Sheet{{"Nom", "Prénom"}, {"Bernard", "Hugo"}}), ImportLimits())
+	rows, err = xlsx.ReadFirstSheet(xlsxtest.Build(t, xlsxtest.Sheet{{"Nom", "Prénom"}, {"Bernard", "Hugo"}}), imports.Limits())
 	require.NoError(t, err)
 	_, err = Parse(rows, time.Time{}, paris(t))
 	pe = parseError(t, err)

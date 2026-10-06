@@ -25,12 +25,16 @@ type ageView struct {
 }
 
 // age is the time since submission of an open request, or the processing
-// time of a done one (closed is non-zero), which is never colored.
+// time of a done one (closed is non-zero), which is never colored. A date
+// still ahead reads « à venir ».
 func (s *Server) age(submitted, closed time.Time) ageView {
 	if !closed.IsZero() {
 		return ageView{Text: elapsed(closed.Sub(submitted)), Level: ageNeutral}
 	}
 	d := s.now().Sub(submitted)
+	if d < 0 { // an outing cancelled ahead of its date (spec §7.4)
+		return ageView{Text: "à venir", Level: ageNeutral}
+	}
 	v := ageView{Text: elapsed(d), Level: ageNeutral}
 	if d >= s.cfg.AgeAlertAfter {
 		v.Level = ageAlert

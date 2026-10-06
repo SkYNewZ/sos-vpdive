@@ -320,7 +320,7 @@ func (s *Store) memberMayReply(ctx context.Context, q store.Querier, id int64, c
 	switch {
 	case status == StatusDraft:
 		return ErrNotFound
-	case !s.canReply(status, unixTime(closedAt)):
+	case !s.canReply(status, store.UnixTime(closedAt)):
 		return ErrNotAllowed
 	case stored+captures > MaxCapturesPerTicket:
 		return ErrTooManyCaptures

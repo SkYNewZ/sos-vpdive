@@ -77,13 +77,10 @@ func (l Line) ProbableRefund() bool {
 // Block gathers the lines of nameHash, nil when the requester is not in the
 // members list.
 func (s *Store) Block(ctx context.Context, nameHash []byte) (Block, error) {
-	var (
-		b       Block
-		inPlace bool
-		err     error
-	)
-	if err := s.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM payment_lines)`).Scan(&inPlace); err != nil {
-		return Block{}, fmt.Errorf("payment lines presence: %w", err)
+	var b Block
+	inPlace, err := s.HasLines(ctx)
+	if err != nil {
+		return Block{}, err
 	}
 	var imported bool
 	if b.Import, imported, err = s.LastImport(ctx); err != nil {

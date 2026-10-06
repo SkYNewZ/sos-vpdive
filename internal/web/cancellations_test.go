@@ -11,8 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/SkYNewZ/sos-vpdive/internal/payments"
-	"github.com/SkYNewZ/sos-vpdive/internal/xlsx"
+	"github.com/SkYNewZ/sos-vpdive/internal/payments/paymentstest"
 	"github.com/SkYNewZ/sos-vpdive/internal/xlsx/xlsxtest"
 )
 
@@ -58,14 +57,7 @@ func TestCancellationsPageFutureOuting(t *testing.T) {
 			"Methode de paiement", "Produit/Événement", "Du", "Créé le"},
 		{"Bernard", "Hugo", 30, 1, 0, 0, "Payé", "Prépayé", "Sortie annulée (météo)", "20/09/2026 09:00", "01/09/2026 10:00:00"},
 	}
-	rows, err := xlsx.ReadFirstSheet(xlsxtest.Build(t, sheet), payments.ImportLimits())
-	require.NoError(t, err)
-	exp, err := payments.Parse(rows, time.Time{}, time.UTC)
-	require.NoError(t, err)
-	ctx := context.Background()
-	p, err := e.deps.Payments.NewPreview(ctx, "alice", exp)
-	require.NoError(t, err)
-	require.NoError(t, e.deps.Payments.Confirm(ctx, p.ID, "alice", true))
+	paymentstest.ImportBytes(t, e.deps.Payments, xlsxtest.Build(t, sheet))
 
 	rec := e.do(t, http.MethodGet, adminHost, "/annulations", nil, withCookie(cookie))
 	require.Equal(t, http.StatusOK, rec.Code)
