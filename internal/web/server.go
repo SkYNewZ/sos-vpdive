@@ -134,7 +134,8 @@ func New(d Deps) (*Server, error) {
 	}
 	s.public = s.requireOrigin(d.Config.BaseURL, s.publicRoutes())
 	s.admin = s.requireOrigin(d.Config.AdminBaseURL, s.adminRoutes())
-	s.handler = s.recoverPanics(securityHeaders(s.refuseAIRobots(http.HandlerFunc(s.route))))
+	csp := contentSecurityPolicy(d.Config.Umami)
+	s.handler = s.recoverPanics(securityHeaders(csp, s.refuseAIRobots(http.HandlerFunc(s.route))))
 	return s, nil
 }
 

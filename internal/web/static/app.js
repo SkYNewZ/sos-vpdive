@@ -309,3 +309,21 @@ if (pushBox) {
     }, () => show("unsupported"));
   }
 }
+
+// Page views (spec §9.10): Umami's script is requested only without Do Not
+// Track, and a page is reported by its route template, never by its real
+// address, the page it came from or its title, which may hold a reference.
+(() => {
+  const page = document.body.dataset;
+  if (!page.umamiSrc || navigator.doNotTrack === "1" || window.doNotTrack === "1") return;
+  const script = document.createElement("script");
+  script.async = true;
+  script.src = page.umamiSrc;
+  script.dataset.websiteId = page.umamiWebsite;
+  script.dataset.autoTrack = "false";
+  script.dataset.doNotTrack = "true";
+  script.addEventListener("load", () =>
+    window.umami?.track((props) => ({ ...props, url: page.umamiPath, referrer: "", title: "" })),
+  );
+  document.head.append(script);
+})();

@@ -14,7 +14,7 @@
 <script src="{{static "app.js"}}" defer></script>
 {{block "head" .}}{{end}}
 </head>
-<body class="min-h-dvh bg-base-100 font-sans text-base-content antialiased">
+<body class="min-h-dvh bg-base-100 font-sans text-base-content antialiased"{{with .Umami}} data-umami-src="{{.Src}}" data-umami-website="{{.Website}}" data-umami-path="{{.Path}}"{{end}}>
 {{if .Account}}{{template "adminNav" .}}{{end}}
 <div data-old-browser hidden>
 <p>Ton navigateur est trop ancien pour ce site. Mets-le à jour, ou écris au club : <a href="mailto:{{.ClubEmail}}">{{.ClubEmail}}</a>.</p>

@@ -39,6 +39,7 @@ type page struct {
 	CSRF      string
 	Notices   []notice
 	ClubEmail string
+	Umami     *umamiPage // nil: the page view is not counted
 	Data      any
 }
 
@@ -70,6 +71,7 @@ func (s *Server) newPage(r *http.Request, title string) page {
 		Admin:     hostKey(r.Host, s.cfg.AdminBaseURL.Scheme) == s.cfg.AdminBaseURL.Host,
 		ClubEmail: s.cfg.NotifyEmail.Address,
 	}
+	p.Umami = s.umamiPage(r.Pattern, p.Admin)
 	if sess, ok := sessionFrom(r.Context()); ok {
 		a := sess.account
 		p.Account = &a

@@ -15,18 +15,27 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/SkYNewZ/sos-vpdive/internal/config"
 	"github.com/SkYNewZ/sos-vpdive/internal/telemetry"
 )
 
 const tracerName = "github.com/SkYNewZ/sos-vpdive/internal/web"
 
-// contentSecurityPolicy is spec §11.5, identical on both domains.
-const contentSecurityPolicy = "default-src 'self'; " +
-	"script-src 'self' https://challenges.cloudflare.com; " +
-	"frame-src https://challenges.cloudflare.com; " +
-	"connect-src 'self'; img-src 'self' data:; style-src 'self'; " +
-	"worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; " +
-	"base-uri 'self'; form-action 'self'"
+// contentSecurityPolicy returns spec §11.5, identical on both domains. A
+// configured Umami adds its origin for its script and its page views,
+// nowhere else.
+func contentSecurityPolicy(umami *config.Umami) string {
+	analytics := ""
+	if umami != nil {
+		analytics = " " + umami.Origin()
+	}
+	return "default-src 'self'; " +
+		"script-src 'self' https://challenges.cloudflare.com" + analytics + "; " +
+		"frame-src https://challenges.cloudflare.com; " +
+		"connect-src 'self'" + analytics + "; img-src 'self' data:; style-src 'self'; " +
+		"worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; " +
+		"base-uri 'self'; form-action 'self'"
+}
 
 type ctxKey int
 
@@ -87,10 +96,10 @@ func (s *Server) trusted(ip netip.Addr) bool {
 }
 
 // securityHeaders sets the headers of spec §11.5 and §11.8 on every response.
-func securityHeaders(next http.Handler) http.Handler {
+func securityHeaders(csp string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
-		h.Set("Content-Security-Policy", contentSecurityPolicy)
+		h.Set("Content-Security-Policy", csp)
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Strict-Transport-Security", "max-age=63072000")
 		h.Set("X-Robots-Tag", "noindex, nofollow, noai, noimageai")
