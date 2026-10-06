@@ -16,23 +16,11 @@ import (
 	"github.com/SkYNewZ/sos-vpdive/internal/xlsx"
 )
 
-// Columns read from the export. Commentaire, Civilité, Adresse, Code postal,
-// Ville and every other column are never read.
+// Columns named more than once below. findColumns lists every column read:
+// Commentaire, Civilité, Adresse, Code postal, Ville and the others never are.
 const (
-	ColumnLastName  = "Nom"
-	ColumnFirstName = "Prénom"
-	ColumnUnitPrice = "Prix unitaire"
-	ColumnQuantity  = "Quantité"
-	ColumnPaid      = "Montant paiement"
-	ColumnDiscount  = "Montant réduc."
-	ColumnState     = "État"
-	ColumnProduct   = "Produit/Événement"
-	ColumnCreated   = "Créé le"
-	columnMethod    = "Methode de paiement"
-	columnType      = "Type de produit"
-	columnStarts    = "Du"
-	columnPaidAt    = "Date paiement"
-	columnRental    = "Materiel" // second occurrence: the rental amount
+	columnProduct = "Produit/Événement"
+	columnCreated = "Créé le"
 )
 
 // Values of the export the tool reads (spec §7.3).
@@ -111,13 +99,13 @@ type ParseError struct {
 func (e *ParseError) Error() string {
 	switch e.Kind {
 	case ProblemNoHeader:
-		return fmt.Sprintf("payments export: no %q column in the first %d rows", ColumnCreated, headerSearchRows)
+		return fmt.Sprintf("payments export: no %q column in the first %d rows", columnCreated, headerSearchRows)
 	case ProblemMissingColumn:
 		return fmt.Sprintf("payments export: missing column %q", e.Column)
 	case ProblemInvalidNumber, ProblemInvalidDate:
 		return fmt.Sprintf("payments export: %s on rows %v", e.Kind, e.Rows)
 	case ProblemEmptyProduct:
-		return fmt.Sprintf("payments export: %q empty on more than %d %% of the lines", ColumnProduct, maxEmptyProductPercent)
+		return fmt.Sprintf("payments export: %q empty on more than %d %% of the lines", columnProduct, maxEmptyProductPercent)
 	}
 	return fmt.Sprintf("payments export: %s", e.Kind)
 }
@@ -134,7 +122,7 @@ type columns struct {
 // whole file is validated before anything is returned. created is the
 // workbook creation date; dates are read in loc.
 func Parse(rows []xlsx.Row, created time.Time, loc *time.Location) (*Export, error) {
-	hi, header, ok := xlsx.FindHeader(rows, ColumnCreated, headerSearchRows)
+	hi, header, ok := xlsx.FindHeader(rows, columnCreated, headerSearchRows)
 	if !ok {
 		return nil, &ParseError{Kind: ProblemNoHeader}
 	}
@@ -204,9 +192,9 @@ func findColumns(h xlsx.Header) (columns, error) {
 		dst  *int
 		name string
 	}{
-		{&c.last, ColumnLastName}, {&c.first, ColumnFirstName}, {&c.unitPrice, ColumnUnitPrice},
-		{&c.quantity, ColumnQuantity}, {&c.paid, ColumnPaid}, {&c.discount, ColumnDiscount},
-		{&c.state, ColumnState}, {&c.product, ColumnProduct}, {&c.created, ColumnCreated},
+		{&c.last, "Nom"}, {&c.first, "Prénom"}, {&c.unitPrice, "Prix unitaire"},
+		{&c.quantity, "Quantité"}, {&c.paid, "Montant paiement"}, {&c.discount, "Montant réduc."},
+		{&c.state, "État"}, {&c.product, columnProduct}, {&c.created, columnCreated},
 	} {
 		col, err := required(r.name)
 		if err != nil {
@@ -214,8 +202,9 @@ func findColumns(h xlsx.Header) (columns, error) {
 		}
 		*r.dst = col
 	}
-	c.method, c.productType = optional(columnMethod, 0), optional(columnType, 0)
-	c.starts, c.paidAt, c.rental = optional(columnStarts, 0), optional(columnPaidAt, 0), optional(columnRental, 1)
+	c.method, c.productType = optional("Methode de paiement", 0), optional("Type de produit", 0)
+	c.starts, c.paidAt = optional("Du", 0), optional("Date paiement", 0)
+	c.rental = optional("Materiel", 1) // the second « Materiel » is the rental amount; the first lists equipment
 	return c, nil
 }
 

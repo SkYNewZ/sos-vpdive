@@ -125,7 +125,7 @@ type Header map[string][]int
 // Col returns the column of the n-th (0-based) occurrence of name.
 func (h Header) Col(name string, n int) (int, bool) {
 	cols := h[name]
-	if n < 0 || n >= len(cols) {
+	if n >= len(cols) {
 		return 0, false
 	}
 	return cols[n], true
