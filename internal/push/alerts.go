@@ -47,7 +47,7 @@ func (w *WebPush) Send(ctx context.Context, m mail.Message) error {
 		case err == nil:
 			delivered++
 			err = w.store.Touch(ctx, sub.ID)
-		case errors.Is(err, ErrGone):
+		case errors.Is(err, errGone):
 			w.logger.InfoContext(ctx, "push subscription gone, deleted", "subscription_id", sub.ID)
 			err = w.store.Delete(ctx, sub.ID)
 		default:

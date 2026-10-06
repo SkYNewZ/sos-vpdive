@@ -30,10 +30,10 @@ const (
 )
 
 var (
-	// ErrGone reports a subscription the push service no longer knows.
-	ErrGone = errors.New("push subscription gone")
-	// ErrEndpointRefused reports an endpoint that is not HTTPS on an allowed host.
-	ErrEndpointRefused = errors.New("push endpoint refused")
+	// errGone reports a subscription the push service no longer knows.
+	errGone = errors.New("push subscription gone")
+	// errEndpointRefused reports an endpoint that is not HTTPS on an allowed host.
+	errEndpointRefused = errors.New("push endpoint refused")
 	// errRejected reports any other answer than success.
 	errRejected = errors.New("push service refused the message")
 )
@@ -113,8 +113,8 @@ func newHTTPClient() *http.Client {
 	}
 }
 
-// Send encrypts payload for sub and posts it once. ErrGone when the push
-// service answers 404 or 410; ErrEndpointRefused for an endpoint outside
+// Send encrypts payload for sub and posts it once. errGone when the push
+// service answers 404 or 410; errEndpointRefused for an endpoint outside
 // PUSH_ALLOWED_HOSTS.
 func (c *Client) Send(ctx context.Context, sub Subscription, payload []byte) (err error) {
 	ctx, span := otel.Tracer(tracerName).Start(ctx, "webpush.send", trace.WithSpanKind(trace.SpanKindClient))
@@ -122,7 +122,7 @@ func (c *Client) Send(ctx context.Context, sub Subscription, payload []byte) (er
 	u, ok := parseEndpoint(c.hosts, sub.Endpoint)
 	if !ok {
 		telemetry.Fail(span, "push_endpoint_refused")
-		return ErrEndpointRefused
+		return errEndpointRefused
 	}
 	span.SetAttributes(attribute.String("push.host", u.Hostname()))
 	serverKey, err := ecdh.P256().GenerateKey(rand.Reader)
@@ -166,7 +166,7 @@ func (c *Client) Send(ctx context.Context, sub Subscription, payload []byte) (er
 		return nil
 	case resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusGone:
 		telemetry.Fail(span, "push_gone")
-		return ErrGone
+		return errGone
 	default:
 		telemetry.Fail(span, "push_rejected")
 		return fmt.Errorf("%w: status %d", errRejected, resp.StatusCode)

@@ -255,8 +255,8 @@ func TestClientOutcomes(t *testing.T) {
 	for status, want := range map[int]error{
 		http.StatusOK:                    nil,
 		http.StatusAccepted:              nil,
-		http.StatusNotFound:              ErrGone,
-		http.StatusGone:                  ErrGone,
+		http.StatusNotFound:              errGone,
+		http.StatusGone:                  errGone,
 		http.StatusForbidden:             errRejected,
 		http.StatusRequestEntityTooLarge: errRejected,
 		http.StatusInternalServerError:   errRejected,
@@ -287,7 +287,7 @@ func TestClientRefusesEndpointsOutsideTheList(t *testing.T) {
 		"not a url\x7f",
 	} {
 		sub, _ := testSubscription(t, endpoint)
-		require.ErrorIs(t, c.Send(context.Background(), sub, []byte("{}")), ErrEndpointRefused, endpoint)
+		require.ErrorIs(t, c.Send(context.Background(), sub, []byte("{}")), errEndpointRefused, endpoint)
 	}
 	assert.Zero(t, ps.count())
 }
@@ -303,6 +303,6 @@ func TestClientGivesUpOnASlowService(t *testing.T) {
 	sub, _ := testSubscription(t, slow.URL+"/wpush/abc")
 	err := c.Send(context.Background(), sub, []byte("{}"))
 	require.Error(t, err)
-	require.NotErrorIs(t, err, ErrGone)
+	require.NotErrorIs(t, err, errGone)
 	assert.Equal(t, 10*time.Second, NewClient(v.cfg, nil, v.clock.now).http.Timeout, "the deployed timeout")
 }
