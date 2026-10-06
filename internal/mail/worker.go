@@ -12,15 +12,12 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/SkYNewZ/sos-vpdive/internal/store"
 	"github.com/SkYNewZ/sos-vpdive/internal/telemetry"
 )
 
 const (
 	// pollInterval bounds the wait of a retry that falls due without Wake.
 	pollInterval = 30 * time.Second
-	// batchSize caps one pass; the next pass takes the rest.
-	batchSize = 100
 )
 
 // retrySchedule is the wait after the n-th failed attempt (spec §6); the last
@@ -66,14 +63,16 @@ type queued struct {
 	body     []byte
 }
 
+// sendDue picks one due mail at a time, right before sending it, so a mail
+// deleted meanwhile is never sent. Every outcome moves the row out of "due".
 func (o *Outbox) sendDue(ctx context.Context, s Sender, logger *slog.Logger) (int, error) {
-	due, err := o.due(ctx)
-	if err != nil {
-		return 0, err
-	}
 	sent := 0
-	for _, q := range due {
-		if err := ctx.Err(); err != nil {
+	for ctx.Err() == nil { // on shutdown the rest stays pending for the next start
+		q, err := o.nextDue(ctx)
+		if errors.Is(err, sql.ErrNoRows) {
+			return sent, nil
+		}
+		if err != nil {
 			return sent, err
 		}
 		ok, err := o.deliver(ctx, s, logger, q)
@@ -87,23 +86,21 @@ func (o *Outbox) sendDue(ctx context.Context, s Sender, logger *slog.Logger) (in
 	return sent, nil
 }
 
-func (o *Outbox) due(ctx context.Context) ([]queued, error) {
-	rows, err := o.db.QueryContext(ctx,
+func (o *Outbox) nextDue(ctx context.Context) (q queued, err error) {
+	var event string
+	err = o.db.QueryRowContext(ctx,
 		`SELECT id, event, attempts, give_up_at, recipient, subject, body FROM outbox
-		 WHERE status = ? AND next_attempt_at <= ? ORDER BY next_attempt_at, id LIMIT ?`,
-		string(statusPending), o.now().Unix(), batchSize)
-	out, err := store.Collect(rows, err, func(rows *sql.Rows) (q queued, err error) {
-		var event string
-		if err = rows.Scan(&q.id, &event, &q.attempts, &q.giveUpAt, &q.to, &q.subject, &q.body); err != nil {
+		 WHERE status = ? AND next_attempt_at <= ? ORDER BY next_attempt_at, id LIMIT 1`,
+		string(statusPending), o.now().Unix()).
+		Scan(&q.id, &event, &q.attempts, &q.giveUpAt, &q.to, &q.subject, &q.body)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
 			return q, err
 		}
-		q.event = Event(event)
-		return q, nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("due mails: %w", err)
+		return q, fmt.Errorf("next due mail: %w", err)
 	}
-	return out, nil
+	q.event = Event(event)
+	return q, nil
 }
 
 // deliver sends one mail and records the outcome. A delivery failure is
@@ -114,6 +111,12 @@ func (o *Outbox) deliver(ctx context.Context, s Sender, logger *slog.Logger, q q
 		attribute.Int64("outbox.id", q.id), attribute.String("outbox.event", string(q.event))))
 	defer span.End()
 
+	if o.now().Unix() >= q.giveUpAt {
+		telemetry.Fail(span, "delivery_expired")
+		logger.WarnContext(ctx, "mail expired before sending", "outbox_id", q.id, "event", string(q.event),
+			"attempts", q.attempts)
+		return false, o.finish(ctx, q.id, statusFailed, q.attempts)
+	}
 	m, err := o.open(q)
 	if err != nil {
 		telemetry.Fail(span, "outbox_decrypt")

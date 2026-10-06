@@ -389,6 +389,37 @@ func TestOutboxIdIsNeverReused(t *testing.T) {
 	assert.NotEqual(t, first, o.enqueue(t, sampleMail()), "an in-flight send must not finish another mail")
 }
 
+func TestMailDeletedDuringABatchIsNotSent(t *testing.T) {
+	o := newTestOutbox(t)
+	ctx := context.Background()
+	first := o.enqueue(t, sampleMail())
+	second := o.enqueue(t, sampleMail())
+	calls := 0
+	s := senderFunc(func(ctx context.Context, _ Message) error {
+		calls++
+		_, err := o.db.ExecContext(ctx, `DELETE FROM outbox WHERE id = ?`, second)
+		return err
+	})
+	sent, err := o.SendDue(ctx, s)
+	require.NoError(t, err)
+	assert.Equal(t, 1, sent)
+	assert.Equal(t, 1, calls, "the deleted mail never reaches the sender")
+	assert.Equal(t, "sent", o.row(t, first).status)
+}
+
+func TestExpiredMailFailsWithoutSending(t *testing.T) {
+	o := newTestOutbox(t)
+	ctx := context.Background()
+	s := &fakeSender{}
+	id := o.enqueue(t, sampleMail())
+	o.clock.advance(8 * 24 * time.Hour)
+	sent, err := o.SendDue(ctx, s)
+	require.NoError(t, err)
+	assert.Zero(t, sent)
+	assert.Zero(t, s.callCount())
+	assert.Equal(t, "failed", o.row(t, id).status)
+}
+
 func TestDeleteRecipient(t *testing.T) {
 	o := newTestOutbox(t)
 	ctx := context.Background()
