@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
@@ -20,14 +21,15 @@ const unusedFor = 90 * 24 * time.Hour
 // endpoint and keys sealed. A subscription belongs to a session: deleting
 // the session (logout, revocation, expiry) deletes it through the cascade.
 type Store struct {
-	db   *sql.DB
-	keys *secure.Keys
-	now  func() time.Time
+	db     *sql.DB
+	keys   *secure.Keys
+	now    func() time.Time
+	logger *slog.Logger
 }
 
 // NewStore returns the subscriptions store; now is injectable for tests.
-func NewStore(db *sql.DB, keys *secure.Keys, now func() time.Time) *Store {
-	return &Store{db: db, keys: keys, now: now}
+func NewStore(db *sql.DB, keys *secure.Keys, now func() time.Time, logger *slog.Logger) *Store {
+	return &Store{db: db, keys: keys, now: now, logger: logger}
 }
 
 type sealedKeys struct {
@@ -89,38 +91,56 @@ func (s *Store) HasSession(ctx context.Context, sessionHash []byte) (bool, error
 // List returns the subscriptions of live sessions, decrypted, for one alert.
 // An expired session stays a day before the purge: it gets nothing. Sessions
 // of accounts that changed are revoked, at reload and at startup, and their
-// subscriptions go with them.
+// subscriptions go with them. An unreadable row is logged and skipped: it
+// must not cost the other devices their alert.
 func (s *Store) List(ctx context.Context) ([]Subscription, error) {
+	type sealedRow struct {
+		id             int64
+		endpoint, keys []byte
+	}
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT p.id, p.endpoint, p.keys FROM push_subscriptions p
 		 JOIN sessions s ON s.token_hash = p.session_token_hash
 		 WHERE s.expires_at > ? ORDER BY p.id`, s.now().Unix())
-	out, err := store.Collect(rows, err, func(rows *sql.Rows) (sub Subscription, err error) {
-		var endpoint, sealed []byte
-		if err = rows.Scan(&sub.ID, &endpoint, &sealed); err != nil {
-			return sub, err
-		}
-		if sub.Endpoint, err = s.keys.OpenString(endpoint); err != nil {
-			return sub, fmt.Errorf("push subscription %d: endpoint: %w", sub.ID, err)
-		}
-		raw, err := s.keys.Open(sealed)
-		if err != nil {
-			return sub, fmt.Errorf("push subscription %d: keys: %w", sub.ID, err)
-		}
-		var k sealedKeys
-		if err = json.Unmarshal(raw, &k); err != nil {
-			return sub, fmt.Errorf("push subscription %d: keys: %w", sub.ID, err)
-		}
-		if sub.P256DH, err = base64.RawURLEncoding.DecodeString(k.P256DH); err != nil {
-			return sub, fmt.Errorf("push subscription %d: keys: %w", sub.ID, err)
-		}
-		sub.Auth, err = base64.RawURLEncoding.DecodeString(k.Auth)
-		return sub, err
+	sealed, err := store.Collect(rows, err, func(rows *sql.Rows) (r sealedRow, err error) {
+		err = rows.Scan(&r.id, &r.endpoint, &r.keys)
+		return r, err
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list push subscriptions: %w", err)
 	}
+	out := make([]Subscription, 0, len(sealed))
+	for _, r := range sealed {
+		sub, err := s.open(r.id, r.endpoint, r.keys)
+		if err != nil {
+			s.logger.ErrorContext(ctx, "push subscription unreadable, skipped", "subscription_id", r.id, "error", err)
+			continue
+		}
+		out = append(out, sub)
+	}
 	return out, nil
+}
+
+func (s *Store) open(id int64, endpoint, sealed []byte) (sub Subscription, err error) {
+	sub.ID = id
+	if sub.Endpoint, err = s.keys.OpenString(endpoint); err != nil {
+		return sub, fmt.Errorf("endpoint: %w", err)
+	}
+	raw, err := s.keys.Open(sealed)
+	if err != nil {
+		return sub, fmt.Errorf("keys: %w", err)
+	}
+	var k sealedKeys
+	if err = json.Unmarshal(raw, &k); err != nil {
+		return sub, fmt.Errorf("keys: %w", err)
+	}
+	if sub.P256DH, err = base64.RawURLEncoding.DecodeString(k.P256DH); err != nil {
+		return sub, fmt.Errorf("keys: %w", err)
+	}
+	if sub.Auth, err = base64.RawURLEncoding.DecodeString(k.Auth); err != nil {
+		return sub, fmt.Errorf("keys: %w", err)
+	}
+	return sub, nil
 }
 
 // Delete removes a subscription the push service no longer knows.
