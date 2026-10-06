@@ -50,6 +50,10 @@
 
 <section class="mt-8" aria-labelledby="demande">
 <h2 id="demande" class="text-xl font-semibold">Demande</h2>
+{{with $t.Summary}}<div class="mt-3 border-l-4 border-info pl-3">
+<p class="text-sm font-semibold">Résumé automatique, à vérifier</p>
+<p class="mt-1 break-words">{{.}}</p>
+</div>{{end}}
 <dl class="mt-3 grid grid-cols-1 gap-x-4 sm:grid-cols-[auto_minmax(0,1fr)] sm:gap-y-2">
 <dt class="font-semibold">Catégorie</dt><dd class="mb-2 sm:mb-0">{{categoryLabel $t.Category}}</dd>
 <dt class="font-semibold">Envoyée le</dt><dd class="mb-2 sm:mb-0">{{formatTime $t.SubmittedAt}}</dd>
@@ -83,6 +87,17 @@
 <section class="mt-8" aria-labelledby="autres">
 <h2 id="autres" class="text-xl font-semibold">Autres demandes de cette adresse</h2>
 {{with $d.Others}}<ul class="mt-3 flex flex-col gap-1">{{range .}}<li><a class="link link-primary inline-flex min-h-11 items-center" href="/demandes/{{.ID}}">{{.Ref}}</a> · {{categoryLabel .Category}} · {{.Status.Label}} · envoyée le {{formatDate .SubmittedAt}}</li>{{end}}</ul>{{else}}<p class="mt-3">Aucune.</p>{{end}}
+</section>
+
+<section class="mt-8" aria-labelledby="procedure">
+<h2 id="procedure" class="text-xl font-semibold">Procédure suggérée</h2>
+{{range $d.Fiches}}<article class="mt-4">
+<h3 class="font-semibold"><a class="link link-primary" href="/fiches#{{.ID}}">{{.Title}}</a></h3>
+<div class="mt-2 flex flex-col gap-2">{{template "blocks" .Procedure}}</div>
+</article>
+{{end}}{{range $d.Removed}}<p class="mt-4">Fiche retirée depuis l'envoi : {{.}}</p>
+{{end}}{{if not (or $d.Fiches $d.Removed)}}<p class="mt-3">Aucune fiche proposée à l'envoi.</p>{{end}}
+<p class="mt-2"><a class="link link-primary inline-flex min-h-11 items-center" href="/fiches">Voir toutes les fiches</a></p>
 </section>
 
 <section class="mt-8" aria-labelledby="vpdive">

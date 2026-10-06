@@ -186,6 +186,7 @@ func (s *Server) adminRoutes() *http.ServeMux {
 	s.handle(mux, "GET /demandes/{id}/captures/{cid}", s.signedIn(s.adminCapture))
 	s.handle(mux, "GET /effacement", s.signedIn(s.erasurePage))
 	s.handle(mux, "POST /effacement", s.signedIn(s.erase))
+	s.handle(mux, "GET /fiches", s.signedIn(s.fichesPage))
 	s.handle(mux, "GET /envois", s.signedIn(s.failedMails))
 	s.handle(mux, "POST /envois/{id}/relancer", s.signedIn(s.retryMail))
 	// The event stream is neither traced nor logged (spec §9.9).
