@@ -253,6 +253,10 @@ func TestPushedImportLimits(t *testing.T) {
 	big := e.push(t, "members", bytes.Repeat([]byte{'x'}, maxUploadBytes+1), importToken)
 	assert.Equal(t, http.StatusRequestEntityTooLarge, big.Code)
 	assert.Equal(t, "too_large", answer(t, big).Error)
+	refused := e.clubMails(t, mail.EventImportRefused)
+	require.Len(t, refused, 1, "an oversized file is a refused import too")
+	assert.Equal(t, "Import automatique refusé : liste des membres", refused[0].Subject)
+	assert.Contains(t, refused[0].Text, "5 Mo au plus")
 	for range 9 {
 		assert.Equal(t, http.StatusUnauthorized, e.push(t, "members", nil, "wrong").Code)
 	}

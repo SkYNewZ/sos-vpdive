@@ -76,7 +76,7 @@ func (s *Server) apiImport(w http.ResponseWriter, r *http.Request) {
 	var tooBig *http.MaxBytesError
 	switch {
 	case errors.As(err, &tooBig):
-		s.writeJSON(w, r, http.StatusRequestEntityTooLarge, pushRefused{Error: "too_large", Message: "Fichier trop volumineux : 5 Mo au plus."})
+		s.refusePushed(w, r, kind, http.StatusRequestEntityTooLarge, pushRefused{Error: "too_large", Message: "Fichier trop volumineux : 5 Mo au plus."})
 		return
 	case err != nil:
 		s.writeJSON(w, r, http.StatusBadRequest, pushRefused{Error: "interrupted"})
@@ -93,12 +93,12 @@ func (s *Server) apiImport(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, imports.ErrUnchanged):
 		answer.Result = "unchanged"
 	case errors.Is(err, imports.ErrTooFew):
-		s.refusePushed(w, r, kind, pushRefused{Error: "too_few",
+		s.refusePushed(w, r, kind, http.StatusUnprocessableEntity, pushRefused{Error: "too_few",
 			Message: "Ce fichier contient moins de la moitié des données en place. S'il est juste, dépose-le à la main sur la page des imports."})
 		return
 	default:
 		if code, msg, refused := refusal(kind, err); refused {
-			s.refusePushed(w, r, kind, pushRefused{Error: code, Message: msg})
+			s.refusePushed(w, r, kind, http.StatusUnprocessableEntity, pushRefused{Error: code, Message: msg})
 			return
 		}
 		s.logger.ErrorContext(ctx, "internal error", "error", err)
@@ -148,7 +148,7 @@ func (e export) counts() pushed {
 
 // refusePushed answers a refused file and mails the committee (spec §7.6):
 // a script nobody watches failed. The data in place did not change.
-func (s *Server) refusePushed(w http.ResponseWriter, r *http.Request, kind imports.Kind, answer pushRefused) {
+func (s *Server) refusePushed(w http.ResponseWriter, r *http.Request, kind imports.Kind, status int, answer pushRefused) {
 	ctx := r.Context()
 	s.logger.InfoContext(ctx, "pushed export refused", "kind", string(kind), "code", answer.Error)
 	text := fmt.Sprintf("Le script d'import a déposé un fichier que l'outil a refusé : %s.\n\nRaison : %s\n\n"+
@@ -161,7 +161,7 @@ func (s *Server) refusePushed(w http.ResponseWriter, r *http.Request, kind impor
 	} else {
 		s.outbox.Wake()
 	}
-	s.writeJSON(w, r, http.StatusUnprocessableEntity, answer)
+	s.writeJSON(w, r, status, answer)
 }
 
 func (s *Server) writeJSON(w http.ResponseWriter, r *http.Request, status int, v any) {
