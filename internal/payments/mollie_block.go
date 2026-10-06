@@ -42,9 +42,7 @@ func (l MollieLine) Negative() bool { return l.Amount < 0 }
 // not in the members list.
 func (s *MollieStore) Block(ctx context.Context, nameHash []byte) (MollieBlock, error) {
 	var b MollieBlock
-	state, info, found, err := nameLines(ctx, s.db, imports.Mollie,
-		`SELECT EXISTS (SELECT 1 FROM online_payment_lines)`,
-		`SELECT name_hash, ambiguous, data FROM online_payment_lines WHERE name_hash = ? ORDER BY id`, nameHash)
+	state, info, found, err := s.nameLines(ctx, nameHash)
 	b.State, b.Import = state, info
 	if err != nil || state != BlockLines {
 		return b, err

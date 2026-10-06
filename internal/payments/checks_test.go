@@ -13,7 +13,7 @@ import (
 
 func (f *fixture) checks(t *testing.T) (open, masked []Check) {
 	t.Helper()
-	open, masked, err := NewCheckStore(f.db, f.keys, f.clock.now).List(context.Background())
+	open, masked, err := NewCheckStore(f.db, f.keys, f.members, f.clock.now).List(context.Background())
 	require.NoError(t, err)
 	return open, masked
 }
@@ -75,7 +75,7 @@ func TestChecksNameThePersonThroughTheMembersList(t *testing.T) {
 func TestDismissSurvivesReimportsAndFollowsTheExport(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
-	s := NewCheckStore(f.db, f.keys, f.clock.now)
+	s := NewCheckStore(f.db, f.keys, f.members, f.clock.now)
 	memberstest.Import(t, f.members, "members_valid.xlsx")
 	f.importMollie(t, f.validMollie(t))
 	open, _ := f.checks(t)

@@ -68,9 +68,9 @@ func TestMolliePreviewAndConfirm(t *testing.T) {
 	assert.True(t, mollieCreated.Equal(last.ExportedAt))
 	assert.True(t, exp.PeriodTo.Equal(last.PeriodTo))
 	assert.Equal(t, 16, f.count(t, `SELECT COUNT(*) FROM online_payment_lines WHERE import_id = ?`, last.ID))
-	has, err := f.mollie.HasLines(ctx)
+	r, err := f.mollie.Report(ctx)
 	require.NoError(t, err)
-	assert.True(t, has)
+	assert.Equal(t, 16, r.Attached.Lines+r.Ambiguous.Lines+r.Unmatched.Lines)
 
 	small := &MollieExport{Lines: exp.Lines[:3]}
 	p, err = f.mollie.NewPreview(ctx, "alice", small)

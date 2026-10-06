@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/admins"
+	"github.com/SkYNewZ/sos-vpdive/internal/imports"
 )
 
 const (
@@ -139,9 +140,6 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/connexion", http.StatusSeeOther)
 }
 
-// refreshImport is the link of the banners of an ageing import.
-const refreshImport = "Refaire l'import"
-
 // adminPage is newPage plus the committee banners (spec §3.6, §4.1, §7.2).
 func (s *Server) adminPage(r *http.Request, title string) (page, error) {
 	p := s.newPage(r, title)
@@ -166,36 +164,20 @@ func (s *Server) adminNotices(ctx context.Context) ([]notice, error) {
 	if err != nil {
 		return nil, err
 	}
-	last, imported, err := s.members.LastImport(ctx)
-	if err != nil {
-		return nil, err
-	}
-	switch {
-	case !has:
+	if !has {
 		out = append(out, notice{Kind: noticeWarning, Text: "Le formulaire est fermé : aucune liste des membres n'est importée.",
 			Link: "/imports", LinkText: "Importer la liste"})
-	case imported && s.now().Sub(last.ImportedAt) > s.cfg.MembersMaxAge:
-		out = append(out, notice{Kind: noticeWarning,
-			Text: fmt.Sprintf("La liste des membres date du %s. Pense à refaire l'import.", s.formatDate(last.ImportedAt)),
-			Link: "/imports", LinkText: refreshImport})
 	}
-	paid, paidOK, err := s.payments.LastImport(ctx)
+	stale, err := s.staleImports(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if paidOK && s.now().Sub(paid.ImportedAt) > s.cfg.PaymentsMaxAge {
-		out = append(out, notice{Kind: noticeWarning,
-			Text: fmt.Sprintf("Les paiements datent du %s. Pense à refaire l'import.", s.formatDate(paid.ImportedAt)),
-			Link: "/imports#paiements-titre", LinkText: refreshImport})
-	}
-	collected, collectedOK, err := s.mollie.LastImport(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if collectedOK && s.now().Sub(collected.ImportedAt) > s.cfg.VPayDiveMaxAge {
-		out = append(out, notice{Kind: noticeWarning,
-			Text: fmt.Sprintf("Les encaissements Mollie datent du %s. Pense à refaire l'import.", s.formatDate(collected.ImportedAt)),
-			Link: "/imports#encaissements-titre", LinkText: refreshImport})
+	for _, st := range stale {
+		if st.kind == imports.Members && !has { // the closed form says more
+			continue
+		}
+		out = append(out, notice{Kind: noticeWarning, Text: fmt.Sprintf(st.banner, s.formatDate(st.last.ImportedAt)),
+			Link: st.link, LinkText: "Refaire l'import"})
 	}
 	failed, err := s.outbox.FailedCount(ctx)
 	if err != nil {

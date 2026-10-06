@@ -179,7 +179,7 @@ func TestImportsPageCountsTheLinesStillToCheck(t *testing.T) {
 	}
 	assert.Contains(t, page(), "Lignes à vérifier</dt><dd class=\"mb-2 sm:mb-0\">3 (")
 
-	checks := payments.NewCheckStore(e.db, e.deps.Keys, e.clock.now)
+	checks := payments.NewCheckStore(e.db, e.deps.Keys, e.deps.Members, e.clock.now)
 	open, _, err := checks.List(context.Background())
 	require.NoError(t, err)
 	require.NoError(t, checks.Dismiss(context.Background(), open[0].Fingerprint, "alice"))

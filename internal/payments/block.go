@@ -2,16 +2,10 @@ package payments
 
 import (
 	"context"
-	"database/sql"
-	"encoding/hex"
-	"encoding/json"
-	"fmt"
 	"slices"
 	"strings"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/imports"
-	"github.com/SkYNewZ/sos-vpdive/internal/secure"
-	"github.com/SkYNewZ/sos-vpdive/internal/store"
 )
 
 // latestCount is how many of the requester's lines the block lists (spec §7.3).
@@ -88,9 +82,7 @@ func (l Line) ProbableRefund() bool {
 // members list.
 func (s *Store) Block(ctx context.Context, nameHash []byte) (Block, error) {
 	var b Block
-	state, info, found, err := nameLines(ctx, s.db, imports.Payments,
-		`SELECT EXISTS (SELECT 1 FROM payment_lines)`,
-		`SELECT name_hash, ambiguous, data FROM payment_lines WHERE name_hash = ? ORDER BY id DESC`, nameHash)
+	state, info, found, err := s.nameLines(ctx, nameHash)
 	b.State, b.Import = state, info
 	if err != nil || state != BlockLines {
 		return b, err
@@ -105,7 +97,8 @@ func (s *Store) Block(ctx context.Context, nameHash []byte) (Block, error) {
 	if err != nil {
 		return Block{}, err
 	}
-	// Newest first; read in reverse id order, so ties keep the file's order reversed.
+	// Newest first; ties keep the file's order reversed, the later row first.
+	slices.Reverse(lines)
 	slices.SortStableFunc(lines, func(a, b Line) int { return b.Created.Compare(a.Created) })
 	b.Latest = lines[:min(latestCount, len(lines))]
 	for _, l := range lines {
@@ -123,83 +116,4 @@ func (s *Store) Block(ctx context.Context, nameHash []byte) (Block, error) {
 		}
 	}
 	return b, nil
-}
-
-// nameLines decides what a block shows for nameHash, nil when the requester
-// is not in the members list, in the order of the BlockState values: exists
-// tells whether the table holds lines, lines selects name_hash, ambiguous and
-// data of one name. With BlockLines it returns the sealed lines of the name.
-func nameLines(ctx context.Context, db *sql.DB, kind imports.Kind, exists, lines string, nameHash []byte) (BlockState, imports.Info, []sealedLine, error) {
-	var inPlace bool
-	if err := db.QueryRowContext(ctx, exists).Scan(&inPlace); err != nil {
-		return "", imports.Info{}, nil, fmt.Errorf("presence of %s lines: %w", kind, err)
-	}
-	info, imported, err := imports.Last(ctx, db, kind)
-	switch {
-	case err != nil:
-		return "", imports.Info{}, nil, err
-	case !inPlace && imported:
-		return BlockPurged, info, nil, nil
-	case !inPlace:
-		return BlockNoLines, info, nil, nil
-	case nameHash == nil:
-		return BlockNoMember, info, nil, nil
-	}
-	var members int
-	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM members WHERE name_hash = ?`, nameHash).Scan(&members); err != nil {
-		return "", imports.Info{}, nil, fmt.Errorf("members of a name: %w", err)
-	}
-	found, err := sealedLines(ctx, db, lines, nameHash)
-	switch {
-	case err != nil:
-		return "", imports.Info{}, nil, err
-	case members > 1 || slices.ContainsFunc(found, func(r sealedLine) bool { return r.ambiguous }):
-		return BlockAmbiguous, info, nil, nil
-	case len(found) == 0:
-		return BlockEmpty, info, nil, nil
-	}
-	return BlockLines, info, found, nil
-}
-
-// dismissal returns the dismissal of the line of fingerprint, nil when none.
-func dismissal(dismissed map[string]Dismissal, fingerprint []byte) *Dismissal {
-	d, ok := dismissed[hex.EncodeToString(fingerprint)]
-	if !ok {
-		return nil
-	}
-	return &d
-}
-
-// sealedLine is a stored payment or Mollie line before decryption.
-type sealedLine struct {
-	nameHash  []byte
-	ambiguous bool
-	data      []byte
-}
-
-// sealedLines reads stored lines; query selects name_hash, ambiguous and
-// data.
-func sealedLines(ctx context.Context, db *sql.DB, query string, args ...any) ([]sealedLine, error) {
-	rows, err := db.QueryContext(ctx, query, args...)
-	found, err := store.Collect(rows, err, func(rows *sql.Rows) (r sealedLine, err error) {
-		err = rows.Scan(&r.nameHash, &r.ambiguous, &r.data)
-		return r, err
-	})
-	if err != nil {
-		return nil, fmt.Errorf("read lines: %w", err)
-	}
-	return found, nil
-}
-
-// openLine decrypts and decodes one stored line.
-func openLine[T Line | MollieLine](keys *secure.Keys, sealed []byte) (T, error) {
-	var l T
-	plain, err := keys.Open(sealed)
-	if err != nil {
-		return l, fmt.Errorf("decrypt line: %w", err)
-	}
-	if err := json.Unmarshal(plain, &l); err != nil {
-		return l, fmt.Errorf("decode line: %w", err)
-	}
-	return l, nil
 }

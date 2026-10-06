@@ -35,7 +35,7 @@ type Cancellations struct {
 // ponytail: decrypts every line at each call (a few thousand, a few ms); store
 // a clear "cancelled outing" flag at import if it ever shows in traces.
 func (s *Store) Cancellations(ctx context.Context) (Cancellations, error) {
-	found, err := sealedLines(ctx, s.db, `SELECT name_hash, ambiguous, data FROM payment_lines ORDER BY id`)
+	found, err := s.sealed(ctx, s.q.all)
 	if err != nil {
 		return Cancellations{}, err
 	}

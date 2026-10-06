@@ -137,12 +137,17 @@ func Push(ctx context.Context, db *sql.DB, span string, e Entry,
 		if err != nil {
 			return err
 		}
-		if e.Rows*2 < current {
+		if UnderHalf(e.Rows, current) {
 			return ErrTooFew
 		}
 		return replace(ctx, tx, e, fn)
 	})
 }
+
+// UnderHalf reports a file of n rows replacing less than half of current:
+// a preview asks for a second confirmation, a push is refused (spec §7.2,
+// §7.6).
+func UnderHalf(n, current int) bool { return n*2 < current }
 
 // countInPlace counts the data an import of kind replaces.
 func countInPlace(ctx context.Context, q store.Querier, kind Kind) (int, error) {
@@ -214,7 +219,7 @@ func NewMeta(ctx context.Context, q store.Querier, kind Kind, username string, n
 	if err != nil {
 		return Meta{}, 0, err
 	}
-	return Meta{Username: username, NeedsSecondConfirm: n*2 < current, Base: last.ID, FileHash: fileHash}, current, nil
+	return Meta{Username: username, NeedsSecondConfirm: UnderHalf(n, current), Base: last.ID, FileHash: fileHash}, current, nil
 }
 
 // PreviewMeta gives Previews access to the embedded Meta.

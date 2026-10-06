@@ -61,7 +61,7 @@ CREATE INDEX online_payment_lines_name_hash ON online_payment_lines (name_hash);
 -- Lines to check that a resolver masked (spec §7.7). The fingerprint is an
 -- HMAC of the line: it does not lead back to the person.
 CREATE TABLE dismissed_checks (
-    fingerprint BLOB PRIMARY KEY,
+    fingerprint TEXT PRIMARY KEY, -- hex
     dismissed_by TEXT NOT NULL,
     dismissed_at INTEGER NOT NULL
 );

@@ -3,19 +3,11 @@ package payments
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
-	"errors"
-	"fmt"
 	"time"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/imports"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
-	"github.com/SkYNewZ/sos-vpdive/internal/store"
 )
-
-// retention is how long lines outlive their import when no new one comes
-// (spec §8.3).
-const retention = 90 * 24 * time.Hour
 
 // Preview compares an export with the lines in place. It lives in memory
 // only and can be confirmed by its uploader alone.
@@ -49,17 +41,22 @@ type Report struct {
 	Unmatched Count
 }
 
-// Store imports payments exports and reads the lines back.
+// Store imports payments exports and reads the lines back (table
+// payment_lines).
 type Store struct {
-	db       *sql.DB
-	keys     *secure.Keys
-	now      func() time.Time
+	lineTable
+
 	previews *imports.Previews[*Preview]
 }
 
 // NewStore returns a Store; now is injectable for tests.
 func NewStore(db *sql.DB, keys *secure.Keys, now func() time.Time) *Store {
-	return &Store{db: db, keys: keys, now: now, previews: imports.NewPreviews[*Preview](now)}
+	return &Store{lineTable: paymentLines(db, keys, now), previews: imports.NewPreviews[*Preview](now)}
+}
+
+// paymentLines is the table of the payments export.
+func paymentLines(db *sql.DB, keys *secure.Keys, now func() time.Time) lineTable {
+	return newLineTable(db, keys, now, imports.Payments, "payments", "payment_lines")
 }
 
 // ShortPeriod reports a period under 12 months (spec §7.3).
@@ -109,7 +106,7 @@ func (s *Store) Confirm(ctx context.Context, id, username string, secondConfirm 
 		Kind: imports.Payments, ExportedAt: p.Created, PeriodFrom: p.PeriodFrom, PeriodTo: p.PeriodTo,
 		ImportedAt: s.now(), ImportedBy: username, Rows: p.Lines, Skipped: p.Skipped, FileHash: p.FileHash,
 	}
-	return imports.Replace(ctx, s.db, "payments.replace", &p.Meta, e, s.replaceWith(p.lines))
+	return imports.Replace(ctx, s.db, "payments.replace", &p.Meta, e, replaceLines(s.lineTable, p.lines))
 }
 
 // Import replaces every line with a pushed export, without preview (spec
@@ -120,118 +117,5 @@ func (s *Store) Import(ctx context.Context, exp *Export) error {
 		Kind: imports.Payments, ExportedAt: exp.Created, PeriodFrom: exp.PeriodFrom, PeriodTo: exp.PeriodTo,
 		ImportedAt: s.now(), ImportedBy: imports.ScriptAuthor, Rows: len(exp.Lines), Skipped: exp.Skipped, FileHash: exp.FileHash,
 	}
-	return imports.Push(ctx, s.db, "payments.replace", e, s.replaceWith(exp.Lines))
-}
-
-// LastImport returns the latest payments import, if any.
-func (s *Store) LastImport(ctx context.Context) (imports.Info, bool, error) {
-	return imports.Last(ctx, s.db, imports.Payments)
-}
-
-// Report counts the lines in place by attribution.
-func (s *Store) Report(ctx context.Context) (Report, error) {
-	return report(ctx, s.db, `SELECT MAX(p.ambiguous), COUNT(*), (SELECT COUNT(*) FROM members m WHERE m.name_hash = p.name_hash)
-		 FROM payment_lines p GROUP BY p.name_hash`)
-}
-
-// report counts lines by attribution from query, which gives per name hash
-// in place: the « ambiguë » mark, the lines and the members of that name.
-func report(ctx context.Context, db *sql.DB, query string) (Report, error) {
-	rows, err := db.QueryContext(ctx, query)
-	payers, err := store.Collect(rows, err, func(rows *sql.Rows) (c struct{ marked, lines, members int }, err error) {
-		err = rows.Scan(&c.marked, &c.lines, &c.members)
-		return c, err
-	})
-	if err != nil {
-		return Report{}, fmt.Errorf("attribution report: %w", err)
-	}
-	var r Report
-	for _, p := range payers {
-		dst := &r.Unmatched
-		switch {
-		case p.marked == 1 || p.members > 1:
-			dst = &r.Ambiguous
-		case p.members == 1:
-			dst = &r.Attached
-		}
-		dst.Lines += p.lines
-		dst.Payers++
-	}
-	return r, nil
-}
-
-// Purge deletes every line when no payments import happened for 90 days
-// (spec §8.3). The imports journal holds no personal data and stays.
-func (s *Store) Purge(ctx context.Context) error {
-	return store.Tx(ctx, s.db, "payments.purge", func(ctx context.Context, tx *sql.Tx) error {
-		// Never imported: MAX is NULL, the comparison is false, nothing goes.
-		if _, err := tx.ExecContext(ctx,
-			`DELETE FROM payment_lines WHERE (SELECT MAX(imported_at) FROM imports WHERE kind = ?) < ?`,
-			string(imports.Payments), s.now().Add(-retention).Unix()); err != nil {
-			return fmt.Errorf("purge payment lines: %w", err)
-		}
-		return nil
-	})
-}
-
-// HasLines reports whether payment lines are in place: none when nothing was
-// imported or after the 90-day purge.
-func (s *Store) HasLines(ctx context.Context) (bool, error) {
-	var found bool
-	if err := s.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM payment_lines)`).Scan(&found); err != nil {
-		return false, fmt.Errorf("payment lines presence: %w", err)
-	}
-	return found, nil
-}
-
-// Count returns the number of lines of nameHash, ambiguous ones included.
-func (s *Store) Count(ctx context.Context, nameHash []byte) (int, error) {
-	var n int
-	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM payment_lines WHERE name_hash = ?`, nameHash).Scan(&n); err != nil {
-		return 0, fmt.Errorf("count payment lines of a name: %w", err)
-	}
-	return n, nil
-}
-
-// EraseTx deletes every line of nameHash inside tx, a homonym's included
-// (erasure, spec §4.5; owner decision). The next import brings them back
-// while VPDive has them.
-func (s *Store) EraseTx(ctx context.Context, tx *sql.Tx, nameHash []byte) (int, error) {
-	res, err := tx.ExecContext(ctx, `DELETE FROM payment_lines WHERE name_hash = ?`, nameHash)
-	if err != nil {
-		return 0, fmt.Errorf("erase payment lines: %w", err)
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return 0, fmt.Errorf("erase payment lines: %w", err)
-	}
-	return int(n), nil
-}
-
-// replaceWith replaces the lines in place with lines.
-func (s *Store) replaceWith(lines []Line) func(context.Context, *sql.Tx, int64) error {
-	return func(ctx context.Context, tx *sql.Tx, importID int64) error {
-		if _, err := tx.ExecContext(ctx, `DELETE FROM payment_lines`); err != nil {
-			return fmt.Errorf("clear payment lines: %w", err)
-		}
-		return s.insertLines(ctx, tx, importID, lines)
-	}
-}
-
-func (s *Store) insertLines(ctx context.Context, tx *sql.Tx, importID int64, lines []Line) (err error) {
-	stmt, err := tx.PrepareContext(ctx, `INSERT INTO payment_lines (import_id, name_hash, data) VALUES (?, ?, ?)`)
-	if err != nil {
-		return fmt.Errorf("prepare payment line insert: %w", err)
-	}
-	defer func() { err = errors.Join(err, stmt.Close()) }()
-	for _, l := range lines {
-		data, err := json.Marshal(l)
-		if err != nil {
-			return fmt.Errorf("encode payment line of row %d: %w", l.Row, err)
-		}
-		if _, err := stmt.ExecContext(ctx, importID, s.keys.Hash(l.NameKey), s.keys.Seal(data)); err != nil {
-			return fmt.Errorf("insert payment line of row %d: %w", l.Row, err)
-		}
-	}
-	return nil
+	return imports.Push(ctx, s.db, "payments.replace", e, replaceLines(s.lineTable, exp.Lines))
 }

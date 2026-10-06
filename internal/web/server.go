@@ -110,7 +110,7 @@ func New(d Deps) (*Server, error) {
 	}
 	s := &Server{
 		cfg: d.Config, db: d.DB, keys: d.Keys, members: d.Members, payments: d.Payments, mollie: d.Mollie,
-		checks: payments.NewCheckStore(d.DB, d.Keys, d.Now), admins: d.Admins,
+		checks: payments.NewCheckStore(d.DB, d.Keys, d.Members, d.Now), admins: d.Admins,
 		tickets: d.Tickets, outbox: d.Outbox, push: d.Push, broker: d.Broker, kb: d.KB, suggest: suggest.New(d.Config.LLM),
 		keepAlive: keepAliveInterval,
 		logger:    d.Logger, now: d.Now, paris: paris, tracer: otel.Tracer(tracerName),

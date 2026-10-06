@@ -108,7 +108,7 @@ func TestBlocksShowWhoCheckedALine(t *testing.T) {
 	assert.Nil(t, block.ToSettle[0].Dismissal)
 
 	open, _ := f.checks(t)
-	checks := NewCheckStore(f.db, f.keys, f.clock.now)
+	checks := NewCheckStore(f.db, f.keys, f.members, f.clock.now)
 	for _, c := range open {
 		if c.Product == "Adhésion" || c.Product == "Formation RIFAP" {
 			require.NoError(t, checks.Dismiss(ctx, c.Fingerprint, "bob"))

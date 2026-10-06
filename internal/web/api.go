@@ -2,7 +2,6 @@ package web
 
 import (
 	"context"
-	"crypto/sha256"
 	"crypto/subtle"
 	"database/sql"
 	"encoding/json"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/SkYNewZ/sos-vpdive/internal/imports"
 	"github.com/SkYNewZ/sos-vpdive/internal/mail"
+	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 	"github.com/SkYNewZ/sos-vpdive/internal/store"
 	"github.com/SkYNewZ/sos-vpdive/internal/telemetry"
 )
@@ -23,13 +23,8 @@ import (
 // client address (spec §7.6).
 const apiImportLimit = 10
 
-// pushedKinds are the exports the script may push, by the {type} of the
-// route: the journal kinds.
-var pushedKinds = map[string]imports.Kind{
-	string(imports.Members): imports.Members, string(imports.Payments): imports.Payments, string(imports.Mollie): imports.Mollie,
-}
-
-// exportNames name each export in the refusal mail.
+// exportNames name each export in the mails to the club; their keys are the
+// {type} values of the pushed-import route.
 var exportNames = map[imports.Kind]string{
 	imports.Members: "liste des membres", imports.Payments: "export des paiements", imports.Mollie: "export VPayDive",
 }
@@ -72,8 +67,8 @@ func (s *Server) apiImport(w http.ResponseWriter, r *http.Request) {
 		s.writeJSON(w, r, http.StatusUnauthorized, pushRefused{Error: "unauthorized"})
 		return
 	}
-	kind, known := pushedKinds[r.PathValue("type")]
-	if !known {
+	kind := imports.Kind(r.PathValue("type"))
+	if _, known := exportNames[kind]; !known {
 		s.writeJSON(w, r, http.StatusNotFound, pushRefused{Error: "unknown_type"})
 		return
 	}
@@ -119,8 +114,8 @@ func (s *Server) apiImport(w http.ResponseWriter, r *http.Request) {
 // case-insensitive (RFC 7235).
 func (s *Server) importTokenValid(header string) bool {
 	scheme, token, _ := strings.Cut(header, " ")
-	got, want := sha256.Sum256([]byte(token)), sha256.Sum256([]byte(s.cfg.ImportToken))
-	return strings.EqualFold(scheme, "Bearer") && subtle.ConstantTimeCompare(got[:], want[:]) == 1
+	return strings.EqualFold(scheme, "Bearer") &&
+		subtle.ConstantTimeCompare(secure.TokenHash(token), secure.TokenHash(s.cfg.ImportToken)) == 1
 }
 
 // importPushed replaces the data of exp's kind without preview.
@@ -157,11 +152,10 @@ func (s *Server) refusePushed(w http.ResponseWriter, r *http.Request, kind impor
 	ctx := r.Context()
 	s.logger.InfoContext(ctx, "pushed export refused", "kind", string(kind), "code", answer.Error)
 	text := fmt.Sprintf("Le script d'import a déposé un fichier que l'outil a refusé : %s.\n\nRaison : %s\n\n"+
-		"Les données en place n'ont pas changé. Vérifie l'export dans VPDive, puis dépose-le à la main si besoin : %s\n\n"+
-		"Ne réponds pas à ce mail.\n", exportNames[kind], answer.Message, s.cfg.AdminBaseURL.JoinPath("imports"))
+		"Les données en place n'ont pas changé. Vérifie l'export dans VPDive, puis dépose-le à la main si besoin",
+		exportNames[kind], answer.Message)
 	if err := store.Tx(ctx, s.db, "import.refused", func(ctx context.Context, tx *sql.Tx) error {
-		return s.outbox.Enqueue(ctx, tx, mail.Mail{Event: mail.EventImportRefused, To: s.cfg.NotifyEmail.Address,
-			Subject: "Import automatique refusé : " + exportNames[kind], Text: text})
+		return s.queueImportsMail(ctx, tx, mail.EventImportRefused, "Import automatique refusé : "+exportNames[kind], text)
 	}); err != nil {
 		s.logger.ErrorContext(ctx, "queue refusal mail", "error", err)
 	} else {

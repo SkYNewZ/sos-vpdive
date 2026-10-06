@@ -3,14 +3,10 @@ package payments
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
-	"errors"
-	"fmt"
 	"time"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/imports"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
-	"github.com/SkYNewZ/sos-vpdive/internal/store"
 )
 
 // MolliePreview compares a VPayDive export with the Mollie lines in place.
@@ -33,15 +29,19 @@ type MolliePreview struct {
 // MollieStore imports VPayDive exports and reads the Mollie lines back
 // (table online_payment_lines, spec §7.5).
 type MollieStore struct {
-	db       *sql.DB
-	keys     *secure.Keys
-	now      func() time.Time
+	lineTable
+
 	previews *imports.Previews[*MolliePreview]
 }
 
 // NewMollieStore returns a MollieStore; now is injectable for tests.
 func NewMollieStore(db *sql.DB, keys *secure.Keys, now func() time.Time) *MollieStore {
-	return &MollieStore{db: db, keys: keys, now: now, previews: imports.NewPreviews[*MolliePreview](now)}
+	return &MollieStore{lineTable: mollieLines(db, keys, now), previews: imports.NewPreviews[*MolliePreview](now)}
+}
+
+// mollieLines is the table of the VPayDive export.
+func mollieLines(db *sql.DB, keys *secure.Keys, now func() time.Time) lineTable {
+	return newLineTable(db, keys, now, imports.Mollie, "mollie", "online_payment_lines")
 }
 
 // NewPreview compares exp with the lines in place and keeps the result for
@@ -85,7 +85,7 @@ func (s *MollieStore) Confirm(ctx context.Context, id, username string, secondCo
 		Kind: imports.Mollie, ExportedAt: p.Created, PeriodFrom: p.PeriodFrom, PeriodTo: p.PeriodTo,
 		ImportedAt: s.now(), ImportedBy: username, Rows: p.Lines, Skipped: p.Skipped, FileHash: p.FileHash,
 	}
-	return imports.Replace(ctx, s.db, "mollie.replace", &p.Meta, e, s.replaceWith(p.lines))
+	return imports.Replace(ctx, s.db, "mollie.replace", &p.Meta, e, replaceLines(s.lineTable, p.lines))
 }
 
 // Import replaces every Mollie line with a pushed export, without preview
@@ -96,88 +96,5 @@ func (s *MollieStore) Import(ctx context.Context, exp *MollieExport) error {
 		Kind: imports.Mollie, ExportedAt: exp.Created, PeriodFrom: exp.PeriodFrom, PeriodTo: exp.PeriodTo,
 		ImportedAt: s.now(), ImportedBy: imports.ScriptAuthor, Rows: len(exp.Lines), Skipped: exp.Skipped, FileHash: exp.FileHash,
 	}
-	return imports.Push(ctx, s.db, "mollie.replace", e, s.replaceWith(exp.Lines))
-}
-
-// LastImport returns the latest VPayDive import, if any.
-func (s *MollieStore) LastImport(ctx context.Context) (imports.Info, bool, error) {
-	return imports.Last(ctx, s.db, imports.Mollie)
-}
-
-// Report counts the Mollie lines in place by attribution, as for payment
-// lines (spec §7.5).
-func (s *MollieStore) Report(ctx context.Context) (Report, error) {
-	return report(ctx, s.db, `SELECT MAX(o.ambiguous), COUNT(*), (SELECT COUNT(*) FROM members m WHERE m.name_hash = o.name_hash)
-		 FROM online_payment_lines o GROUP BY o.name_hash`)
-}
-
-// Purge deletes every Mollie line when no VPayDive import happened for 90
-// days (spec §7.5, §8.3). The imports journal stays.
-func (s *MollieStore) Purge(ctx context.Context) error {
-	return store.Tx(ctx, s.db, "mollie.purge", func(ctx context.Context, tx *sql.Tx) error {
-		// Never imported: MAX is NULL, the comparison is false, nothing goes.
-		if _, err := tx.ExecContext(ctx,
-			`DELETE FROM online_payment_lines WHERE (SELECT MAX(imported_at) FROM imports WHERE kind = ?) < ?`,
-			string(imports.Mollie), s.now().Add(-retention).Unix()); err != nil {
-			return fmt.Errorf("purge Mollie lines: %w", err)
-		}
-		return nil
-	})
-}
-
-// HasLines reports whether Mollie lines are in place.
-func (s *MollieStore) HasLines(ctx context.Context) (bool, error) {
-	var found bool
-	if err := s.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM online_payment_lines)`).Scan(&found); err != nil {
-		return false, fmt.Errorf("presence of Mollie lines: %w", err)
-	}
-	return found, nil
-}
-
-// Count returns the number of Mollie lines of nameHash, ambiguous ones
-// included.
-func (s *MollieStore) Count(ctx context.Context, nameHash []byte) (int, error) {
-	var n int
-	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM online_payment_lines WHERE name_hash = ?`, nameHash).Scan(&n); err != nil {
-		return 0, fmt.Errorf("count Mollie lines of a name: %w", err)
-	}
-	return n, nil
-}
-
-// EraseTx deletes every Mollie line of nameHash inside tx, a homonym's
-// included (erasure, spec §4.5; owner decision).
-func (s *MollieStore) EraseTx(ctx context.Context, tx *sql.Tx, nameHash []byte) (int, error) {
-	res, err := tx.ExecContext(ctx, `DELETE FROM online_payment_lines WHERE name_hash = ?`, nameHash)
-	if err != nil {
-		return 0, fmt.Errorf("erase Mollie lines: %w", err)
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return 0, fmt.Errorf("erase Mollie lines: %w", err)
-	}
-	return int(n), nil
-}
-
-// replaceWith replaces the Mollie lines in place with lines.
-func (s *MollieStore) replaceWith(lines []MollieLine) func(context.Context, *sql.Tx, int64) error {
-	return func(ctx context.Context, tx *sql.Tx, importID int64) (err error) {
-		if _, err := tx.ExecContext(ctx, `DELETE FROM online_payment_lines`); err != nil {
-			return fmt.Errorf("clear Mollie lines: %w", err)
-		}
-		stmt, err := tx.PrepareContext(ctx, `INSERT INTO online_payment_lines (import_id, name_hash, data) VALUES (?, ?, ?)`)
-		if err != nil {
-			return fmt.Errorf("prepare Mollie line insert: %w", err)
-		}
-		defer func() { err = errors.Join(err, stmt.Close()) }()
-		for _, l := range lines {
-			data, err := json.Marshal(l)
-			if err != nil {
-				return fmt.Errorf("encode Mollie line of row %d: %w", l.Row, err)
-			}
-			if _, err := stmt.ExecContext(ctx, importID, s.keys.Hash(l.NameKey), s.keys.Seal(data)); err != nil {
-				return fmt.Errorf("insert Mollie line of row %d: %w", l.Row, err)
-			}
-		}
-		return nil
-	}
+	return imports.Push(ctx, s.db, "mollie.replace", e, replaceLines(s.lineTable, exp.Lines))
 }

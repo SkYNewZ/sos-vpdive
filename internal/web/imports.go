@@ -156,24 +156,19 @@ func (s *Server) importsView(ctx context.Context, d *importsData) error {
 // lineStore is what the imports page reads of the payments and Mollie stores.
 type lineStore interface {
 	LastImport(ctx context.Context) (imports.Info, bool, error)
-	HasLines(ctx context.Context) (bool, error)
 	Report(ctx context.Context) (payments.Report, error)
 }
 
 // fillLines fills the latest import of a lines section and the attribution
-// of the lines in place.
+// of the lines in place: none after an import means the 90-day purge.
 func fillLines(ctx context.Context, sec *linesSection, store lineStore) error {
 	last, ok, err := store.LastImport(ctx)
 	if err != nil || !ok {
 		return err
 	}
 	sec.Last = &last
-	inPlace, err := store.HasLines(ctx)
-	if err != nil {
-		return err
-	}
-	sec.Purged = !inPlace
 	sec.Report, err = store.Report(ctx)
+	sec.Purged = sec.Report == payments.Report{}
 	return err
 }
 

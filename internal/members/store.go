@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/imports"
@@ -67,7 +68,7 @@ func (s *Store) NewPreview(ctx context.Context, username string, exp *Export) (*
 	groups, accounts := AmbiguousGroups(exp.Members)
 	p := &Preview{
 		Username:           username,
-		NeedsSecondConfirm: len(exp.Members)*2 < len(current),
+		NeedsSecondConfirm: imports.UnderHalf(len(exp.Members), len(current)),
 		Base:               base,
 		FileHash:           exp.FileHash,
 		ExportedAt:         exp.ExportedAt,
@@ -182,6 +183,30 @@ func (s *Store) Find(ctx context.Context, email string) (Profile, bool, error) {
 		}
 	}
 	return p, true, nil
+}
+
+// Named returns the first and last name of the first member of nameHash,
+// and how many members bear that name: "" and 0 when none does.
+func (s *Store) Named(ctx context.Context, nameHash []byte) (name string, members int, err error) {
+	var first, last []byte
+	err = s.db.QueryRowContext(ctx,
+		`SELECT first_name, last_name, (SELECT COUNT(*) FROM members WHERE name_hash = ?1)
+		 FROM members WHERE name_hash = ?1 ORDER BY id LIMIT 1`, nameHash).Scan(&first, &last, &members)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", 0, nil
+	}
+	if err != nil {
+		return "", 0, fmt.Errorf("member of a name: %w", err)
+	}
+	firstName, err := s.keys.OpenString(first)
+	if err != nil {
+		return "", 0, fmt.Errorf("decrypt member: %w", err)
+	}
+	lastName, err := s.keys.OpenString(last)
+	if err != nil {
+		return "", 0, fmt.Errorf("decrypt member: %w", err)
+	}
+	return strings.TrimSpace(firstName + " " + lastName), members, nil
 }
 
 // EraseTx deletes the member of email inside tx and returns its name hash,

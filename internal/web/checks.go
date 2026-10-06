@@ -49,35 +49,24 @@ func (s *Server) renderChecks(w http.ResponseWriter, r *http.Request, status int
 		s.serverError(w, r, err)
 		return
 	}
-	d := checksData{Links: []vpdiveLink{s.vpdive["paiements"], s.vpdive["vpaydive"]}}
-	var unsettled, partial int
+	d := checksData{Links: []vpdiveLink{s.vpdive["paiements"], s.vpdive["vpaydive"]}, Summary: checksSummary(payments.Tally(open))}
 	for _, c := range open {
 		d.Open.Rows = append(d.Open.Rows, checkView{Check: c, Age: s.age(c.Date, time.Time{})})
-		if c.Signal == payments.SignalUnsettled {
-			unsettled++
-		} else {
-			partial++
-		}
 	}
 	for _, c := range masked {
 		d.Masked.Rows = append(d.Masked.Rows, checkView{Check: c, Age: s.age(c.Date, time.Time{})})
 	}
-	d.Summary = checksSummary(unsettled, partial)
-	for _, imp := range []struct {
-		dst  **imports.Info
-		last func(r *http.Request) (imports.Info, bool, error)
-	}{
-		{&d.Payments, func(r *http.Request) (imports.Info, bool, error) { return s.payments.LastImport(r.Context()) }},
-		{&d.Mollie, func(r *http.Request) (imports.Info, bool, error) { return s.mollie.LastImport(r.Context()) }},
-	} {
-		info, ok, err := imp.last(r)
-		if err != nil {
-			s.serverError(w, r, err)
-			return
-		}
-		if ok {
-			*imp.dst = &info
-		}
+	paid, ok, err := s.payments.LastImport(ctx)
+	if err == nil && ok {
+		d.Payments = &paid
+	}
+	collected, ok, cerr := s.mollie.LastImport(ctx)
+	if err = errors.Join(err, cerr); err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	if ok {
+		d.Mollie = &collected
 	}
 	p, err := s.adminPage(r, "Paiements à vérifier")
 	if err != nil {
