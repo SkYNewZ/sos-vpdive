@@ -212,7 +212,7 @@ func TestEnqueueSealsAndDelivers(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, sent)
 	m := sampleMail()
-	assert.Equal(t, []Message{{To: "lea.martin@example.org", Subject: m.Subject, Text: m.Text}}, s.messages())
+	assert.Equal(t, []Message{{Channel: ChannelEmail, To: "lea.martin@example.org", Subject: m.Subject, Text: m.Text}}, s.messages())
 	r := o.row(t, id)
 	assert.Equal(t, "sent", r.status)
 	assert.Equal(t, 1, r.attempts)
@@ -530,4 +530,94 @@ func TestPostponedMailLogsTheFailureStageOnly(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, logs.String(), "stage=smtp_auth")
 	assert.NotContains(t, logs.String(), "example.org")
+}
+
+// pushAlert is a committee alert as tickets queues it.
+func pushAlert(ticketID int64, ch Channel) Mail {
+	return Mail{TicketID: ticketID, Event: EventNewTicket, Channel: ch, Subject: "Nouvelle demande", Text: "CPP-0001 · Autre"}
+}
+
+func TestPushAlertGetsOneAttemptWithinTheHour(t *testing.T) {
+	o := newTestOutbox(t)
+	ctx := context.Background()
+	ticketID, _ := o.insertTicket(t)
+	id := o.enqueue(t, pushAlert(ticketID, ChannelWebPush))
+	var (
+		channel string
+		hash    []byte
+	)
+	require.NoError(t, o.db.QueryRowContext(ctx, `SELECT channel, recipient_hash FROM outbox WHERE id = ?`, id).Scan(&channel, &hash))
+	assert.Equal(t, "webpush", channel)
+	assert.Empty(t, hash, "an alert has no recipient: erasure by address never matches it")
+	assert.Equal(t, o.clock.now().Add(time.Hour).Unix(), o.row(t, id).giveUp)
+
+	s := &fakeSender{}
+	s.fail(errors.New("dial tcp: connection refused"))
+	_, err := o.SendDue(ctx, s)
+	require.NoError(t, err)
+	r := o.row(t, id)
+	assert.Equal(t, "failed", r.status, "no retry for a push alert")
+	assert.Equal(t, 1, r.attempts)
+
+	s.fail(nil)
+	late := o.enqueue(t, pushAlert(ticketID, ChannelPushover))
+	o.clock.advance(time.Hour + time.Minute)
+	_, err = o.SendDue(ctx, s)
+	require.NoError(t, err)
+	assert.Equal(t, "failed", o.row(t, late).status, "an alert an hour late is not sent")
+	assert.Equal(t, 1, s.callCount())
+
+	fresh := o.enqueue(t, pushAlert(ticketID, ChannelPushover))
+	_, err = o.SendDue(ctx, s)
+	require.NoError(t, err)
+	assert.Equal(t, "sent", o.row(t, fresh).status)
+	assert.Equal(t, []Message{{Channel: ChannelPushover, TicketID: ticketID, Subject: "Nouvelle demande", Text: "CPP-0001 · Autre"}}, s.messages())
+
+	failed, err := o.Failed(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, failed, "the Envois page lists mails only")
+	n, err := o.FailedCount(ctx)
+	require.NoError(t, err)
+	assert.Zero(t, n)
+	require.ErrorIs(t, o.Retry(ctx, id), ErrNotFound, "an alert is never sent again")
+
+	_, err = o.db.ExecContext(ctx, `DELETE FROM tickets WHERE id = ?`, ticketID)
+	require.NoError(t, err)
+	assert.Zero(t, o.count(t), "alerts leave with their request")
+}
+
+func TestEnqueueChecksTheRecipientOfTheChannel(t *testing.T) {
+	o := newTestOutbox(t)
+	ctx := context.Background()
+	withTo := pushAlert(0, ChannelPushover)
+	withTo.To = "club@example.org"
+	noTo := sampleMail()
+	noTo.To = ""
+	for _, m := range []Mail{withTo, noTo, {Event: EventNewTicket, Channel: "sms", Subject: "s", Text: "t"}} {
+		err := store.Tx(ctx, o.db, "test.enqueue", func(ctx context.Context, tx *sql.Tx) error {
+			return o.Enqueue(ctx, tx, m)
+		})
+		require.Error(t, err, m.Channel)
+	}
+	assert.Zero(t, o.count(t))
+}
+
+func TestRouterSendsThroughTheChannelSender(t *testing.T) {
+	o := newTestOutbox(t)
+	ctx := context.Background()
+	mails, alerts := &fakeSender{}, &fakeSender{}
+	router := Router{ChannelEmail: mails, ChannelPushover: alerts}
+	mailID := o.enqueue(t, sampleMail())
+	alertID := o.enqueue(t, pushAlert(0, ChannelPushover))
+	offID := o.enqueue(t, pushAlert(0, ChannelWebPush))
+
+	sent, err := o.SendDue(ctx, router)
+	require.NoError(t, err)
+	assert.Equal(t, 2, sent)
+	assert.Equal(t, 1, mails.callCount())
+	assert.Equal(t, 1, alerts.callCount())
+	assert.Equal(t, "sent", o.row(t, mailID).status)
+	assert.Equal(t, "sent", o.row(t, alertID).status)
+	assert.Equal(t, "failed", o.row(t, offID).status, "a channel configured away fails at once")
+	require.ErrorIs(t, router.Send(ctx, Message{Channel: ChannelWebPush}), ErrPermanent)
 }

@@ -1,6 +1,7 @@
 // Package mail queues notifications in the outbox table and delivers them
-// by SMTP from a background worker (spec §6). A notification is born in the
-// transaction of the event that causes it; delivery never blocks a request.
+// from a background worker (spec §6): mails by SMTP, committee alerts by
+// Pushover and Web Push. A notification is born in the transaction of the
+// event that causes it; delivery never blocks a request.
 package mail
 
 import (
@@ -18,6 +19,9 @@ const (
 	tracerName = "github.com/SkYNewZ/sos-vpdive/internal/mail"
 	// deliveryWindow is how long a mail keeps being retried (spec §6).
 	deliveryWindow = 7 * 24 * time.Hour
+	// alertWindow is how long an alert may wait for its single attempt:
+	// later, the mail has said it already.
+	alertWindow = time.Hour
 	// retention is how long a sent or failed mail stays in the outbox (spec §8.3).
 	retention = 30 * 24 * time.Hour
 )
@@ -65,22 +69,36 @@ func (e Event) Label() string {
 	}
 }
 
+// Channel is how a notification travels (outbox.channel).
+type Channel string
+
+// Channels (spec §6, §9.6). Alerts go to the committee and are sent once.
+const (
+	ChannelEmail    Channel = "email"
+	ChannelPushover Channel = "pushover"
+	ChannelWebPush  Channel = "webpush"
+)
+
 // Mail is one notification to queue. TicketID and MessageID are 0 when the
 // mail cites no request or no message; deleting either deletes the mail.
+// An alert (Pushover, Web Push) has no To: its senders know their recipients.
 type Mail struct {
 	TicketID  int64
 	MessageID int64
 	Event     Event
-	To        string // bare address, normalized
-	Subject   string // never member-typed text
-	Text      string // text/plain body
+	Channel   Channel // "" means ChannelEmail
+	To        string  // bare address, normalized; "" for an alert
+	Subject   string  // never member-typed text
+	Text      string  // text/plain body
 }
 
 // Message is what a Sender delivers.
 type Message struct {
-	To      string
-	Subject string
-	Text    string
+	Channel  Channel
+	TicketID int64 // alert senders link to the request; 0 when none
+	To       string
+	Subject  string
+	Text     string
 }
 
 // Sender delivers one message. An error wrapping ErrPermanent is a
@@ -132,18 +150,31 @@ func NewOutbox(db *sql.DB, keys *secure.Keys, now func() time.Time) *Outbox {
 // Enqueue seals and inserts m inside the caller's transaction (spec §6: a
 // notification is born with its event). Call Wake after the commit.
 func (o *Outbox) Enqueue(ctx context.Context, tx *sql.Tx, m Mail) error {
-	to, err := secure.NormalizeEmail(m.To)
-	if err != nil {
-		return fmt.Errorf("enqueue %s mail: recipient: %w", m.Event, err)
+	channel, window, to, hash := m.Channel, deliveryWindow, "", []byte{}
+	switch channel {
+	case "", ChannelEmail:
+		channel = ChannelEmail
+		var err error
+		if to, err = secure.NormalizeEmail(m.To); err != nil {
+			return fmt.Errorf("enqueue %s mail: recipient: %w", m.Event, err)
+		}
+		hash = o.keys.Hash(to)
+	case ChannelPushover, ChannelWebPush:
+		if m.To != "" {
+			return fmt.Errorf("enqueue %s alert: an alert has no recipient", m.Event)
+		}
+		window = alertWindow
+	default:
+		return fmt.Errorf("enqueue %s: unknown channel %q", m.Event, channel)
 	}
 	now := o.now()
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO outbox (ticket_id, message_id, event, status, next_attempt_at, give_up_at, created_at,
+		`INSERT INTO outbox (ticket_id, message_id, event, channel, status, next_attempt_at, give_up_at, created_at,
 		                     recipient_hash, recipient, subject, body)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		store.NullIfZero(m.TicketID), store.NullIfZero(m.MessageID), string(m.Event), string(statusPending),
-		now.Unix(), now.Add(deliveryWindow).Unix(), now.Unix(),
-		o.keys.Hash(to), o.keys.SealString(to), o.keys.SealString(m.Subject), o.keys.SealString(m.Text),
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		store.NullIfZero(m.TicketID), store.NullIfZero(m.MessageID), string(m.Event), string(channel), string(statusPending),
+		now.Unix(), now.Add(window).Unix(), now.Unix(),
+		hash, o.keys.SealString(to), o.keys.SealString(m.Subject), o.keys.SealString(m.Text),
 	); err != nil {
 		return fmt.Errorf("enqueue %s mail: %w", m.Event, err)
 	}
@@ -158,12 +189,13 @@ func (o *Outbox) Wake() {
 	}
 }
 
-// Failed lists the mails in failure, newest first.
+// Failed lists the mails in failure, newest first. Alerts are not listed:
+// they are never sent again.
 func (o *Outbox) Failed(ctx context.Context) ([]Failed, error) {
 	rows, err := o.db.QueryContext(ctx,
 		`SELECT o.id, COALESCE(o.ticket_id, 0), COALESCE(t.ref, ''), o.event, o.recipient, o.created_at, o.failed_at
 		 FROM outbox o LEFT JOIN tickets t ON t.id = o.ticket_id
-		 WHERE o.status = ? ORDER BY o.failed_at DESC, o.id DESC`, string(statusFailed))
+		 WHERE o.status = ? AND o.channel = ? ORDER BY o.failed_at DESC, o.id DESC`, string(statusFailed), string(ChannelEmail))
 	out, err := store.Collect(rows, err, func(rows *sql.Rows) (f Failed, err error) {
 		var (
 			event            string
@@ -189,8 +221,8 @@ func (o *Outbox) Failed(ctx context.Context) ([]Failed, error) {
 // FailedCount counts the mails in failure, for the committee banner.
 func (o *Outbox) FailedCount(ctx context.Context) (int, error) {
 	var n int
-	if err := o.db.QueryRowContext(ctx, `SELECT count(*) FROM outbox WHERE status = ?`,
-		string(statusFailed)).Scan(&n); err != nil {
+	if err := o.db.QueryRowContext(ctx, `SELECT count(*) FROM outbox WHERE status = ? AND channel = ?`,
+		string(statusFailed), string(ChannelEmail)).Scan(&n); err != nil {
 		return 0, fmt.Errorf("count failed mails: %w", err)
 	}
 	return n, nil
@@ -201,8 +233,8 @@ func (o *Outbox) Retry(ctx context.Context, id int64) error {
 	now := o.now()
 	res, err := o.db.ExecContext(ctx,
 		`UPDATE outbox SET status = ?, attempts = 0, next_attempt_at = ?, give_up_at = ?, failed_at = NULL
-		 WHERE id = ? AND status = ?`,
-		string(statusPending), now.Unix(), now.Add(deliveryWindow).Unix(), id, string(statusFailed))
+		 WHERE id = ? AND status = ? AND channel = ?`,
+		string(statusPending), now.Unix(), now.Add(deliveryWindow).Unix(), id, string(statusFailed), string(ChannelEmail))
 	if err != nil {
 		return fmt.Errorf("retry mail %d: %w", id, err)
 	}
