@@ -61,8 +61,9 @@ func TestBoardRowContent(t *testing.T) {
 	ctx := context.Background()
 	sub := submission(t)
 	sub.Description = strings.Repeat("Ligne de description assez longue.\r\n", 10)
-	ref, err := e.store.Submit(ctx, sub)
+	out, err := e.store.Submit(ctx, sub, nil)
 	require.NoError(t, err)
+	ref := out.Ref
 	id := e.idOf(t, ref)
 
 	rows, err := e.store.Board(ctx, Filter{})
@@ -165,7 +166,7 @@ func TestOthers(t *testing.T) {
 	require.NoError(t, e.apply(t, first, Command{Action: ActionClose}))
 	sub := submission(t)
 	sub.Email = "someone.else@example.org"
-	_, err := e.store.Submit(ctx, sub)
+	_, err := e.store.Submit(ctx, sub, nil)
 	require.NoError(t, err)
 
 	rows, err := e.store.Others(ctx, third)

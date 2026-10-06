@@ -56,6 +56,8 @@ type Detail struct {
 	Email       string
 	Fields      Fields
 	Description string
+	Summary     string   // written by the model for the committee, "" without one (spec §5.6)
+	KBIDs       []string // fiches chosen at submission, nil when the model did not answer (spec §5.3)
 	SubmittedAt time.Time
 	ClosedAt    time.Time    // zero while open
 	Captures    []Attachment // sent with the form
@@ -82,6 +84,7 @@ type Row struct {
 	LastName          string
 	Category          string
 	Excerpt           string // description start, one line, 140 runes at most
+	Summary           string // the model's summary, shown instead of Excerpt when set
 	Status            Status
 	Assignee          string
 	SubmittedAt       time.Time
@@ -100,18 +103,13 @@ type Filter struct {
 }
 
 // rowColumns are the columns scanRows reads, from tickets aliased t.
-const rowColumns = `t.id, t.ref, t.first_name, t.last_name, t.category, t.description, t.status, t.assignee,
+const rowColumns = `t.id, t.ref, t.first_name, t.last_name, t.category, t.description, t.summary, t.status, t.assignee,
 	t.submitted_at, t.closed_at,
 	(SELECT m.author_type FROM messages m WHERE m.ticket_id = t.id AND m.internal = 0 ORDER BY m.id DESC LIMIT 1)`
 
 // Board lists requests, oldest submitted first; drafts never appear.
 func (s *Store) Board(ctx context.Context, f Filter) ([]Row, error) {
-	statuses := make([]Status, 0, len(f.Statuses))
-	for _, st := range f.Statuses {
-		if st != StatusDraft {
-			statuses = append(statuses, st)
-		}
-	}
+	statuses := f.Statuses
 	if len(statuses) == 0 {
 		statuses = []Status{StatusTodo, StatusInProgress}
 	}
@@ -119,7 +117,7 @@ func (s *Store) Board(ctx context.Context, f Filter) ([]Row, error) {
 	if err != nil {
 		return nil, fmt.Errorf("encode statuses: %w", err)
 	}
-	rows, err := s.DB.QueryContext(ctx, `SELECT `+rowColumns+` FROM tickets t
+	rows, err := s.DB.QueryContext(ctx, `SELECT `+rowColumns+` FROM submitted_tickets t
 		WHERE t.status IN (SELECT value FROM json_each(?))
 		  AND (? = '' OR t.category = ?)
 		  AND (? = '' OR (? = '`+AssigneeNobody+`' AND t.assignee IS NULL) OR t.assignee = ?)
@@ -133,8 +131,8 @@ func (s *Store) Board(ctx context.Context, f Filter) ([]Row, error) {
 
 // Others lists the other requests of the same address: open first, then newest.
 func (s *Store) Others(ctx context.Context, id int64) ([]Row, error) {
-	rows, err := s.DB.QueryContext(ctx, `SELECT `+rowColumns+` FROM tickets t
-		WHERE t.email_hash = (SELECT email_hash FROM tickets WHERE id = ?) AND t.id != ? AND t.status != 'draft'
+	rows, err := s.DB.QueryContext(ctx, `SELECT `+rowColumns+` FROM submitted_tickets t
+		WHERE t.email_hash = (SELECT email_hash FROM tickets WHERE id = ?) AND t.id != ?
 		ORDER BY t.status = 'done', t.submitted_at DESC, t.id DESC`, id, id)
 	if err != nil {
 		return nil, fmt.Errorf("other tickets: %w", err)
@@ -149,12 +147,16 @@ func (s *Store) scanRows(rows *sql.Rows) ([]Row, error) {
 			ref, assignee, lastBy    sql.NullString
 			submitted, closed        sql.NullInt64
 			first, last, description []byte
+			summary                  []byte
 		)
-		if err := rows.Scan(&r.ID, &ref, &first, &last, &r.Category, &description, &r.Status, &assignee,
+		if err := rows.Scan(&r.ID, &ref, &first, &last, &r.Category, &description, &summary, &r.Status, &assignee,
 			&submitted, &closed, &lastBy); err != nil {
 			return r, fmt.Errorf("scan ticket row: %w", err)
 		}
 		if err := s.openAll([]*string{&r.FirstName, &r.LastName, &r.Excerpt}, first, last, description); err != nil {
+			return r, err
+		}
+		if err := s.openOptional(&r.Summary, summary); err != nil {
 			return r, err
 		}
 		r.Ref, r.Assignee = ref.String, assignee.String
@@ -173,16 +175,17 @@ func (s *Store) scanRows(rows *sql.Rows) ([]Row, error) {
 func (s *Store) Detail(ctx context.Context, id int64) (*Detail, error) {
 	var (
 		d                                    Detail
-		assignee                             sql.NullString
+		assignee, kbIDs                      sql.NullString
 		submitted, closed                    sql.NullInt64
 		first, last, email, fields, describe []byte
+		summary                              []byte
 	)
 	err := s.DB.QueryRowContext(ctx,
 		`SELECT id, ref, status, assignee, version, category, first_name, last_name, email, fields, description,
-		  submitted_at, closed_at
-		 FROM tickets WHERE id = ? AND status != 'draft'`, id).
+		  summary, kb_ids, submitted_at, closed_at
+		 FROM submitted_tickets WHERE id = ?`, id).
 		Scan(&d.ID, &d.Ref, &d.Status, &assignee, &d.Version, &d.Category, &first, &last, &email, &fields, &describe,
-			&submitted, &closed)
+			&summary, &kbIDs, &submitted, &closed)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -196,6 +199,12 @@ func (s *Store) Detail(ctx context.Context, id int64) (*Detail, error) {
 	}
 	if err := json.Unmarshal([]byte(rawFields), &d.Fields); err != nil {
 		return nil, fmt.Errorf("decode ticket fields: %w", err)
+	}
+	if err := s.openOptional(&d.Summary, summary); err != nil {
+		return nil, err
+	}
+	if d.KBIDs, err = decodeKBIDs(kbIDs); err != nil {
+		return nil, err
 	}
 	d.Assignee = assignee.String
 	d.SubmittedAt, d.ClosedAt = unixTime(submitted), unixTime(closed)
@@ -211,7 +220,7 @@ func (s *Store) Detail(ctx context.Context, id int64) (*Detail, error) {
 // ByToken returns the request of a tracking link. ErrNotFound for drafts too.
 func (s *Store) ByToken(ctx context.Context, token string) (*Detail, error) {
 	var id int64
-	err := s.DB.QueryRowContext(ctx, `SELECT id FROM tickets WHERE token_hash = ? AND status != 'draft'`,
+	err := s.DB.QueryRowContext(ctx, `SELECT id FROM submitted_tickets WHERE token_hash = ?`,
 		secure.TokenHash(token)).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -313,8 +322,8 @@ func (s *Store) readEvents(ctx context.Context, ticketID int64) ([]Event, error)
 func (s *Store) Capture(ctx context.Context, ticketID, attachmentID int64) (data []byte, mime string, err error) {
 	var key string
 	err = s.DB.QueryRowContext(ctx,
-		`SELECT a.object_key, a.mime FROM attachments a JOIN tickets t ON t.id = a.ticket_id
-		 WHERE a.id = ? AND a.ticket_id = ? AND t.status != 'draft'`, attachmentID, ticketID).Scan(&key, &mime)
+		`SELECT a.object_key, a.mime FROM attachments a JOIN submitted_tickets t ON t.id = a.ticket_id
+		 WHERE a.id = ? AND a.ticket_id = ?`, attachmentID, ticketID).Scan(&key, &mime)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, "", ErrNotFound
 	}
@@ -396,7 +405,7 @@ func (s *Store) SendLinks(ctx context.Context, email string) error {
 // linksOf returns the tracking links of every confirmed request of an address.
 func (s *Store) linksOf(ctx context.Context, tx *sql.Tx, emailHash []byte) ([]refLink, error) {
 	rows, err := tx.QueryContext(ctx,
-		`SELECT ref, token FROM tickets WHERE email_hash = ? AND status != 'draft' ORDER BY submitted_at, id`, emailHash)
+		`SELECT ref, token FROM submitted_tickets WHERE email_hash = ? ORDER BY submitted_at, id`, emailHash)
 	links, err := store.Collect(rows, err, func(rows *sql.Rows) (refLink, error) {
 		var (
 			ref    string

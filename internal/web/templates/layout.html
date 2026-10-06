@@ -28,6 +28,7 @@
 <a class="inline-flex min-h-11 items-center text-lg font-bold text-primary" href="/">SOS CPP Comité</a>
 <ul class="flex gap-4">
 <li><a class="link link-hover inline-flex min-h-11 items-center" href="/">Demandes</a></li>
+<li><a class="link link-hover inline-flex min-h-11 items-center" href="/fiches">Fiches</a></li>
 <li><a class="link link-hover inline-flex min-h-11 items-center" href="/imports">Imports</a></li>
 <li><a class="link link-hover inline-flex min-h-11 items-center" href="/effacement">Effacement</a></li>
 </ul>
@@ -49,5 +50,10 @@
 
 {{define "memberStatus"}}<span class="badge badge-soft whitespace-nowrap {{template "statusClass" .}}">{{.MemberLabel}}</span>{{end}}
 
+
+{{define "blocks"}}{{range .}}{{if eq .Kind "bullets"}}<ul class="list-disc pl-6">{{range .Items}}<li>{{.}}</li>{{end}}</ul>
+{{else if eq .Kind "numbers"}}<ol class="list-decimal pl-6">{{range .Items}}<li>{{.}}</li>{{end}}</ol>
+{{else}}<p>{{index .Items 0}}</p>
+{{end}}{{end}}{{end}}
 
 {{define "age"}}<span class="{{if eq .Level "alert"}}text-error font-bold{{else if eq .Level "warn"}}text-warning{{end}}">{{.Text}}</span>{{end}}

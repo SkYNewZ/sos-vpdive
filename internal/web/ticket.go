@@ -10,12 +10,14 @@ import (
 	"time"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/admins"
+	"github.com/SkYNewZ/sos-vpdive/internal/kb"
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
 	"github.com/SkYNewZ/sos-vpdive/internal/tickets"
 )
 
-// ticketLinks are the VPDive buttons of a request page, in this order
-// (spec §7). The faq and tarifs links belong to the member form.
+// ticketLinks are the VPDive buttons of a request page, in this order, after
+// the links of its fiches (spec §7). The faq and tarifs links belong to the
+// member form.
 var ticketLinks = []string{"paiements", "membres", "messagerie", "support"}
 
 // replyActions send a reply to the member, alone or with a status change.
@@ -41,6 +43,8 @@ type ticketData struct {
 	Others     []tickets.Row
 	Fields     []tickets.FieldValue
 	Categories []option
+	Fiches     []kb.Fiche // chosen at submission (spec §5.3)
+	Removed    []string   // ids of chosen fiches no longer in kb/
 	Links      []vpdiveLink
 	Filter     paymentsFilter
 }
@@ -130,7 +134,8 @@ func (s *Server) ticketView(ctx context.Context, t *tickets.Detail) (ticketData,
 		Ticket: t, Can: canDo(t.Status), Assignee: s.accountOf(t.Assignee), Accounts: s.admins.Accounts(), Others: others,
 		Fields: s.tickets.Catalog.Display(t.Fields), Categories: s.categoryOptions(t.Category),
 	}
-	for _, key := range ticketLinks {
+	d.Fiches, d.Removed = s.suggestedFiches(t.KBIDs)
+	for _, key := range ticketButtons(d.Fiches) {
 		if l, ok := s.vpdive[key]; ok {
 			d.Links = append(d.Links, l)
 		}

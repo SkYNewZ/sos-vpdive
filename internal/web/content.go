@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/config"
+	"github.com/SkYNewZ/sos-vpdive/internal/kb"
+	"github.com/SkYNewZ/sos-vpdive/internal/tickets"
 )
 
 // robotsPolicy holds the AI robots refused by robots.txt and by user agent.
@@ -75,6 +77,19 @@ type vpdiveLink struct {
 }
 
 type vpdiveLinks map[string]vpdiveLink
+
+// LoadKB reads the fiches of kb/ and checks the categories and VPDive links
+// they declare against the content files (spec §5.1).
+func LoadKB(content fs.FS, catalog *tickets.Catalog) (*kb.Base, error) {
+	links, err := loadVPDiveLinks(content, &url.URL{})
+	if err != nil {
+		return nil, err
+	}
+	return kb.Load(content, catalog.Has, func(key string) bool {
+		_, ok := links[key]
+		return ok
+	})
+}
 
 func loadVPDiveLinks(content fs.FS, base *url.URL) (vpdiveLinks, error) {
 	var f struct {

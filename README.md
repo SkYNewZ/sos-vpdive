@@ -5,10 +5,11 @@ VPDive platform. Members file requests through a public form; a few committee
 members handle them. One Go binary serves two host names: the members site
 and the committee site. Simplicity and robustness beat features.
 
-Status: lot 2 (complete support, without the model): request form with
-screenshots, tracking page and lost link, committee board with live updates,
-assignment, internal notes, journal, deletions and mails. Knowledge-base
-suggestions come next.
+Status: lot 3 (knowledge base and suggestions): request form with
+screenshots, fiches suggested before sending, tracking page and lost link,
+committee board with live updates and summaries, assignment, internal notes,
+journal, deletions and mails. The installable app and push notifications
+come next.
 
 ## Run it locally
 
@@ -85,8 +86,8 @@ picked up by the hot reload).
 Everything is set through environment variables; `.env.example` lists them
 with comments. The service refuses to start, naming the variable, when a
 required one is missing or invalid. Business content lives in versioned files
-embedded in the binary: `config/robots.yaml` (AI robots refused) and
-`config/vpdive.yaml` (links to VPDive pages).
+embedded in the binary: `config/robots.yaml` (AI robots refused),
+`config/vpdive.yaml` (links to VPDive pages) and the fiches of `kb/`.
 
 ## Request categories and products
 
@@ -97,6 +98,61 @@ Ids are stable: a request keeps the ids in force when it was filed, and the
 committee sees « retiré » next to a value whose field or option disappeared.
 A category marked `committee_only` is never offered on the form; only a
 reclassification leads to it. Both files are checked at startup.
+
+## Knowledge base and suggestions
+
+Each recurring problem has a fiche in `kb/<id>.md`: an answer for the member
+and a procedure for the committee. The format:
+
+```markdown
+---
+id: carnet-plongee-annulee
+titre: Une plongée annulée a été décomptée de mon carnet
+categories: [carnet, remboursement]
+liens_vpdive: [paiements]
+---
+
+## Réponse adhérent
+
+Short text shown to the member before sending.
+
+## Procédure résolveur
+
+1. Numbered steps in VPDive.
+```
+
+`categories` takes ids of `config/categories.yaml` and `liens_vpdive` keys of
+`config/vpdive.yaml`. The text supports paragraphs, `- ` lists and `1. `
+lists, nothing else. A fiche never quotes a price (link the club's price page
+instead), a member's name or a secret: the repository is public. Fiches are
+embedded at build time: changing one goes through a commit and a deployment.
+`go run ./cmd/sos-vpdive validate-kb` runs the checks of the startup and lists
+the `[À COMPLÉTER : …]` marks left to fill in; CI runs it too. A malformed
+fiche refuses the start.
+
+With `LLM_API_KEY` set, a sent form is stored as a draft and the model picks
+up to three fiches; the member then sees their answers and either closes the
+request (« Ça règle mon problème », counted on the committee's « Fiches » page)
+or sends it anyway. The same call writes a summary of at most 200 characters
+for the committee, shown on the board and the request page. The model never
+writes to members: they only read fiches, and the server keeps only fiche ids
+it knows. Without a key, or when the model fails or takes longer than
+`LLM_TIMEOUT` (8 s), the request is sent at once and the board shows the start
+of the description.
+
+Any provider that speaks Anthropic's Messages API works:
+
+| Provider | `LLM_BASE_URL` | `LLM_MODEL` |
+| --- | --- | --- |
+| Anthropic (default) | `https://api.anthropic.com` | `claude-haiku-4-5-20251001` |
+| DeepSeek | `https://api.deepseek.com/anthropic` | `deepseek-flash` |
+
+The model receives the category, the dedicated fields and the description,
+never the name, the email address or the screenshots; the form says so next
+to the description. Costs stay bounded: the anti-robot check, the rate limits
+and the members list run before any call, the description is limited to
+4 000 characters, the answer to 400 tokens, and `LLM_DAILY_LIMIT` (200 by
+default) caps the calls per day, counted in Paris time.
 
 ## Mails
 
@@ -139,6 +195,9 @@ Screenshots live in an S3-compatible bucket, Cloudflare R2 in production:
   unreadable. Back the key up separately from the database.
 - Screenshots are re-encoded on arrival (metadata dropped), encrypted the
   same way, then stored under random names.
+- The model provider, when configured, receives the category, the dedicated
+  fields and the description of each request, nothing else. The summary it
+  writes is encrypted like the rest.
 - Logs and traces never contain a token, an email address, a name or a
   request body; spans are named after route patterns.
 
@@ -167,7 +226,7 @@ or write them to a mounted host directory instead.
 ## Continuous integration
 
 Every push to main or develop and every pull request runs gofmt, `go vet`, golangci-lint, the tests
-with the race detector, a guard against committed spreadsheets, CSV files,
+with the race detector, `validate-kb` on the fiches, a guard against committed spreadsheets, CSV files,
 databases or `.env` files (only synthetic workbooks in `testdata/fixtures/`
 are allowed), and an image build. No image is published.
 

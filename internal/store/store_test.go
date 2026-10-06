@@ -51,7 +51,7 @@ func TestOpenCreatesSchemaAndIsIdempotent(t *testing.T) {
 	}
 	require.NoError(t, rows.Err())
 	assert.Equal(t, []string{
-		"attachments", "counters", "events", "imports", "members", "messages",
+		"attachments", "counters", "deflections", "events", "imports", "members", "messages",
 		"meta", "outbox", "sessions", "stats_monthly", "tickets",
 	}, tables)
 

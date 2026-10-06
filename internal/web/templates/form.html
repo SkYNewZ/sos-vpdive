@@ -57,7 +57,8 @@
 <div class="flex flex-col gap-1">
 <label class="font-semibold" for="description">Description</label>
 <p class="text-sm" id="description-aide">Explique ce qui se passe, ce que tu as déjà essayé et ce que tu attends du club : 20 caractères au moins.</p>
-<textarea class="textarea w-full" id="description" name="description" rows="6" minlength="20" maxlength="4000" required aria-describedby="description-aide{{if index $d.Errors "description"}} err-description{{end}}"{{if index $d.Errors "description"}} aria-invalid="true"{{end}}>{{$d.Values.Get "description"}}</textarea>
+{{if $d.Suggestions}}<p class="text-sm" id="description-ia">Pour te proposer des fiches d'aide, ta description et les champs de ta catégorie sont envoyés à un service d'IA, sans ton nom, ton adresse ni tes captures, sauf si tu les écris dans le texte.</p>{{end}}
+<textarea class="textarea w-full" id="description" name="description" rows="6" minlength="20" maxlength="4000" required aria-describedby="description-aide{{if $d.Suggestions}} description-ia{{end}}{{if index $d.Errors "description"}} err-description{{end}}"{{if index $d.Errors "description"}} aria-invalid="true"{{end}}>{{$d.Values.Get "description"}}</textarea>
 {{with index $d.Errors "description"}}<p id="err-description" class="font-semibold text-error">{{.}}</p>{{end}}
 </div>
 

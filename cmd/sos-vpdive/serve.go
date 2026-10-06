@@ -52,7 +52,7 @@ type app struct {
 }
 
 // setup opens the database, refuses a SECRET_KEY that does not match it,
-// loads the accounts file and the content files, releases the requests of
+// loads the accounts file, the content files and the fiches, releases the requests of
 // accounts removed while the service was stopped, and builds the web server.
 func setup(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*app, error) {
 	keys, err := secure.NewKeys(cfg.SecretKey)
@@ -78,6 +78,13 @@ func setup(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*app, 
 	if err != nil {
 		return fail(err)
 	}
+	base, err := web.LoadKB(sosvpdive.Content, catalog)
+	if err != nil {
+		return fail(err)
+	}
+	for _, w := range base.Warnings() {
+		logger.WarnContext(ctx, "fiche to complete", "fiche", w)
+	}
 	captures, err := blobs.New(cfg)
 	if err != nil {
 		return fail(err)
@@ -102,12 +109,32 @@ func setup(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*app, 
 	a.web, err = web.New(web.Deps{
 		Config: cfg, DB: db, Keys: keys, Members: memberStore, Admins: registry,
 		Content: sosvpdive.Content, Logger: logger, Now: time.Now, Turnstile: turnstile,
-		Tickets: ticketStore, Outbox: outbox, Broker: broker,
+		Tickets: ticketStore, Outbox: outbox, Broker: broker, KB: base,
 	})
 	if err != nil {
 		return fail(err)
 	}
 	return a, nil
+}
+
+// validateKB runs the checks of the start on the fiches, without the
+// environment, and lists the marks left to fill in. CI runs it.
+func validateKB(stdout io.Writer) error {
+	catalog, err := tickets.LoadCatalog(sosvpdive.Content)
+	if err != nil {
+		return err
+	}
+	base, err := web.LoadKB(sosvpdive.Content, catalog)
+	if err != nil {
+		return err
+	}
+	for _, w := range base.Warnings() {
+		if _, err := fmt.Fprintln(stdout, "warning:", w); err != nil {
+			return err
+		}
+	}
+	_, err = fmt.Fprintf(stdout, "%d fiches are valid\n", len(base.Fiches))
+	return err
 }
 
 func (a *app) knownAccount(username string) bool {

@@ -158,9 +158,9 @@ func (e *env) submit(t *testing.T, captures ...Upload) (int64, string) {
 	t.Helper()
 	sub := submission(t)
 	sub.Captures = captures
-	ref, err := e.store.Submit(context.Background(), sub)
+	out, err := e.store.Submit(context.Background(), sub, nil)
 	require.NoError(t, err)
-	return e.idOf(t, ref), ref
+	return e.idOf(t, out.Ref), out.Ref
 }
 
 func (e *env) idOf(t *testing.T, ref string) int64 {

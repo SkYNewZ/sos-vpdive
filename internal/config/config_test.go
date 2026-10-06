@@ -200,3 +200,47 @@ func TestLoadLot2Settings(t *testing.T) {
 	assert.Equal(t, 730, c.RetentionDays)
 	assert.Equal(t, 35, c.FormRateLimit)
 }
+
+func TestLoadLLM(t *testing.T) {
+	c, err := Load(getenv(validEnv()))
+	require.NoError(t, err)
+	assert.Nil(t, c.LLM, "no key: suggestions are off")
+
+	m := validEnv()
+	m["LLM_API_KEY"] = "sk-test"
+	c, err = Load(getenv(m))
+	require.NoError(t, err)
+	require.NotNil(t, c.LLM)
+	assert.Equal(t, "https://api.anthropic.com", c.LLM.BaseURL.String())
+	assert.Equal(t, "claude-haiku-4-5-20251001", c.LLM.Model)
+	assert.Equal(t, 8*time.Second, c.LLM.Timeout)
+	assert.Equal(t, 200, c.LLM.DailyLimit)
+
+	m["LLM_BASE_URL"] = "https://api.deepseek.com/anthropic"
+	c, err = Load(getenv(m))
+	require.NoError(t, err)
+	assert.Equal(t, "https://api.deepseek.com/anthropic", c.LLM.BaseURL.String(), "a provider prefix is kept")
+
+	tests := map[string]string{
+		"LLM_BASE_URL":    "http://llm.example.org",
+		"LLM_TIMEOUT":     "2m",
+		"LLM_DAILY_LIMIT": "0",
+	}
+	for name, value := range tests {
+		t.Run(name, func(t *testing.T) {
+			m := validEnv()
+			m[name] = value
+			_, err := Load(getenv(m))
+			require.Error(t, err, "checked even without a key")
+			assert.Contains(t, err.Error(), name)
+		})
+	}
+
+	m = validEnv()
+	m["APP_ENV"] = "development"
+	m["LLM_API_KEY"] = "sk-test"
+	m["LLM_BASE_URL"] = "http://127.0.0.1:9999"
+	c, err = Load(getenv(m))
+	require.NoError(t, err, "development may point at a local stub")
+	assert.Equal(t, "127.0.0.1:9999", c.LLM.BaseURL.Host)
+}

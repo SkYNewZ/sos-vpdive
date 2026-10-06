@@ -246,7 +246,7 @@ func TestSetupReleasesRequestsOfAccountsRemovedWhileStopped(t *testing.T) {
 		Email:       "lea.martin@example.org",
 		Fields:      tickets.Fields{Category: "autre", Values: map[string]string{}},
 		Description: "Je ne retrouve pas mon inscription à la sortie de samedi.",
-	})
+	}, nil)
 	require.NoError(t, err)
 	rows, err := a.tickets.Board(ctx, tickets.Filter{})
 	require.NoError(t, err)
@@ -266,4 +266,11 @@ func TestSetupReleasesRequestsOfAccountsRemovedWhileStopped(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, tickets.StatusTodo, d.Status)
 	assert.Empty(t, d.Assignee)
+}
+
+func TestValidateKBNeedsNoEnvironment(t *testing.T) {
+	var out bytes.Buffer
+	require.NoError(t, run(context.Background(), []string{"validate-kb"}, getenv(nil), nil, &out))
+	// Shape only: the fiches and their marks change with the content.
+	assert.Regexp(t, `^(warning: kb/[a-z0-9-]+\.md: \d+ \[À COMPLÉTER\] mark\(s\) to fill in\n)*\d+ fiches are valid\n$`, out.String())
 }
