@@ -325,3 +325,23 @@ func TestSetupWiresTheConfiguredAlertChannels(t *testing.T) {
 	assert.Equal(t, []mail.Channel{mail.ChannelPushover, mail.ChannelWebPush}, a.tickets.Alerts)
 	assert.Equal(t, []mail.Channel{mail.ChannelEmail, mail.ChannelPushover, mail.ChannelWebPush}, slices.Sorted(maps.Keys(a.senders)))
 }
+
+func TestSetupRevokesSessionsOfAccountsChangedWhileStopped(t *testing.T) {
+	ctx := context.Background()
+	env := devEnv(t, freePort(t))
+	cfg, err := config.Load(getenv(env))
+	require.NoError(t, err)
+	a, err := setup(ctx, cfg, quietLogger())
+	require.NoError(t, err)
+	_, err = a.db.ExecContext(ctx,
+		`INSERT INTO sessions (token_hash, username, credential_hash, created_at, expires_at) VALUES (X'01', 'bob', X'02', 1, 9999999999)`)
+	require.NoError(t, err)
+	require.NoError(t, a.db.Close())
+
+	again, err := setup(ctx, cfg, quietLogger())
+	require.NoError(t, err)
+	defer func() { assert.NoError(t, again.db.Close()) }()
+	var n int
+	require.NoError(t, again.db.QueryRowContext(ctx, `SELECT count(*) FROM sessions`).Scan(&n))
+	assert.Zero(t, n, "bob left the accounts file while the service was down")
+}

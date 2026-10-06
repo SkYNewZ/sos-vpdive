@@ -195,8 +195,10 @@ func (s *Server) adminRoutes() *http.ServeMux {
 	s.handle(mux, "GET /fiches", s.signedIn(s.fichesPage))
 	s.handle(mux, "GET /envois", s.signedIn(s.failedMails))
 	s.handle(mux, "GET /notifications", s.signedIn(s.notificationsPage))
-	s.handle(mux, "POST /push/abonnement", s.signedIn(s.subscribePush))
-	s.handle(mux, "POST /push/desabonnement", s.signedIn(s.unsubscribePush))
+	if s.cfg.VAPID != nil {
+		s.handle(mux, "POST /push/abonnement", s.signedIn(s.subscribePush))
+		s.handle(mux, "POST /push/desabonnement", s.signedIn(s.unsubscribePush))
+	}
 	s.handle(mux, "POST /envois/{id}/relancer", s.signedIn(s.retryMail))
 	// The event stream is neither traced nor logged (spec §9.9).
 	mux.HandleFunc("GET /evenements", s.events)

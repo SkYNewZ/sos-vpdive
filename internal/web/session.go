@@ -133,6 +133,37 @@ func (s *Server) RevokeSessions(ctx context.Context, usernames []string) error {
 	return nil
 }
 
+// RevokeStale deletes the sessions whose account left the accounts file or
+// changed its password while the service was stopped (spec §4.1); the reload
+// watcher revokes those that change while it runs. Their push subscriptions
+// go with them (ON DELETE CASCADE).
+func (s *Server) RevokeStale(ctx context.Context) error {
+	type stored struct {
+		hash       []byte
+		username   string
+		credential []byte
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT token_hash, username, credential_hash FROM sessions`)
+	all, err := store.Collect(rows, err, func(rows *sql.Rows) (st stored, err error) {
+		err = rows.Scan(&st.hash, &st.username, &st.credential)
+		return st, err
+	})
+	if err != nil {
+		return fmt.Errorf("read sessions: %w", err)
+	}
+	return store.Tx(ctx, s.db, "sessions.revoke_stale", func(ctx context.Context, tx *sql.Tx) error {
+		for _, st := range all {
+			if _, ok := s.admins.Current(st.username, st.credential); ok {
+				continue
+			}
+			if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE token_hash = ?`, st.hash); err != nil {
+				return fmt.Errorf("revoke stale session: %w", err)
+			}
+		}
+		return nil
+	})
+}
+
 // Purge applies the retention of spec §8.3 to sessions (expired for a day)
 // and to login counters. It runs from the daily background job.
 func (s *Server) Purge(ctx context.Context) error {

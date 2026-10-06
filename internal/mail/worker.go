@@ -62,7 +62,7 @@ var errChannelOff = fmt.Errorf("%w: channel not configured", ErrPermanent)
 // Send implements Sender.
 func (r Router) Send(ctx context.Context, m Message) error {
 	s, ok := r[m.Channel]
-	if !ok || s == nil {
+	if !ok {
 		return errChannelOff
 	}
 	return s.Send(ctx, m)

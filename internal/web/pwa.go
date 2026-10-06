@@ -43,19 +43,15 @@ type manifest struct {
 	Icons           []manifestIcon `json:"icons"`
 }
 
-// appName and iconDir tell the two apps apart (spec §9.6, §14.1).
-func appName(admin bool) string {
-	if admin {
-		return "SOS CPP Comité"
-	}
-	return "SOS CPP"
-}
-
-func iconDir(admin bool) string {
-	if admin {
-		return "icons/comite/"
-	}
-	return "icons/membres/"
+// apps tell the two installable apps apart (spec §9.6, §14.1); the layout
+// picks the same icon folders.
+var apps = []struct {
+	admin bool
+	name  string
+	icons string
+}{
+	{admin: false, name: "SOS CPP", icons: "icons/membres/"},
+	{admin: true, name: "SOS CPP Comité", icons: "icons/comite/"},
 }
 
 // newInstallables builds the manifest and the service worker of each site.
@@ -83,14 +79,13 @@ func newInstallables(a *assets) (map[bool]installable, error) {
 	if err != nil {
 		return nil, err
 	}
-	apps := map[bool]installable{}
-	for _, admin := range []bool{false, true} {
-		dir := iconDir(admin)
+	built := map[bool]installable{}
+	for _, app := range apps {
 		icon := func(file, sizes, purpose string) manifestIcon {
-			return manifestIcon{Src: a.URL(dir + file), Sizes: sizes, Type: "image/png", Purpose: purpose}
+			return manifestIcon{Src: a.URL(app.icons + file), Sizes: sizes, Type: "image/png", Purpose: purpose}
 		}
 		m, err := json.Marshal(manifest{
-			ID: "/", Name: appName(admin), ShortName: appName(admin), Lang: "fr",
+			ID: "/", Name: app.name, ShortName: app.name, Lang: "fr",
 			StartURL: "/", Scope: "/", Display: "standalone", BackgroundColor: "#ffffff", ThemeColor: themeColor,
 			Icons: []manifestIcon{
 				icon("icon-192.png", "192x192", "any"),
@@ -103,13 +98,14 @@ func newInstallables(a *assets) (map[bool]installable, error) {
 		}
 		var sw bytes.Buffer
 		if err := worker.Execute(&sw, map[string]any{
-			"Version": version, "Precache": string(list), "Admin": admin, "Icon": a.URL(dir + "icon-192.png"),
+			"Version": version, "Precache": string(list), "Offline": offlinePath,
+			"Admin": app.admin, "Icon": a.URL(app.icons + "icon-192.png"),
 		}); err != nil {
 			return nil, fmt.Errorf("render service worker: %w", err)
 		}
-		apps[admin] = installable{manifest: m, worker: sw.Bytes()}
+		built[app.admin] = installable{manifest: m, worker: sw.Bytes()}
 	}
-	return apps, nil
+	return built, nil
 }
 
 // siteVersion hashes every embedded static file and template.
@@ -137,13 +133,13 @@ func siteVersion() (string, error) {
 
 func (s *Server) manifestFile(admin bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		s.writeBytes(w, r, "application/manifest+json", s.apps[admin].manifest)
+		s.write(w, r, http.StatusOK, "application/manifest+json", s.apps[admin].manifest)
 	}
 }
 
 func (s *Server) serviceWorker(admin bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		s.writeBytes(w, r, "text/javascript; charset=utf-8", s.apps[admin].worker)
+		s.write(w, r, http.StatusOK, "text/javascript; charset=utf-8", s.apps[admin].worker)
 	}
 }
 
@@ -151,11 +147,4 @@ func (s *Server) serviceWorker(admin bool) http.HandlerFunc {
 // never carries a session (spec §9.6).
 func (s *Server) offlinePage(w http.ResponseWriter, r *http.Request) {
 	s.render(w, r, http.StatusOK, "offline", s.newPage(r, "Hors ligne"))
-}
-
-func (s *Server) writeBytes(w http.ResponseWriter, r *http.Request, contentType string, data []byte) {
-	w.Header().Set("Content-Type", contentType)
-	if _, err := w.Write(data); err != nil {
-		s.logger.DebugContext(r.Context(), "write response", "error", err)
-	}
 }

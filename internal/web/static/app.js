@@ -64,13 +64,13 @@ if (document.querySelector("[data-draft-key-used]")) {
 
 const draftForm = document.querySelector("form[data-draft]");
 const draftNote = document.querySelector("[data-draft-note]");
+const draft = readDraft();
 // Writing the draft back as it is tells whether storage works at all.
-if (draftForm && draftNote && writeDraft(readDraft())) {
+if (draftForm && draftNote && writeDraft(draft)) {
   const serverKey = draftForm.elements.cle.value;
   const kept = () =>
     [...draftForm.elements].filter((el) => el.name && !NOT_KEPT.has(el.name) && !["file", "submit", "button"].includes(el.type));
   const showCategory = () => draftForm.querySelector("[data-category-select]")?.dispatchEvent(new Event("change"));
-  const draft = readDraft();
   if (draft) {
     // A page sent back with remarks keeps what the server filled in.
     for (const el of kept()) {

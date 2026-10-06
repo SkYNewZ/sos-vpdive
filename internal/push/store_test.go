@@ -52,10 +52,6 @@ func (s *testStore) count(t *testing.T) int {
 	return n
 }
 
-// anySession accepts every session: the tests that use it are not about
-// account changes.
-func anySession(string, []byte) bool { return true }
-
 func sampleSubscription(endpoint string) Subscription {
 	return Subscription{Endpoint: endpoint, P256DH: bytes.Repeat([]byte{4}, 65), Auth: bytes.Repeat([]byte{5}, 16)}
 }
@@ -70,7 +66,7 @@ func TestStoreSavesSealedAndLists(t *testing.T) {
 	var sealed []byte
 	require.NoError(t, s.db.QueryRowContext(ctx, `SELECT endpoint || keys FROM push_subscriptions`).Scan(&sealed))
 	assert.NotContains(t, string(sealed), "witness-endpoint-token")
-	subs, err := s.List(ctx, anySession)
+	subs, err := s.List(ctx)
 	require.NoError(t, err)
 	require.Len(t, subs, 1)
 	assert.Equal(t, endpoint, subs[0].Endpoint)
@@ -96,7 +92,7 @@ func TestStoreKeepsOneRowPerBrowserAndPerSession(t *testing.T) {
 	assert.False(t, has)
 
 	require.NoError(t, s.Save(ctx, after, "alice", sampleSubscription("https://fcm.googleapis.com/b")))
-	subs, err := s.List(ctx, anySession)
+	subs, err := s.List(ctx)
 	require.NoError(t, err)
 	require.Len(t, subs, 1, "a session is one device: its new subscription replaces the old one")
 	assert.Equal(t, "https://fcm.googleapis.com/b", subs[0].Endpoint)
@@ -122,7 +118,7 @@ func TestStoreTouchDeleteAndPurge(t *testing.T) {
 	used, idle := s.session(t, "used", "alice"), s.session(t, "idle", "bob")
 	require.NoError(t, s.Save(ctx, used, "alice", sampleSubscription("https://fcm.googleapis.com/used")))
 	require.NoError(t, s.Save(ctx, idle, "bob", sampleSubscription("https://fcm.googleapis.com/idle")))
-	subs, err := s.List(ctx, anySession)
+	subs, err := s.List(ctx)
 	require.NoError(t, err)
 	byEndpoint := map[string]int64{subs[0].Endpoint: subs[0].ID, subs[1].Endpoint: subs[1].ID}
 
@@ -130,7 +126,7 @@ func TestStoreTouchDeleteAndPurge(t *testing.T) {
 	require.NoError(t, s.Touch(ctx, byEndpoint["https://fcm.googleapis.com/used"]))
 	s.clock.advance(11 * 24 * time.Hour)
 	require.NoError(t, s.Purge(ctx))
-	subs, err = s.List(ctx, anySession)
+	subs, err = s.List(ctx)
 	require.NoError(t, err)
 	require.Len(t, subs, 1, "90 days without a successful push (spec §8.3)")
 	assert.Equal(t, "https://fcm.googleapis.com/used", subs[0].Endpoint)
@@ -139,37 +135,20 @@ func TestStoreTouchDeleteAndPurge(t *testing.T) {
 	assert.Zero(t, s.count(t))
 }
 
-func TestListSkipsSessionsNoLongerValid(t *testing.T) {
+func TestListSkipsExpiredSessions(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 	now := s.clock.now().Unix()
-	insert := func(token, username string, credential []byte, expires int64) []byte {
+	for token, expires := range map[string]int64{"valid": now + 3600, "expired": now} {
 		hash := secure.TokenHash(token)
 		_, err := s.db.ExecContext(ctx,
-			`INSERT INTO sessions (token_hash, username, credential_hash, created_at, expires_at) VALUES (?, ?, ?, 1, ?)`,
-			hash, username, credential, expires)
+			`INSERT INTO sessions (token_hash, username, credential_hash, created_at, expires_at) VALUES (?, 'alice', X'00', 1, ?)`,
+			hash, expires)
 		require.NoError(t, err)
-		return hash
+		require.NoError(t, s.Save(ctx, hash, "alice", sampleSubscription("https://fcm.googleapis.com/"+token)))
 	}
-	for token, session := range map[string]struct {
-		username   string
-		credential []byte
-		expires    int64
-	}{
-		"valid":    {"alice", []byte{1}, now + 3600},
-		"expired":  {"alice", []byte{1}, now}, // the purge keeps it a day more
-		"removed":  {"bob", []byte{1}, now + 3600},
-		"password": {"alice", []byte{2}, now + 3600},
-	} {
-		hash := insert(token, session.username, session.credential, session.expires)
-		require.NoError(t, s.Save(ctx, hash, session.username, sampleSubscription("https://fcm.googleapis.com/"+token)))
-	}
-	// alice's current password hash is {1}; bob left the accounts file.
-	current := func(username string, credential []byte) bool {
-		return username == "alice" && bytes.Equal(credential, []byte{1})
-	}
-	subs, err := s.List(ctx, current)
+	subs, err := s.List(ctx)
 	require.NoError(t, err)
-	require.Len(t, subs, 1, "an expired session, a removed account or a changed password gets no alert")
+	require.Len(t, subs, 1, "an expired session gets no alert, though the purge keeps it a day more")
 	assert.Equal(t, "https://fcm.googleapis.com/valid", subs[0].Endpoint)
 }

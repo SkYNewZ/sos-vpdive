@@ -423,39 +423,27 @@ func (p *parser) pushoverToken() string {
 
 // vapid reads the three VAPID variables: all of them, or none (spec §10).
 func (p *parser) vapid() *VAPID {
-	names := []string{"VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY", "VAPID_SUBJECT"}
-	values := map[string]string{}
-	for _, n := range names {
-		values[n] = p.value(n)
-	}
-	if values["VAPID_PUBLIC_KEY"]+values["VAPID_PRIVATE_KEY"]+values["VAPID_SUBJECT"] == "" {
+	if p.value("VAPID_PUBLIC_KEY")+p.value("VAPID_PRIVATE_KEY")+p.value("VAPID_SUBJECT") == "" {
 		return nil
 	}
-	ok := true
-	for _, n := range names {
-		if values[n] == "" {
-			p.fail(n, fmt.Errorf("%w (the three VAPID variables go together)", ErrMissing))
-			ok = false
-		}
-	}
-	if !ok {
+	public, private, subject := p.required("VAPID_PUBLIC_KEY"), p.required("VAPID_PRIVATE_KEY"), p.required("VAPID_SUBJECT")
+	if public == "" || private == "" || subject == "" {
 		return nil
 	}
-	v := &VAPID{Subject: p.vapidSubject(values["VAPID_SUBJECT"])}
-	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(values["VAPID_PRIVATE_KEY"], "="))
+	v := &VAPID{Subject: p.vapidSubject(subject)}
+	var want []byte
+	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(private, "="))
 	if err == nil {
 		v.PrivateKey, err = ecdsa.ParseRawPrivateKey(elliptic.P256(), raw)
 	}
+	if err == nil {
+		want, err = v.PrivateKey.PublicKey.Bytes()
+	}
 	if err != nil {
 		p.fail("VAPID_PRIVATE_KEY", errors.New("must be a P-256 private key in base64url (sos-vpdive vapid-keys)"))
 		return nil
 	}
-	want, err := v.PrivateKey.PublicKey.Bytes()
-	if err != nil {
-		p.fail("VAPID_PRIVATE_KEY", errors.New("must be a P-256 private key in base64url (sos-vpdive vapid-keys)"))
-		return nil
-	}
-	got, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(values["VAPID_PUBLIC_KEY"], "="))
+	got, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(public, "="))
 	if err != nil || !bytes.Equal(got, want) {
 		p.fail("VAPID_PUBLIC_KEY", errors.New("must be the public key of VAPID_PRIVATE_KEY (sos-vpdive vapid-keys)"))
 		return nil

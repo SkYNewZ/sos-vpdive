@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"html/template"
-	"io"
 	"io/fs"
 	"net/http"
 	"path"
@@ -103,9 +102,14 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, name
 
 // writeText sends a short plain-text response.
 func (s *Server) writeText(w http.ResponseWriter, r *http.Request, status int, text string) {
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	s.write(w, r, status, "text/plain; charset=utf-8", []byte(text))
+}
+
+// write sends a response body built in advance.
+func (s *Server) write(w http.ResponseWriter, r *http.Request, status int, contentType string, body []byte) {
+	w.Header().Set("Content-Type", contentType)
 	w.WriteHeader(status)
-	if _, err := io.WriteString(w, text); err != nil {
+	if _, err := w.Write(body); err != nil {
 		s.logger.DebugContext(r.Context(), "write response", "error", err)
 	}
 }

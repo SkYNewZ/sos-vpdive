@@ -56,7 +56,8 @@ type app struct {
 
 // setup opens the database, refuses a SECRET_KEY that does not match it,
 // loads the accounts file, the content files and the fiches, releases the requests of
-// accounts removed while the service was stopped, and builds the web server.
+// accounts removed while the service was stopped, builds the web server and
+// revokes the sessions of accounts that changed meanwhile.
 func setup(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*app, error) {
 	keys, err := secure.NewKeys(cfg.SecretKey)
 	if err != nil {
@@ -122,6 +123,9 @@ func setup(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*app, 
 	if err != nil {
 		return fail(err)
 	}
+	if err := a.web.RevokeStale(ctx); err != nil {
+		return fail(fmt.Errorf("revoke sessions of accounts changed while stopped: %w", err))
+	}
 	return a, nil
 }
 
@@ -137,11 +141,7 @@ func alertSenders(cfg *config.Config, registry *admins.Registry, subs *push.Stor
 	}
 	if cfg.VAPID != nil {
 		client := push.NewClient(cfg.VAPID, cfg.PushAllowedHosts, time.Now)
-		current := func(username string, credential []byte) bool {
-			_, ok := registry.Current(username, credential)
-			return ok
-		}
-		senders[mail.ChannelWebPush] = push.NewWebPush(client, subs, current, logger)
+		senders[mail.ChannelWebPush] = push.NewWebPush(client, subs, logger)
 		alerts = append(alerts, mail.ChannelWebPush)
 	}
 	return senders, alerts

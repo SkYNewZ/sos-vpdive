@@ -77,7 +77,7 @@ func TestHostAllowed(t *testing.T) {
 		"evilnotify.windows.com":         false,
 		"":                               false,
 	} {
-		assert.Equal(t, want, HostAllowed(hosts, host), host)
+		assert.Equal(t, want, hostAllowed(hosts, host), host)
 	}
 }
 
@@ -177,7 +177,8 @@ func decrypt(t *testing.T, body []byte, ua *ecdh.PrivateKey, auth []byte) []byte
 	require.NoError(t, err)
 	secret, err := ua.ECDH(as)
 	require.NoError(t, err)
-	gcm, nonce := contentCipher(t, secret, auth, ua.PublicKey().Bytes(), keyID, salt)
+	gcm, nonce, err := contentCipher(secret, auth, ua.PublicKey().Bytes(), keyID, salt)
+	require.NoError(t, err)
 	plain, err := gcm.Open(nil, nonce, ciphertext, nil)
 	require.NoError(t, err)
 	require.Equal(t, byte(2), plain[len(plain)-1], "last-record delimiter")

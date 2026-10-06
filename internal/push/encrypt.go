@@ -46,31 +46,7 @@ func encrypt(payload, uaPublic, authSecret []byte, serverKey *ecdh.PrivateKey, s
 		return nil, fmt.Errorf("push key agreement: %w", err)
 	}
 	asPublic := serverKey.PublicKey().Bytes()
-	prkKey, err := hkdf.Extract(sha256.New, secret, authSecret)
-	if err != nil {
-		return nil, err
-	}
-	ikm, err := hkdf.Expand(sha256.New, prkKey, "WebPush: info\x00"+string(uaPublic)+string(asPublic), 32)
-	if err != nil {
-		return nil, err
-	}
-	prk, err := hkdf.Extract(sha256.New, ikm, salt)
-	if err != nil {
-		return nil, err
-	}
-	cek, err := hkdf.Expand(sha256.New, prk, "Content-Encoding: aes128gcm\x00", 16)
-	if err != nil {
-		return nil, err
-	}
-	nonce, err := hkdf.Expand(sha256.New, prk, "Content-Encoding: nonce\x00", 12)
-	if err != nil {
-		return nil, err
-	}
-	block, err := aes.NewCipher(cek)
-	if err != nil {
-		return nil, err
-	}
-	gcm, err := cipher.NewGCM(block)
+	gcm, nonce, err := contentCipher(secret, authSecret, uaPublic, asPublic, salt)
 	if err != nil {
 		return nil, err
 	}
@@ -81,4 +57,35 @@ func encrypt(payload, uaPublic, authSecret []byte, serverKey *ecdh.PrivateKey, s
 	header = append(header, asPublic...)
 	record := append(append(make([]byte, 0, len(payload)+1), payload...), 2) // 2: last record, no padding
 	return gcm.Seal(header, nonce, record, nil), nil
+}
+
+// contentCipher derives the AES-128-GCM cipher and nonce of a message from
+// the ECDH secret (RFC 8291 §3.3, §3.4); the browser derives the same.
+func contentCipher(secret, authSecret, uaPublic, asPublic, salt []byte) (cipher.AEAD, []byte, error) {
+	prkKey, err := hkdf.Extract(sha256.New, secret, authSecret)
+	if err != nil {
+		return nil, nil, err
+	}
+	ikm, err := hkdf.Expand(sha256.New, prkKey, "WebPush: info\x00"+string(uaPublic)+string(asPublic), 32)
+	if err != nil {
+		return nil, nil, err
+	}
+	prk, err := hkdf.Extract(sha256.New, ikm, salt)
+	if err != nil {
+		return nil, nil, err
+	}
+	cek, err := hkdf.Expand(sha256.New, prk, "Content-Encoding: aes128gcm\x00", 16)
+	if err != nil {
+		return nil, nil, err
+	}
+	nonce, err := hkdf.Expand(sha256.New, prk, "Content-Encoding: nonce\x00", 12)
+	if err != nil {
+		return nil, nil, err
+	}
+	block, err := aes.NewCipher(cek)
+	if err != nil {
+		return nil, nil, err
+	}
+	gcm, err := cipher.NewGCM(block)
+	return gcm, nonce, err
 }

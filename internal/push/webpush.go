@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/ecdh"
 	"crypto/rand"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
@@ -45,9 +46,42 @@ type Subscription struct {
 	Auth     []byte // 16-byte authentication secret
 }
 
-// HostAllowed reports whether host is in hosts (PUSH_ALLOWED_HOSTS); an
-// entry with a leading dot accepts its subdomains.
-func HostAllowed(hosts []string, host string) bool {
+// maxEndpoint bounds the push address a browser may register.
+const maxEndpoint = 2048
+
+// parseEndpoint accepts a push address that is HTTPS, without user
+// information, on a host of PUSH_ALLOWED_HOSTS: checked when a browser
+// subscribes and again before each send.
+func parseEndpoint(hosts []string, endpoint string) (*url.URL, bool) {
+	u, err := url.Parse(endpoint)
+	ok := err == nil && len(endpoint) <= maxEndpoint && u.Scheme == "https" && u.User == nil && hostAllowed(hosts, u.Hostname())
+	return u, ok
+}
+
+// ParseSubscription checks what a browser's PushManager gave: an allowed
+// endpoint, a P-256 public key and a 16-byte authentication secret, both in
+// base64url.
+func ParseSubscription(hosts []string, endpoint, p256dh, auth string) (Subscription, bool) {
+	if _, ok := parseEndpoint(hosts, endpoint); !ok {
+		return Subscription{}, false
+	}
+	key, err := base64.RawURLEncoding.DecodeString(p256dh)
+	if err != nil {
+		return Subscription{}, false
+	}
+	if _, err := ecdh.P256().NewPublicKey(key); err != nil {
+		return Subscription{}, false
+	}
+	secret, err := base64.RawURLEncoding.DecodeString(auth)
+	if err != nil || len(secret) != authSize {
+		return Subscription{}, false
+	}
+	return Subscription{Endpoint: endpoint, P256DH: key, Auth: secret}, true
+}
+
+// hostAllowed reports whether host is in hosts; an entry with a leading dot
+// accepts its subdomains.
+func hostAllowed(hosts []string, host string) bool {
 	host = strings.ToLower(host)
 	for _, h := range hosts {
 		if host == h || (strings.HasPrefix(h, ".") && strings.HasSuffix(host, h)) {
@@ -85,8 +119,8 @@ func newHTTPClient() *http.Client {
 func (c *Client) Send(ctx context.Context, sub Subscription, payload []byte) (err error) {
 	ctx, span := otel.Tracer(tracerName).Start(ctx, "webpush.send", trace.WithSpanKind(trace.SpanKindClient))
 	defer span.End()
-	u, err := url.Parse(sub.Endpoint)
-	if err != nil || u.Scheme != "https" || u.User != nil || !HostAllowed(c.hosts, u.Hostname()) {
+	u, ok := parseEndpoint(c.hosts, sub.Endpoint)
+	if !ok {
 		telemetry.Fail(span, "push_endpoint_refused")
 		return ErrEndpointRefused
 	}

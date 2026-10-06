@@ -5,7 +5,7 @@
 
 const CACHE = "sos-{{.Version}}";
 const PRECACHE = {{.Precache}};
-const OFFLINE = "/hors-ligne";
+const OFFLINE = "{{.Offline}}";
 
 // No skipWaiting here: the new version waits until the page offers to reload.
 self.addEventListener("install", (event) => {

@@ -15,6 +15,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/admins"
+	"github.com/SkYNewZ/sos-vpdive/internal/push"
+	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 )
 
 func TestLoginPageInDevelopmentHasNoTurnstile(t *testing.T) {
@@ -279,4 +281,34 @@ func TestCommitteeBanners(t *testing.T) {
 	assert.Contains(t, body, "Le fichier des comptes est invalide")
 	assert.Contains(t, body, "Erreur : ")
 	assert.Contains(t, body, "invalid YAML")
+}
+
+func TestRevokeStaleSessionsAtStart(t *testing.T) {
+	e := newTestEnv(t, withPush(t))
+	ctx := context.Background()
+	kept := e.login(t)
+	insert := func(token, username string, credential []byte) []byte {
+		hash := secure.TokenHash(token)
+		_, err := e.db.ExecContext(ctx,
+			`INSERT INTO sessions (token_hash, username, credential_hash, created_at, expires_at) VALUES (?, ?, ?, 1, 9999999999)`,
+			hash, username, credential)
+		require.NoError(t, err)
+		return hash
+	}
+	removed := insert("removed-account", "bob", alice().CredentialHash())
+	changed := insert("changed-password", "alice", []byte("an older password hash"))
+	keys := browserKeys(t)
+	sub, ok := push.ParseSubscription(e.deps.Config.PushAllowedHosts, keys.Get("endpoint"), keys.Get("p256dh"), keys.Get("auth"))
+	require.True(t, ok)
+	require.NoError(t, e.deps.Push.Save(ctx, removed, "bob", sub))
+
+	require.NoError(t, e.srv.RevokeStale(ctx))
+	assert.Equal(t, 1, e.count(t, "sessions"), "the account left the file or changed its password while the service was down")
+	assert.Zero(t, e.count(t, "push_subscriptions"), "their subscriptions go with them")
+	assert.Equal(t, http.StatusOK, e.do(t, http.MethodGet, adminHost, "/", nil, withCookie(kept)).Code, "a valid session stays")
+	for _, hash := range [][]byte{removed, changed} {
+		var n int
+		require.NoError(t, e.db.QueryRowContext(ctx, `SELECT count(*) FROM sessions WHERE token_hash = ?`, hash).Scan(&n))
+		assert.Zero(t, n)
+	}
 }
