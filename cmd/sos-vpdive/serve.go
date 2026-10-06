@@ -137,7 +137,11 @@ func alertSenders(cfg *config.Config, registry *admins.Registry, subs *push.Stor
 	}
 	if cfg.VAPID != nil {
 		client := push.NewClient(cfg.VAPID, cfg.PushAllowedHosts, time.Now)
-		senders[mail.ChannelWebPush] = push.NewWebPush(client, subs, logger)
+		current := func(username string, credential []byte) bool {
+			_, ok := registry.Current(username, credential)
+			return ok
+		}
+		senders[mail.ChannelWebPush] = push.NewWebPush(client, subs, current, logger)
 		alerts = append(alerts, mail.ChannelWebPush)
 	}
 	return senders, alerts

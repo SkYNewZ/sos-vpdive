@@ -3,6 +3,7 @@ package admins
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/subtle"
 	"fmt"
 	"log/slog"
 	"os"
@@ -46,6 +47,17 @@ func (r *Registry) Get(username string) (Account, bool) {
 	defer r.mu.RUnlock()
 	a, ok := r.accounts[username]
 	return a, ok
+}
+
+// Current returns the account behind a session while the session is still
+// valid: the account is in the file and its password has not changed since
+// the session began (credentialHash is Account.CredentialHash at login).
+func (r *Registry) Current(username string, credentialHash []byte) (Account, bool) {
+	a, ok := r.Get(username)
+	if !ok || subtle.ConstantTimeCompare(credentialHash, a.CredentialHash()) != 1 {
+		return Account{}, false
+	}
+	return a, true
 }
 
 // Accounts returns the current accounts sorted by display name, for the

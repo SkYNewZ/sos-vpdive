@@ -112,3 +112,17 @@ func TestAccountsAreSortedByName(t *testing.T) {
 	assert.Equal(t, "alice", accounts[0].Username)
 	assert.Equal(t, "bob", accounts[1].Username)
 }
+
+func TestCurrentChecksAccountAndPassword(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "admins.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(accountsYAML(alice())), 0o600))
+	r, err := Load(path, slog.New(slog.DiscardHandler))
+	require.NoError(t, err)
+	a, ok := r.Current("alice", alice().CredentialHash())
+	require.True(t, ok)
+	assert.Equal(t, "Alice", a.Name)
+	_, ok = r.Current("alice", []byte("an older password hash"))
+	assert.False(t, ok, "the password changed since the session began")
+	_, ok = r.Current("bob", bob().CredentialHash())
+	assert.False(t, ok, "the account left the file")
+}

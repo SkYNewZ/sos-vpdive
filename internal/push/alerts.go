@@ -14,14 +14,16 @@ import (
 // WebPush delivers a committee alert to every subscribed browser: the
 // outbox's sender for mail.ChannelWebPush.
 type WebPush struct {
-	client *Client
-	store  *Store
-	logger *slog.Logger
+	client  *Client
+	store   *Store
+	current func(username string, credentialHash []byte) bool
+	logger  *slog.Logger
 }
 
-// NewWebPush returns the Web Push sender.
-func NewWebPush(client *Client, store *Store, logger *slog.Logger) *WebPush {
-	return &WebPush{client: client, store: store, logger: logger}
+// NewWebPush returns the Web Push sender. current tells whether a session's
+// account is still valid (admins.Registry.Current).
+func NewWebPush(client *Client, store *Store, current func(username string, credentialHash []byte) bool, logger *slog.Logger) *WebPush {
+	return &WebPush{client: client, store: store, current: current, logger: logger}
 }
 
 // Send pushes m to the subscriptions of the moment. A subscription the push
@@ -36,7 +38,7 @@ func (w *WebPush) Send(ctx context.Context, m mail.Message) error {
 	if err != nil {
 		return fmt.Errorf("encode push payload: %w", err)
 	}
-	subs, err := w.store.List(ctx)
+	subs, err := w.store.List(ctx, w.current)
 	if err != nil {
 		return err
 	}

@@ -46,7 +46,7 @@ func TestWebPushSendsToEveryBrowserAndDropsTheGoneOnes(t *testing.T) {
 	ctx := context.Background()
 	ps := fanOut(t, map[string]int{"/ok": http.StatusCreated, "/gone": http.StatusGone, "/broken": http.StatusInternalServerError})
 	var logs bytes.Buffer
-	sender := NewWebPush(newTestClient(newTestVAPID(t), ps), s.Store, slog.New(slog.NewTextHandler(&logs, nil)))
+	sender := NewWebPush(newTestClient(newTestVAPID(t), ps), s.Store, anySession, slog.New(slog.NewTextHandler(&logs, nil)))
 	browsers := map[string]*ecdh.PrivateKey{}
 	for _, path := range []string{"/ok", "/gone", "/broken"} {
 		sub, ua := testSubscription(t, ps.URL+path)
@@ -57,7 +57,7 @@ func TestWebPushSendsToEveryBrowserAndDropsTheGoneOnes(t *testing.T) {
 
 	require.NoError(t, sender.Send(ctx, alert()), "one browser got it: the alert is sent")
 	require.Equal(t, 3, ps.count())
-	subs, err := s.List(ctx)
+	subs, err := s.List(ctx, anySession)
 	require.NoError(t, err)
 	assert.Len(t, subs, 2, "410 deletes the subscription")
 
@@ -82,7 +82,7 @@ func TestWebPushOutcomeWithoutDelivery(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 	ps := fanOut(t, map[string]int{"/broken": http.StatusInternalServerError})
-	sender := NewWebPush(newTestClient(newTestVAPID(t), ps), s.Store, slog.New(slog.DiscardHandler))
+	sender := NewWebPush(newTestClient(newTestVAPID(t), ps), s.Store, anySession, slog.New(slog.DiscardHandler))
 	require.NoError(t, sender.Send(ctx, alert()), "no subscription: nothing to do")
 
 	sub, _ := testSubscription(t, ps.URL+"/broken")

@@ -2,7 +2,6 @@ package web
 
 import (
 	"context"
-	"crypto/subtle"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -79,8 +78,8 @@ func (s *Server) sessionOf(r *http.Request) (session, bool) {
 		}
 		return session{}, false
 	}
-	a, ok := s.admins.Get(username)
-	if !ok || subtle.ConstantTimeCompare(credential, a.CredentialHash()) != 1 || s.now().Unix() >= expires {
+	a, ok := s.admins.Current(username, credential)
+	if !ok || s.now().Unix() >= expires {
 		s.deleteSession(ctx, hash)
 		return session{}, false
 	}

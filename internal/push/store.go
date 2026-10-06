@@ -86,33 +86,50 @@ func (s *Store) HasSession(ctx context.Context, sessionHash []byte) (bool, error
 	return true, nil
 }
 
-// List returns every subscription, decrypted, for one alert.
-func (s *Store) List(ctx context.Context) ([]Subscription, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, endpoint, keys FROM push_subscriptions ORDER BY id`)
-	out, err := store.Collect(rows, err, func(rows *sql.Rows) (sub Subscription, err error) {
+// List returns the subscriptions that may still receive an alert, decrypted:
+// their session has not expired, and current confirms that its account is
+// still in the file with the same password (expired sessions stay a day
+// before the purge, and an account may change while the service is down).
+func (s *Store) List(ctx context.Context, current func(username string, credentialHash []byte) bool) ([]Subscription, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT p.id, p.endpoint, p.keys, s.username, s.credential_hash
+		 FROM push_subscriptions p JOIN sessions s ON s.token_hash = p.session_token_hash
+		 WHERE s.expires_at > ? ORDER BY p.id`, s.now().Unix())
+	type listed struct {
+		sub        Subscription
+		username   string
+		credential []byte
+	}
+	all, err := store.Collect(rows, err, func(rows *sql.Rows) (l listed, err error) {
 		var endpoint, sealed []byte
-		if err = rows.Scan(&sub.ID, &endpoint, &sealed); err != nil {
-			return sub, err
+		if err = rows.Scan(&l.sub.ID, &endpoint, &sealed, &l.username, &l.credential); err != nil {
+			return l, err
 		}
-		if sub.Endpoint, err = s.keys.OpenString(endpoint); err != nil {
-			return sub, fmt.Errorf("push subscription %d: endpoint: %w", sub.ID, err)
+		if l.sub.Endpoint, err = s.keys.OpenString(endpoint); err != nil {
+			return l, fmt.Errorf("push subscription %d: endpoint: %w", l.sub.ID, err)
 		}
 		raw, err := s.keys.Open(sealed)
 		if err != nil {
-			return sub, fmt.Errorf("push subscription %d: keys: %w", sub.ID, err)
+			return l, fmt.Errorf("push subscription %d: keys: %w", l.sub.ID, err)
 		}
 		var k sealedKeys
 		if err = json.Unmarshal(raw, &k); err != nil {
-			return sub, fmt.Errorf("push subscription %d: keys: %w", sub.ID, err)
+			return l, fmt.Errorf("push subscription %d: keys: %w", l.sub.ID, err)
 		}
-		if sub.P256DH, err = base64.RawURLEncoding.DecodeString(k.P256DH); err != nil {
-			return sub, fmt.Errorf("push subscription %d: keys: %w", sub.ID, err)
+		if l.sub.P256DH, err = base64.RawURLEncoding.DecodeString(k.P256DH); err != nil {
+			return l, fmt.Errorf("push subscription %d: keys: %w", l.sub.ID, err)
 		}
-		sub.Auth, err = base64.RawURLEncoding.DecodeString(k.Auth)
-		return sub, err
+		l.sub.Auth, err = base64.RawURLEncoding.DecodeString(k.Auth)
+		return l, err
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list push subscriptions: %w", err)
+	}
+	var out []Subscription
+	for _, l := range all {
+		if current(l.username, l.credential) {
+			out = append(out, l.sub)
+		}
 	}
 	return out, nil
 }
