@@ -66,7 +66,7 @@ func subject(ev mail.Event, ref string) string {
 		return "Tes liens de suivi"
 	case mail.EventReleased:
 		return "Demande " + ref + " remise à traiter"
-	case mail.EventImportRefused: // an imports mail, written by the web layer
+	case mail.EventImportRefused, mail.EventImportStale: // imports mails, written by the web layer
 	}
 	return "Demande " + ref
 }

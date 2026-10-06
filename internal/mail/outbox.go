@@ -42,6 +42,7 @@ const (
 	EventLostLink      Event = "lost_link"      // member
 	EventReleased      Event = "released"       // club
 	EventImportRefused Event = "import_refused" // club: a pushed export was refused (spec §7.6)
+	EventImportStale   Event = "import_stale"   // club: an import outlived its maximum age (spec §7.6)
 )
 
 // Label is the French label shown on /envois.
@@ -67,6 +68,8 @@ func (e Event) Label() string {
 		return "Demande remise à traiter (club)"
 	case EventImportRefused:
 		return "Import automatique refusé (club)"
+	case EventImportStale:
+		return "Import ancien (club)"
 	default:
 		return string(e)
 	}

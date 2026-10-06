@@ -258,7 +258,8 @@ func (a *app) runPurges(ctx context.Context) {
 	}
 }
 
-// purge applies the retention rules of spec §8.3 and removes orphan screenshots.
+// purge applies the retention rules of spec §8.3, removes orphan screenshots
+// and alerts the committee about imports past their maximum age (§7.6).
 func (a *app) purge(ctx context.Context) {
 	ctx, span := otel.Tracer(tracerName).Start(ctx, "job.purge")
 	defer span.End()
@@ -270,6 +271,7 @@ func (a *app) purge(ctx context.Context) {
 		{"purge_members", a.members.Purge},
 		{"purge_payments", a.payments.Purge},
 		{"purge_mollie", a.mollie.Purge},
+		{"alert_stale_imports", a.web.AlertStaleImports},
 		{"purge_tickets", a.tickets.Purge},
 		{"purge_outbox", a.outbox.Purge},
 		{"purge_push", a.push.Purge},
