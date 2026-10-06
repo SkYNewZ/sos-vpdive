@@ -432,11 +432,13 @@ func TestExpiredMailFailsWithoutSending(t *testing.T) {
 	s := &fakeSender{}
 	id := o.enqueue(t, sampleMail())
 	o.clock.advance(8 * 24 * time.Hour)
-	sent, err := o.SendDue(ctx, s)
+	var logs bytes.Buffer
+	sent, err := o.sendDue(ctx, ChannelEmail, s, slog.New(slog.NewTextHandler(&logs, nil)))
 	require.NoError(t, err)
 	assert.Zero(t, sent)
 	assert.Zero(t, s.callCount())
 	assert.Equal(t, "failed", o.row(t, id).status)
+	assert.Contains(t, logs.String(), `level=ERROR msg="mail expired before sending"`, "a failed notification reaches Sentry")
 }
 
 func TestDeleteRecipient(t *testing.T) {
@@ -575,6 +577,7 @@ func TestPostponedMailLogsTheFailureStageOnly(t *testing.T) {
 	_, err := o.sendDue(context.Background(), ChannelEmail, smtpSender, logger)
 	require.NoError(t, err)
 	assert.Contains(t, logs.String(), "stage=smtp_auth")
+	assert.Contains(t, logs.String(), `level=WARN msg="mail delivery postponed"`, "a passing SMTP failure is not reported to Sentry")
 	assert.NotContains(t, logs.String(), "example.org")
 }
 
@@ -679,5 +682,6 @@ func TestFailedAlertLogsNoSMTPStage(t *testing.T) {
 	_, err := o.sendDue(context.Background(), ChannelPushover, s, slog.New(slog.NewTextHandler(&logs, nil)))
 	require.NoError(t, err)
 	assert.Contains(t, logs.String(), "channel=pushover")
+	assert.Contains(t, logs.String(), `level=ERROR msg="mail failed for good"`, "a failed notification reaches Sentry")
 	assert.NotContains(t, logs.String(), "stage=", "an alert never went through SMTP")
 }

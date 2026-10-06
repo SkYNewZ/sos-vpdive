@@ -35,7 +35,8 @@ const (
 )
 
 // recoverPanics answers 500 instead of dropping the connection. It logs the
-// panic type only: the value could hold request data.
+// panic type only: the value could hold request data. Routes recover in
+// instrument; this catches the rest (headers, host routing, robots).
 func (s *Server) recoverPanics(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -157,14 +158,22 @@ func (s *Server) instrument(route string, next http.Handler) http.Handler {
 		defer span.End()
 
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		defer func() {
+			// Recovered here, where ctx holds the span, a panic reaches Sentry
+			// on the request's trace (spec §9.10). The type only: the value
+			// could hold request data.
+			if v := recover(); v != nil {
+				s.logger.ErrorContext(ctx, "handler panic", "type", fmt.Sprintf("%T", v))
+				http.Error(rec, "Erreur interne.", http.StatusInternalServerError)
+			}
+			span.SetAttributes(attribute.Int("http.response.status_code", rec.status))
+			if rec.status >= http.StatusInternalServerError {
+				telemetry.Fail(span, "http_"+strconv.Itoa(rec.status))
+			}
+			s.logger.InfoContext(ctx, "request", "method", r.Method, "route", route,
+				"status", rec.status, "duration_ms", time.Since(start).Milliseconds())
+		}()
 		next.ServeHTTP(rec, r.WithContext(ctx))
-
-		span.SetAttributes(attribute.Int("http.response.status_code", rec.status))
-		if rec.status >= http.StatusInternalServerError {
-			telemetry.Fail(span, "http_"+strconv.Itoa(rec.status))
-		}
-		s.logger.InfoContext(ctx, "request", "method", r.Method, "route", route,
-			"status", rec.status, "duration_ms", time.Since(start).Milliseconds())
 	})
 }
 

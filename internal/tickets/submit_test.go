@@ -190,6 +190,7 @@ func TestStorageFailureStoresNothing(t *testing.T) {
 	assert.Equal(t, 0, e.count(t, `SELECT COUNT(*) FROM tickets`))
 	assert.Empty(t, e.objects(t), "the first upload was removed")
 	assert.Empty(t, e.mails(t))
+	assert.Contains(t, e.logs.String(), `"level":"ERROR","msg":"capture upload failed"`, "the 503 that follows reaches Sentry")
 }
 
 func TestSubmitRefusesInvalidInput(t *testing.T) {

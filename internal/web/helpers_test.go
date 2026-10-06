@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"image"
 	"image/png"
@@ -23,6 +24,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/getsentry/sentry-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -102,6 +104,8 @@ type testEnv struct {
 	adminsPath string
 	sender     *fakeSender
 	blobs      blobs.Store
+	sentry     *sentry.Client // every test env reports to Sentry, in memory
+	sentryOut  *sentry.MockTransport
 }
 
 // syncBuffer collects logs written from several goroutines.
@@ -157,7 +161,11 @@ func newTestEnv(t *testing.T, opts ...func(*Deps)) *testEnv {
 	adminsPath := filepath.Join(dir, "admins.yaml")
 	require.NoError(t, os.WriteFile(adminsPath, []byte(accountsFile(alice())), 0o600))
 	logs := &syncBuffer{}
-	logger := telemetry.NewLogger(logs, slog.LevelDebug)
+	sentryTransport := &sentry.MockTransport{}
+	sentryClient, err := telemetry.NewSentry(telemetry.SentryOptions{DSN: "https://public@sentry.example.org/1", Transport: sentryTransport})
+	require.NoError(t, err)
+	t.Cleanup(sentryClient.Close)
+	logger := telemetry.WithSentry(ctx, telemetry.NewLogger(logs, slog.LevelDebug), sentryClient)
 	registry, err := admins.Load(adminsPath, logger)
 	require.NoError(t, err)
 
@@ -204,8 +212,41 @@ func newTestEnv(t *testing.T, opts ...func(*Deps)) *testEnv {
 	require.NoError(t, err)
 	return &testEnv{
 		srv: srv, deps: deps, db: db, logs: logs, clock: clock, adminsPath: adminsPath,
-		sender: &fakeSender{}, blobs: blobStore,
+		sender: &fakeSender{}, blobs: blobStore, sentry: sentryClient, sentryOut: sentryTransport,
 	}
+}
+
+// sentryEvents flushes Sentry and returns the error events it received, logs
+// left out.
+func (e *testEnv) sentryEvents(t *testing.T) []*sentry.Event {
+	t.Helper()
+	require.True(t, e.sentry.Flush(time.Second))
+	var out []*sentry.Event
+	for _, ev := range e.sentryOut.Events() {
+		if ev.Type == "" {
+			out = append(out, ev)
+		}
+	}
+	return out
+}
+
+// sentryPayload flushes Sentry and returns everything it received, events
+// and logs, as JSON.
+func (e *testEnv) sentryPayload(t *testing.T) string {
+	t.Helper()
+	require.True(t, e.sentry.Flush(time.Second))
+	var b strings.Builder
+	for _, ev := range e.sentryOut.Events() {
+		raw, err := json.Marshal(ev)
+		require.NoError(t, err)
+		b.Write(raw)
+		for _, l := range ev.Logs {
+			raw, err := json.Marshal(l)
+			require.NoError(t, err)
+			b.Write(raw)
+		}
+	}
+	return b.String()
 }
 
 // do sends a request to host. Mutations carry the host's Origin unless a
