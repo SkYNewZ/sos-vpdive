@@ -77,6 +77,23 @@ func TestParseRejectsInvalidFiles(t *testing.T) {
 	}
 }
 
+func TestParsePushoverUserKey(t *testing.T) {
+	const key = "uQiRzpo4DXghDmr9QzzfQu27cmVRsG"
+	accounts, err := Parse([]byte(accountsYAML(alice(), bob()) + "    pushover_user_key: " + key + "\n"))
+	require.NoError(t, err)
+	byName := map[string]Account{accounts[0].Username: accounts[0], accounts[1].Username: accounts[1]}
+	assert.Empty(t, byName["alice"].PushoverUserKey, "the key is optional")
+	assert.Equal(t, key, byName["bob"].PushoverUserKey)
+
+	for name, bad := range map[string]string{"too short": "uQiRzpo4DX", "symbols": "uQiRzpo4DXghDmr9QzzfQu27cmVR-G"} {
+		t.Run(name, func(t *testing.T) {
+			_, err := Parse([]byte(accountsYAML(alice()) + "    pushover_user_key: " + bad + "\n"))
+			require.ErrorContains(t, err, "admins[0]: pushover_user_key")
+			assert.NotContains(t, err.Error(), bad, "never echo a key")
+		})
+	}
+}
+
 func TestParseYAMLErrorEchoesNoValue(t *testing.T) {
 	_, err := Parse([]byte("admins: [Zebulon]\n"))
 	require.Error(t, err)

@@ -11,6 +11,9 @@ admins:
     name: Camille
     role: Présidente
     password_hash: "paste the output of hash-password here"
+    # Optional: the Pushover user key that gets the committee alerts
+    # (needs PUSHOVER_APP_TOKEN). Shown on pushover.net once signed in.
+    # pushover_user_key: your30characterPushoverUserKey
   - username: dominique
     name: Dominique
     role: Trésorier

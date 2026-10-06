@@ -33,6 +33,7 @@ import (
 	"github.com/SkYNewZ/sos-vpdive/internal/mail"
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
 	"github.com/SkYNewZ/sos-vpdive/internal/members/memberstest"
+	"github.com/SkYNewZ/sos-vpdive/internal/push"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 	"github.com/SkYNewZ/sos-vpdive/internal/store"
 	"github.com/SkYNewZ/sos-vpdive/internal/telemetry"
@@ -188,7 +189,7 @@ func newTestEnv(t *testing.T, opts ...func(*Deps)) *testEnv {
 	})
 	deps := Deps{
 		Config: cfg, DB: db, Keys: keys, Members: memberStore, Admins: registry,
-		Tickets: ticketStore, Outbox: outbox, Broker: broker, KB: base,
+		Tickets: ticketStore, Outbox: outbox, Push: push.NewStore(db, keys, clock.now), Broker: broker, KB: base,
 		Content: sosvpdive.Content, Logger: logger, Now: clock.now,
 	}
 	for _, opt := range opts {

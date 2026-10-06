@@ -52,7 +52,7 @@ func TestOpenCreatesSchemaAndIsIdempotent(t *testing.T) {
 	require.NoError(t, rows.Err())
 	assert.Equal(t, []string{
 		"attachments", "counters", "deflections", "events", "imports", "members", "messages",
-		"meta", "outbox", "sessions", "stats_monthly", "tickets",
+		"meta", "outbox", "push_subscriptions", "sessions", "stats_monthly", "tickets",
 	}, tables)
 
 	var mode string

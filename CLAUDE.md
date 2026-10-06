@@ -24,6 +24,9 @@ validated: it wins over this file, over existing code, and over preference.
 - `sessions.credential_hash` (§8.2): a session is valid only while it matches
   the account's current password hash.
 - `.env.example` lists only the variables the binary reads; each lot adds its own.
+- Pushover is per resolver: an optional `pushover_user_key` per account in the
+  accounts file; `PUSHOVER_APP_TOKEN` stays in the environment and
+  `PUSHOVER_USER_KEY` is gone (§6, §10).
 
 ## Private material: `.local/` is gitignored
 
@@ -126,3 +129,10 @@ No i18n framework.
   read-only.
 - The Dockerfile's CSS stage downloads Tailwind from GitHub; the CI `image` job
   is its end-to-end check.
+- iOS installed apps: no `viewport-fit=cover`, no `env(safe-area-inset-*)`
+  (iOS keeps the status bar and home indicator areas), and form controls at
+  16 px or Safari zooms on focus (`--font-size-min` in `css/input.css`).
+- Safari asks for push permission only from a direct tap: `pushManager.subscribe`
+  comes first in the handler, and every push must show a notification.
+- The service worker's cache name hashes every embedded file: any deploy that
+  changes the site shows the update banner.

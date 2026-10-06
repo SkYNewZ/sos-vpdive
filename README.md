@@ -5,11 +5,11 @@ VPDive platform. Members file requests through a public form; a few committee
 members handle them. One Go binary serves two host names: the members site
 and the committee site. Simplicity and robustness beat features.
 
-Status: lot 3 (knowledge base and suggestions): request form with
+Status: lot 4 (installable apps and phone alerts): request form with
 screenshots, fiches suggested before sending, tracking page and lost link,
 committee board with live updates and summaries, assignment, internal notes,
-journal, deletions and mails. The installable app and push notifications
-come next.
+journal, deletions and mails, both sites installable on a phone, committee
+alerts by Web Push and Pushover. VPDive payment imports come next.
 
 ## Run it locally
 
@@ -167,6 +167,62 @@ then sent by a background worker: retries after 1 minute, 5 minutes,
 30 minutes, 2 hours, 12 hours, then every 24 hours. After 7 days, or on a
 definitive refusal, the mail is marked failed and listed on the committee's
 « Envois » page, where it can be sent again.
+
+## Installable apps
+
+Each host name is also an app a phone can install: « SOS CPP » for members,
+« SOS CPP Comité » for the committee, each with its own manifest, service
+worker and icons. Chrome on Android offers to install it; on iPhone, Safari's
+Share menu has « Sur l'écran d'accueil ». The service worker keeps the static
+files and an offline page, nothing else: pages and screenshots always come
+from the network. After a deploy, open pages show « Une nouvelle version du
+site est disponible » and reload only when asked.
+
+- On iPhone, the installed app keeps its own cookies and storage, apart from
+  Safari: resolvers sign in again inside the app.
+- Another club replaces the PNG files of `internal/web/static/icons/membres/`
+  and `comite/` (192 and 512 px; a 512 px maskable one whose logo fits in the
+  central 80 % circle; a 180 px Apple icon; a 32 px favicon), and the app
+  names in `internal/web/pwa.go` and `templates/layout.html`.
+- Browsers older than Chrome 111, Safari 16.4 or Firefox 128 get a short
+  notice with the club's address instead of the page.
+- The request form keeps what a member types in the browser's storage until
+  the request leaves, 7 days at most, so a lost connection or a closed tab
+  loses nothing. Screenshots and tokens are never kept there.
+
+## Committee alerts
+
+Besides the mail to the club mailbox, a new request and a member's reply can
+reach the committee's phones. An alert carries the request reference and its
+category, never a name or what the member wrote: it travels through Apple's,
+Google's or Pushover's servers.
+
+- Pushover: set `PUSHOVER_APP_TOKEN` to the token of an application created
+  on pushover.net, and give each resolver who wants the alerts a
+  `pushover_user_key` in the accounts file. Editing the file applies at once.
+- Web Push, to the installed committee app: run `sos-vpdive vapid-keys`
+  (`docker run --rm sos-vpdive:local vapid-keys`) once, copy both keys into
+  `.env` and set `VAPID_SUBJECT=mailto:<club address>`. Keep the keys: new
+  ones break every existing subscription. `PUSH_ALLOWED_HOSTS` lists the push
+  services a phone may subscribe through. Each resolver then turns
+  notifications on, device by device, on the « Notifications » page. On
+  iPhone that works only from the installed app (iOS 16.4 or later). A
+  subscription ends with its session: after signing in again, turn it back
+  on there.
+
+An alert is sent once, within the hour. If that fails, the log says so and
+the mail still arrives. Alerts never show on the « Envois » page.
+
+Before going live, check on a real Android phone and a real iPhone:
+
+1. Install both apps; each opens on its own page, without the browser bar.
+2. Turn notifications on in the committee app, file a request from the
+   members app: the phone shows « Nouvelle demande » with the reference and
+   the category only.
+3. Refuse the permission on another device: the « Notifications » page says
+   how to allow it.
+4. Turn notifications off on the « Notifications » page, then on again;
+   sign out: alerts stop reaching that device.
 
 ## Screenshot storage
 

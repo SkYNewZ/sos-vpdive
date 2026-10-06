@@ -18,16 +18,22 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-var usernamePattern = regexp.MustCompile(`^[a-z0-9._-]{1,32}$`)
+var (
+	usernamePattern = regexp.MustCompile(`^[a-z0-9._-]{1,32}$`)
+	// pushoverKeyPattern is the shape of a Pushover user key.
+	pushoverKeyPattern = regexp.MustCompile(`^[A-Za-z0-9]{30}$`)
+)
 
 // Account is one committee member. Name and Role are shown wherever the
-// account is cited; there are no permission levels.
+// account is cited; there are no permission levels. PushoverUserKey, when
+// set, gets the committee alerts on Pushover (spec §6, as amended).
 type Account struct {
-	Username     string       `yaml:"username"`
-	Name         string       `yaml:"name"`
-	Role         string       `yaml:"role"`
-	PasswordHash string       `yaml:"password_hash"`
-	Avatar       template.URL `yaml:"-"`
+	Username        string       `yaml:"username"`
+	Name            string       `yaml:"name"`
+	Role            string       `yaml:"role"`
+	PasswordHash    string       `yaml:"password_hash"`
+	PushoverUserKey string       `yaml:"pushover_user_key"`
+	Avatar          template.URL `yaml:"-"`
 }
 
 // CredentialHash fingerprints the password hash. A session stores it and
@@ -95,6 +101,9 @@ func Parse(data []byte) ([]Account, error) {
 		}
 		if _, err := parseHash(a.PasswordHash); err != nil {
 			errs = append(errs, fmt.Errorf("%s: password_hash: %w", where, err))
+		}
+		if a.PushoverUserKey != "" && !pushoverKeyPattern.MatchString(a.PushoverUserKey) {
+			errs = append(errs, fmt.Errorf("%s: pushover_user_key must be the 30 letters and digits of a Pushover user key", where))
 		}
 	}
 	if err := errors.Join(errs...); err != nil {

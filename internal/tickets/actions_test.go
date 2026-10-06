@@ -331,7 +331,7 @@ func TestReplyMailQuotesTheStartOnly(t *testing.T) {
 	require.NoError(t, e.apply(t, id, Command{Action: ActionReply, Body: long}))
 	msgs := e.mails(t)
 	require.Len(t, msgs, 1)
-	assert.Equal(t, mail.Message{To: memberAddress, Subject: "Réponse à ta demande CPP-0001", Text: msgs[0].Text}, msgs[0])
+	assert.Equal(t, mail.Message{Channel: mail.ChannelEmail, TicketID: id, To: memberAddress, Subject: "Réponse à ta demande CPP-0001", Text: msgs[0].Text}, msgs[0])
 	assert.Contains(t, msgs[0].Text, "…")
 	assert.NotContains(t, msgs[0].Text, long)
 }

@@ -19,6 +19,7 @@ commands:
   restore <file>   replace the database with <file> (stop the service first)
   healthcheck      exit 0 when the local server answers /healthz
   validate-kb      check the fiches of kb/ and list the marks left to fill in
+  vapid-keys       print a new key pair for the committee's push notifications
 `
 
 // usageError reports a wrong command line.
@@ -62,6 +63,8 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdin i
 		return healthcheck(ctx, getenv)
 	case "validate-kb":
 		return validateKB(stdout)
+	case "vapid-keys":
+		return vapidKeys(stdout)
 	default:
 		return usageError{fmt.Sprintf("unknown command %q", args[0])}
 	}

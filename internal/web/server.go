@@ -22,6 +22,7 @@ import (
 	"github.com/SkYNewZ/sos-vpdive/internal/kb"
 	"github.com/SkYNewZ/sos-vpdive/internal/mail"
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
+	"github.com/SkYNewZ/sos-vpdive/internal/push"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 	"github.com/SkYNewZ/sos-vpdive/internal/suggest"
 	"github.com/SkYNewZ/sos-vpdive/internal/tickets"
@@ -36,7 +37,8 @@ type Deps struct {
 	Admins  *admins.Registry
 	Tickets *tickets.Store
 	Outbox  *mail.Outbox
-	Broker  *Broker // shared with tickets.Deps.OnChange
+	Push    *push.Store // committee devices subscribed to Web Push
+	Broker  *Broker     // shared with tickets.Deps.OnChange
 	KB      *kb.Base
 	Content fs.FS
 	Logger  *slog.Logger
@@ -54,6 +56,7 @@ type Server struct {
 	admins    *admins.Registry
 	tickets   *tickets.Store
 	outbox    *mail.Outbox
+	push      *push.Store
 	broker    *Broker
 	kb        *kb.Base
 	suggest   *suggest.Client // nil without LLM_API_KEY: no screen 2
@@ -74,6 +77,7 @@ type Server struct {
 	robots  robotsPolicy
 	vpdive  vpdiveLinks
 	assets  *assets
+	apps    map[bool]installable // by committee host
 	pages   map[string]*template.Template
 	public  http.Handler
 	admin   http.Handler
@@ -100,7 +104,7 @@ func New(d Deps) (*Server, error) {
 	}
 	s := &Server{
 		cfg: d.Config, db: d.DB, keys: d.Keys, members: d.Members, admins: d.Admins,
-		tickets: d.Tickets, outbox: d.Outbox, broker: d.Broker, kb: d.KB, suggest: suggest.New(d.Config.LLM),
+		tickets: d.Tickets, outbox: d.Outbox, push: d.Push, broker: d.Broker, kb: d.KB, suggest: suggest.New(d.Config.LLM),
 		keepAlive: keepAliveInterval,
 		logger:    d.Logger, now: d.Now, paris: paris, tracer: otel.Tracer(tracerName),
 		turnstile: d.Turnstile,
@@ -108,6 +112,9 @@ func New(d Deps) (*Server, error) {
 		robots:    robots, vpdive: links, assets: static,
 	}
 	if s.dummyHash, err = dummyHash(); err != nil {
+		return nil, err
+	}
+	if s.apps, err = newInstallables(static); err != nil {
 		return nil, err
 	}
 	for _, f := range d.KB.Fiches {
@@ -153,7 +160,7 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) publicRoutes() *http.ServeMux {
 	mux := http.NewServeMux()
-	s.commonRoutes(mux)
+	s.commonRoutes(mux, false)
 	s.handle(mux, "GET /{$}", s.formPage)
 	s.handle(mux, "POST /demandes", s.submit)
 	s.handle(mux, "POST /demandes/confirmer", s.confirmDraft)
@@ -173,7 +180,7 @@ func (s *Server) publicRoutes() *http.ServeMux {
 // adminRoutes serves the committee site.
 func (s *Server) adminRoutes() *http.ServeMux {
 	mux := http.NewServeMux()
-	s.commonRoutes(mux)
+	s.commonRoutes(mux, true)
 	s.handle(mux, "GET /connexion", s.loginForm)
 	s.handle(mux, "POST /connexion", s.login)
 	s.handle(mux, "POST /deconnexion", s.signedIn(s.logout))
@@ -187,6 +194,11 @@ func (s *Server) adminRoutes() *http.ServeMux {
 	s.handle(mux, "POST /effacement", s.signedIn(s.erase))
 	s.handle(mux, "GET /fiches", s.signedIn(s.fichesPage))
 	s.handle(mux, "GET /envois", s.signedIn(s.failedMails))
+	s.handle(mux, "GET /notifications", s.signedIn(s.notificationsPage))
+	if s.cfg.VAPID != nil {
+		s.handle(mux, "POST /push/abonnement", s.signedIn(s.subscribePush))
+		s.handle(mux, "POST /push/desabonnement", s.signedIn(s.unsubscribePush))
+	}
 	s.handle(mux, "POST /envois/{id}/relancer", s.signedIn(s.retryMail))
 	// The event stream is neither traced nor logged (spec §9.9).
 	mux.HandleFunc("GET /evenements", s.events)
@@ -194,12 +206,19 @@ func (s *Server) adminRoutes() *http.ServeMux {
 	return mux
 }
 
-// commonRoutes are served on both domains. Health checks and static files
-// are neither traced nor logged (spec §9.9).
-func (s *Server) commonRoutes(mux *http.ServeMux) {
+// offlinePath is the page the service worker shows when a navigation fails.
+const offlinePath = "/hors-ligne"
+
+// commonRoutes are served on both domains, each with its own app (spec
+// §9.6). Health checks and static files are neither traced nor logged
+// (spec §9.9).
+func (s *Server) commonRoutes(mux *http.ServeMux, admin bool) {
 	mux.HandleFunc("GET /healthz", s.healthz)
 	mux.Handle("GET /static/", s.assets.handler())
 	s.handle(mux, "GET /robots.txt", s.robotsTxt)
+	s.handle(mux, "GET /manifest.webmanifest", s.manifestFile(admin))
+	s.handle(mux, "GET /sw.js", s.serviceWorker(admin))
+	s.handle(mux, "GET "+offlinePath, s.offlinePage)
 	s.handle(mux, "/", s.notFound)
 }
 

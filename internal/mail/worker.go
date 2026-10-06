@@ -52,10 +52,28 @@ func (o *Outbox) SendDue(ctx context.Context, s Sender) (int, error) {
 	return o.sendDue(ctx, s, slog.New(slog.DiscardHandler))
 }
 
+// Router delivers each message through the sender of its channel.
+type Router map[Channel]Sender
+
+// errChannelOff reports an alert whose channel was configured away after
+// it was queued.
+var errChannelOff = fmt.Errorf("%w: channel not configured", ErrPermanent)
+
+// Send implements Sender.
+func (r Router) Send(ctx context.Context, m Message) error {
+	s, ok := r[m.Channel]
+	if !ok {
+		return errChannelOff
+	}
+	return s.Send(ctx, m)
+}
+
 // queued is a pending mail, still sealed.
 type queued struct {
 	id       int64
+	ticketID int64
 	event    Event
+	channel  Channel
 	attempts int
 	giveUpAt int64
 	to       []byte
@@ -87,25 +105,26 @@ func (o *Outbox) sendDue(ctx context.Context, s Sender, logger *slog.Logger) (in
 }
 
 func (o *Outbox) nextDue(ctx context.Context) (q queued, err error) {
-	var event string
+	var event, channel string
 	err = o.db.QueryRowContext(ctx,
-		`SELECT id, event, attempts, give_up_at, recipient, subject, body FROM outbox
+		`SELECT id, COALESCE(ticket_id, 0), event, channel, attempts, give_up_at, recipient, subject, body FROM outbox
 		 WHERE status = ? AND next_attempt_at <= ? ORDER BY next_attempt_at, id LIMIT 1`,
 		string(statusPending), o.now().Unix()).
-		Scan(&q.id, &event, &q.attempts, &q.giveUpAt, &q.to, &q.subject, &q.body)
+		Scan(&q.id, &q.ticketID, &event, &channel, &q.attempts, &q.giveUpAt, &q.to, &q.subject, &q.body)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return q, err
 		}
 		return q, fmt.Errorf("next due mail: %w", err)
 	}
-	q.event = Event(event)
+	q.event, q.channel = Event(event), Channel(channel)
 	return q, nil
 }
 
 // deliver sends one mail and records the outcome. A delivery failure is
 // recorded, not returned: the error is for the database only. A row deleted
-// meanwhile (its request or message was deleted) updates nothing.
+// meanwhile (its request or message was deleted) updates nothing. An alert
+// gets one attempt (spec §6, §9.6): its failure is logged, never retried.
 func (o *Outbox) deliver(ctx context.Context, s Sender, logger *slog.Logger, q queued) (bool, error) {
 	ctx, span := otel.Tracer(tracerName).Start(ctx, "outbox.send", trace.WithAttributes(
 		attribute.Int64("outbox.id", q.id), attribute.String("outbox.event", string(q.event))))
@@ -133,10 +152,14 @@ func (o *Outbox) deliver(ctx context.Context, s Sender, logger *slog.Logger, q q
 	switch {
 	case sendErr == nil:
 		return true, o.finish(ctx, q.id, statusSent, attempts)
-	case permanent || now.Unix() >= q.giveUpAt:
-		telemetry.Fail(span, "delivery_failed")
+	case permanent || q.channel != ChannelEmail || now.Unix() >= q.giveUpAt:
+		code := "delivery_failed"
+		if errors.Is(sendErr, errChannelOff) {
+			code = "channel_disabled"
+		}
+		telemetry.Fail(span, code)
 		logger.WarnContext(ctx, "mail failed for good", "outbox_id", q.id, "event", string(q.event),
-			"attempts", attempts, "permanent", permanent, "stage", stageOf(sendErr))
+			"channel", string(q.channel), "attempts", attempts, "permanent", permanent, "stage", stageOf(sendErr))
 		return false, o.finish(ctx, q.id, statusFailed, attempts)
 	default:
 		telemetry.Fail(span, "delivery_postponed")
@@ -165,7 +188,7 @@ func (o *Outbox) open(q queued) (Message, error) {
 	if err != nil {
 		return Message{}, err
 	}
-	return Message{To: to, Subject: subject, Text: text}, nil
+	return Message{Channel: q.channel, TicketID: q.ticketID, To: to, Subject: subject, Text: text}, nil
 }
 
 // finish records the final status of a pending mail.
