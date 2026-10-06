@@ -177,8 +177,14 @@ func (o *Outbox) deliver(ctx context.Context, s Sender, logger *slog.Logger, q q
 			code = "channel_disabled"
 		}
 		telemetry.Fail(span, code)
+		// An SMTP error may quote the address: a mail logs its stage only. An
+		// alert error is ours and names no one.
+		key, cause := "stage", any(stageOf(sendErr))
+		if q.channel != ChannelEmail {
+			key, cause = "error", sendErr
+		}
 		logger.WarnContext(ctx, "mail failed for good", "outbox_id", q.id, "event", string(q.event),
-			"channel", string(q.channel), "attempts", attempts, "permanent", permanent, "stage", stageOf(sendErr))
+			"channel", string(q.channel), "attempts", attempts, "permanent", permanent, key, cause)
 		return false, o.finish(ctx, q.id, statusFailed, attempts)
 	default:
 		telemetry.Fail(span, "delivery_postponed")

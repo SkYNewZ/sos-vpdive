@@ -184,7 +184,7 @@ func (o *Outbox) Enqueue(ctx context.Context, tx *sql.Tx, m Mail) error {
 		now.Unix(), now.Add(window).Unix(), now.Unix(),
 		hash, o.keys.SealString(to), o.keys.SealString(m.Subject), o.keys.SealString(m.Text),
 	); err != nil {
-		return fmt.Errorf("enqueue %s mail: %w", m.Event, err)
+		return fmt.Errorf("enqueue %s %s: %w", m.Event, channel, err)
 	}
 	return nil
 }

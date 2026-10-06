@@ -667,3 +667,17 @@ func TestRouterSendsThroughTheChannelSender(t *testing.T) {
 	assert.Equal(t, "failed", o.row(t, offID).status, "a channel configured away fails at once")
 	require.ErrorIs(t, router.Send(ctx, Message{Channel: ChannelWebPush}), ErrPermanent)
 }
+
+func TestFailedAlertLogsNoSMTPStage(t *testing.T) {
+	o := newTestOutbox(t)
+	ticketID, _ := o.insertTicket(t)
+	o.enqueue(t, pushAlert(ticketID, ChannelPushover))
+	s := &fakeSender{}
+	s.fail(errors.New("pushover unreachable"))
+	var logs bytes.Buffer
+
+	_, err := o.sendDue(context.Background(), ChannelPushover, s, slog.New(slog.NewTextHandler(&logs, nil)))
+	require.NoError(t, err)
+	assert.Contains(t, logs.String(), "channel=pushover")
+	assert.NotContains(t, logs.String(), "stage=", "an alert never went through SMTP")
+}
