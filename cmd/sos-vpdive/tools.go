@@ -3,6 +3,10 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -23,6 +27,25 @@ import (
 )
 
 const minPasswordLength = 12
+
+// vapidKeys prints a new VAPID key pair in the form .env expects (spec §9.6).
+func vapidKeys(stdout io.Writer) error {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return fmt.Errorf("generate VAPID key: %w", err)
+	}
+	private, err := key.Bytes()
+	if err != nil {
+		return fmt.Errorf("encode VAPID key: %w", err)
+	}
+	public, err := key.PublicKey.Bytes()
+	if err != nil {
+		return fmt.Errorf("encode VAPID key: %w", err)
+	}
+	_, err = fmt.Fprintf(stdout, "VAPID_PUBLIC_KEY=%s\nVAPID_PRIVATE_KEY=%s\n# Add VAPID_SUBJECT=mailto:<the club's address>\n",
+		base64.RawURLEncoding.EncodeToString(public), base64.RawURLEncoding.EncodeToString(private))
+	return err
+}
 
 // hashPassword prints the argon2id hash of a password for admins.yaml.
 func hashPassword(stdin io.Reader, stdout io.Writer) error {

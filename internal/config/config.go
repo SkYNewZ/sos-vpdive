@@ -3,6 +3,9 @@
 package config
 
 import (
+	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -10,6 +13,7 @@ import (
 	"net/mail"
 	"net/netip"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -43,6 +47,17 @@ var ErrMissing = errors.New("required variable is missing")
 
 const secretKeySize = 32
 
+// defaultPushHosts are the push services of Chrome, Safari, Firefox and Edge.
+// A leading dot accepts any subdomain.
+const defaultPushHosts = "fcm.googleapis.com,web.push.apple.com,updates.push.services.mozilla.com,.notify.windows.com"
+
+var (
+	// pushoverTokenPattern is the shape of Pushover application tokens.
+	pushoverTokenPattern = regexp.MustCompile(`^[A-Za-z0-9]{30}$`)
+	// hostPattern is a lowercase DNS name, optionally led by a dot.
+	hostPattern = regexp.MustCompile(`^\.?[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$`)
+)
+
 // SMTP holds the mail relay settings.
 type SMTP struct {
 	Host     string
@@ -70,6 +85,13 @@ type LLM struct {
 	DailyLimit int           // model calls per day, Europe/Paris
 }
 
+// VAPID identifies the server to the push services (RFC 8292).
+type VAPID struct {
+	PrivateKey *ecdsa.PrivateKey
+	PublicKey  string // base64url uncompressed point, as browsers take it
+	Subject    string // mailto: or https: contact
+}
+
 // Config is the validated deployment configuration.
 type Config struct {
 	Env                Env
@@ -94,6 +116,9 @@ type Config struct {
 	RetentionDays      int           // days a closed request is kept
 	FormRateLimit      int           // form submissions per hour and IP address
 	LLM                *LLM          // nil without LLM_API_KEY: no suggestions, no screen 2
+	PushoverToken      string        // "" turns Pushover off; user keys live in the accounts file
+	VAPID              *VAPID        // nil turns Web Push off
+	PushAllowedHosts   []string      // push services a subscription may point at
 }
 
 // TurnstileEnabled reports whether the anti-bot check is configured.
@@ -142,6 +167,9 @@ func Load(getenv func(string) string) (*Config, error) {
 	p.turnstile(c)
 	c.S3 = p.s3(c.Env)
 	c.LLM = p.llm(c.Env)
+	c.PushoverToken = p.pushoverToken()
+	c.VAPID = p.vapid()
+	c.PushAllowedHosts = p.hosts("PUSH_ALLOWED_HOSTS", defaultPushHosts)
 	if c.Env == EnvProduction {
 		p.requireHTTPS("BASE_URL", c.BaseURL)
 		p.requireHTTPS("ADMIN_BASE_URL", c.AdminBaseURL)
@@ -382,4 +410,92 @@ func (p *parser) s3(env Env) *S3 {
 		SecretAccessKey: p.required("S3_SECRET_ACCESS_KEY"),
 		Region:          p.optional("S3_REGION", "auto"),
 	}
+}
+
+func (p *parser) pushoverToken() string {
+	token := p.value("PUSHOVER_APP_TOKEN")
+	if token != "" && !pushoverTokenPattern.MatchString(token) {
+		p.fail("PUSHOVER_APP_TOKEN", errors.New("must be the 30 letters and digits of a Pushover application token"))
+		return ""
+	}
+	return token
+}
+
+// vapid reads the three VAPID variables: all of them, or none (spec §10).
+func (p *parser) vapid() *VAPID {
+	names := []string{"VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY", "VAPID_SUBJECT"}
+	values := map[string]string{}
+	for _, n := range names {
+		values[n] = p.value(n)
+	}
+	if values["VAPID_PUBLIC_KEY"]+values["VAPID_PRIVATE_KEY"]+values["VAPID_SUBJECT"] == "" {
+		return nil
+	}
+	ok := true
+	for _, n := range names {
+		if values[n] == "" {
+			p.fail(n, fmt.Errorf("%w (the three VAPID variables go together)", ErrMissing))
+			ok = false
+		}
+	}
+	if !ok {
+		return nil
+	}
+	v := &VAPID{Subject: p.vapidSubject(values["VAPID_SUBJECT"])}
+	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(values["VAPID_PRIVATE_KEY"], "="))
+	if err == nil {
+		v.PrivateKey, err = ecdsa.ParseRawPrivateKey(elliptic.P256(), raw)
+	}
+	if err != nil {
+		p.fail("VAPID_PRIVATE_KEY", errors.New("must be a P-256 private key in base64url (sos-vpdive vapid-keys)"))
+		return nil
+	}
+	want, err := v.PrivateKey.PublicKey.Bytes()
+	if err != nil {
+		p.fail("VAPID_PRIVATE_KEY", errors.New("must be a P-256 private key in base64url (sos-vpdive vapid-keys)"))
+		return nil
+	}
+	got, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(values["VAPID_PUBLIC_KEY"], "="))
+	if err != nil || !bytes.Equal(got, want) {
+		p.fail("VAPID_PUBLIC_KEY", errors.New("must be the public key of VAPID_PRIVATE_KEY (sos-vpdive vapid-keys)"))
+		return nil
+	}
+	v.PublicKey = base64.RawURLEncoding.EncodeToString(want)
+	if v.Subject == "" {
+		return nil
+	}
+	return v
+}
+
+// vapidSubject accepts a mailto: address or an https: URL (RFC 8292).
+func (p *parser) vapidSubject(raw string) string {
+	if addr, ok := strings.CutPrefix(raw, "mailto:"); ok {
+		if a, err := mail.ParseAddress(addr); err == nil && a.Name == "" {
+			return raw
+		}
+	} else if u, ok := absolute(raw); ok && u.Scheme == schemeHTTPS {
+		return raw
+	}
+	p.fail("VAPID_SUBJECT", errors.New("must be a mailto: address or an https: URL"))
+	return ""
+}
+
+// hosts reads a comma-separated list of host names.
+func (p *parser) hosts(name, def string) []string {
+	var out []string
+	for part := range strings.SplitSeq(p.optional(name, def), ",") {
+		h := strings.ToLower(strings.TrimSpace(part))
+		if h == "" {
+			continue
+		}
+		if !hostPattern.MatchString(h) {
+			p.fail(name, fmt.Errorf("%q is not a host name", h))
+			continue
+		}
+		out = append(out, h)
+	}
+	if len(out) == 0 {
+		p.fail(name, errors.New("must name at least one host"))
+	}
+	return out
 }

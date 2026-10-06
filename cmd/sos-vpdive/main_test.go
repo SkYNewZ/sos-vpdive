@@ -274,3 +274,25 @@ func TestValidateKBNeedsNoEnvironment(t *testing.T) {
 	// Shape only: the fiches and their marks change with the content.
 	assert.Regexp(t, `^(warning: kb/[a-z0-9-]+\.md: \d+ \[À COMPLÉTER\] mark\(s\) to fill in\n)*\d+ fiches are valid\n$`, out.String())
 }
+
+func TestVAPIDKeysGivesAPairTheConfigurationAccepts(t *testing.T) {
+	var out bytes.Buffer
+	require.NoError(t, run(context.Background(), []string{"vapid-keys"}, getenv(nil), nil, &out))
+	env := devEnv(t, freePort(t))
+	for line := range strings.SplitSeq(out.String(), "\n") {
+		if name, value, ok := strings.Cut(line, "="); ok && !strings.HasPrefix(name, "#") {
+			env[name] = value
+		}
+	}
+	require.NotEmpty(t, env["VAPID_PUBLIC_KEY"])
+	require.NotEmpty(t, env["VAPID_PRIVATE_KEY"])
+	assert.Contains(t, out.String(), "VAPID_SUBJECT", "the output reminds the third variable")
+	env["VAPID_SUBJECT"] = "mailto:club@example.org"
+	cfg, err := config.Load(getenv(env))
+	require.NoError(t, err)
+	require.NotNil(t, cfg.VAPID)
+
+	var again bytes.Buffer
+	require.NoError(t, run(context.Background(), []string{"vapid-keys"}, getenv(nil), nil, &again))
+	assert.NotEqual(t, out.String(), again.String(), "every run draws a new pair")
+}

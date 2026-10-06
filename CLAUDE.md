@@ -24,6 +24,9 @@ validated: it wins over this file, over existing code, and over preference.
 - `sessions.credential_hash` (§8.2): a session is valid only while it matches
   the account's current password hash.
 - `.env.example` lists only the variables the binary reads; each lot adds its own.
+- Pushover is per resolver: an optional `pushover_user_key` per account in the
+  accounts file; `PUSHOVER_APP_TOKEN` stays in the environment and
+  `PUSHOVER_USER_KEY` is gone (§6, §10).
 
 ## Private material: `.local/` is gitignored
 

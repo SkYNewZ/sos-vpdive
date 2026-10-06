@@ -2,8 +2,11 @@ package config
 
 import (
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"encoding/base64"
 	"log/slog"
+	"maps"
 	"net/netip"
 	"testing"
 	"time"
@@ -243,4 +246,84 @@ func TestLoadLLM(t *testing.T) {
 	c, err = Load(getenv(m))
 	require.NoError(t, err, "development may point at a local stub")
 	assert.Equal(t, "127.0.0.1:9999", c.LLM.BaseURL.Host)
+}
+
+// vapidPair is a fixed P-256 key pair in the base64url form of .env.
+func vapidPair(t *testing.T, seed byte) (public, private string) {
+	t.Helper()
+	key, err := ecdsa.ParseRawPrivateKey(elliptic.P256(), bytes.Repeat([]byte{seed}, 32))
+	require.NoError(t, err)
+	pub, err := key.PublicKey.Bytes()
+	require.NoError(t, err)
+	return base64.RawURLEncoding.EncodeToString(pub), base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{seed}, 32))
+}
+
+func TestLoadPush(t *testing.T) {
+	c, err := Load(getenv(validEnv()))
+	require.NoError(t, err)
+	assert.Empty(t, c.PushoverToken, "Pushover is off by default")
+	assert.Nil(t, c.VAPID, "Web Push is off by default")
+	assert.Equal(t, []string{"fcm.googleapis.com", "web.push.apple.com", "updates.push.services.mozilla.com", ".notify.windows.com"},
+		c.PushAllowedHosts)
+
+	public, private := vapidPair(t, 3)
+	m := validEnv()
+	m["PUSHOVER_APP_TOKEN"] = "azGDORePK8gMaC0QOYAMyEEuzJnyUi"
+	m["VAPID_PUBLIC_KEY"] = public
+	m["VAPID_PRIVATE_KEY"] = private + "=" // padded base64url is accepted too
+	m["VAPID_SUBJECT"] = "mailto:club@example.org"
+	m["PUSH_ALLOWED_HOSTS"] = " FCM.googleapis.com, .push.example.org "
+	c, err = Load(getenv(m))
+	require.NoError(t, err)
+	assert.Equal(t, "azGDORePK8gMaC0QOYAMyEEuzJnyUi", c.PushoverToken)
+	require.NotNil(t, c.VAPID)
+	assert.Equal(t, public, c.VAPID.PublicKey)
+	assert.Equal(t, "mailto:club@example.org", c.VAPID.Subject)
+	raw, err := c.VAPID.PrivateKey.Bytes()
+	require.NoError(t, err)
+	assert.Equal(t, bytes.Repeat([]byte{3}, 32), raw)
+	assert.Equal(t, []string{"fcm.googleapis.com", ".push.example.org"}, c.PushAllowedHosts)
+
+	m["VAPID_SUBJECT"] = "https://sos.example.org"
+	_, err = Load(getenv(m))
+	require.NoError(t, err, "an https subject is accepted")
+}
+
+func TestLoadPushRefusals(t *testing.T) {
+	public, private := vapidPair(t, 3)
+	other, _ := vapidPair(t, 4)
+	complete := func() map[string]string {
+		m := validEnv()
+		m["VAPID_PUBLIC_KEY"], m["VAPID_PRIVATE_KEY"], m["VAPID_SUBJECT"] = public, private, "mailto:club@example.org"
+		return m
+	}
+	cases := map[string]struct {
+		set  map[string]string
+		name string
+	}{
+		"token too short":     {map[string]string{"PUSHOVER_APP_TOKEN": "abc"}, "PUSHOVER_APP_TOKEN"},
+		"token with symbols":  {map[string]string{"PUSHOVER_APP_TOKEN": "azGDORePK8gMaC0QOYAMyEEuzJny-i"}, "PUSHOVER_APP_TOKEN"},
+		"public key missing":  {map[string]string{"VAPID_PUBLIC_KEY": ""}, "VAPID_PUBLIC_KEY"},
+		"private key missing": {map[string]string{"VAPID_PRIVATE_KEY": ""}, "VAPID_PRIVATE_KEY"},
+		"subject missing":     {map[string]string{"VAPID_SUBJECT": ""}, "VAPID_SUBJECT"},
+		"keys do not match":   {map[string]string{"VAPID_PUBLIC_KEY": other}, "VAPID_PUBLIC_KEY"},
+		"private not base64":  {map[string]string{"VAPID_PRIVATE_KEY": "not a key!"}, "VAPID_PRIVATE_KEY"},
+		"private too short":   {map[string]string{"VAPID_PRIVATE_KEY": "AQID"}, "VAPID_PRIVATE_KEY"},
+		"subject not mailto":  {map[string]string{"VAPID_SUBJECT": "club@example.org"}, "VAPID_SUBJECT"},
+		"subject http":        {map[string]string{"VAPID_SUBJECT": "http://sos.example.org"}, "VAPID_SUBJECT"},
+		"bad mailto":          {map[string]string{"VAPID_SUBJECT": "mailto:not an address"}, "VAPID_SUBJECT"},
+		"host with a path":    {map[string]string{"PUSH_ALLOWED_HOSTS": "fcm.googleapis.com/fcm"}, "PUSH_ALLOWED_HOSTS"},
+		"host with a port":    {map[string]string{"PUSH_ALLOWED_HOSTS": "fcm.googleapis.com:443"}, "PUSH_ALLOWED_HOSTS"},
+		"no host at all":      {map[string]string{"PUSH_ALLOWED_HOSTS": " , "}, "PUSH_ALLOWED_HOSTS"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			m := complete()
+			maps.Copy(m, tc.set)
+			_, err := Load(getenv(m))
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.name)
+			assert.NotContains(t, err.Error(), private, "never echo the private key")
+		})
+	}
 }
