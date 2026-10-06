@@ -349,3 +349,121 @@ func TestImportToken(t *testing.T) {
 	require.ErrorContains(t, err, "IMPORT_TOKEN")
 	assert.NotContains(t, err.Error(), "secret-but-short")
 }
+
+func TestLoadSentry(t *testing.T) {
+	c, err := Load(getenv(validEnv()))
+	require.NoError(t, err)
+	assert.Empty(t, c.SentryDSN, "Sentry is off by default")
+	assert.Equal(t, "production", c.SentryEnvironment, "the environment defaults to APP_ENV")
+
+	m := validEnv()
+	m["SENTRY_DSN"] = " https://key@o1.ingest.example.org/42 "
+	m["SENTRY_ENVIRONMENT"] = "staging"
+	c, err = Load(getenv(m))
+	require.NoError(t, err)
+	assert.Equal(t, "https://key@o1.ingest.example.org/42", c.SentryDSN)
+	assert.Equal(t, "staging", c.SentryEnvironment)
+
+	m = validEnv()
+	m["APP_ENV"] = "development"
+	m["SENTRY_DSN"] = "https://key@o1.ingest.example.org/42"
+	c, err = Load(getenv(m))
+	require.NoError(t, err)
+	assert.Empty(t, c.SentryDSN, "Sentry is fully off in development")
+	assert.Equal(t, "development", c.SentryEnvironment)
+	assert.Empty(t, c.Warnings)
+
+	m = validEnv()
+	m["SENTRY_DSN"] = "not a dsn"
+	c, err = Load(getenv(m))
+	require.NoError(t, err, "never a startup failure")
+	assert.Empty(t, c.SentryDSN, "an invalid DSN turns Sentry off")
+	require.Len(t, c.Warnings, 1)
+	require.ErrorContains(t, c.Warnings[0], "SENTRY_DSN")
+}
+
+func TestLoadUmami(t *testing.T) {
+	c, err := Load(getenv(validEnv()))
+	require.NoError(t, err)
+	assert.Nil(t, c.Umami, "Umami is off by default")
+	assert.Empty(t, c.Warnings)
+
+	m := validEnv()
+	m["UMAMI_SCRIPT_URL"] = "https://analytics.example.org/script.js"
+	m["UMAMI_WEBSITE_ID"] = "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE"
+	m["UMAMI_ADMIN_WEBSITE_ID"] = "12345678-1234-4123-8123-123456789abc"
+	c, err = Load(getenv(m))
+	require.NoError(t, err)
+	require.NotNil(t, c.Umami)
+	assert.Equal(t, "https://analytics.example.org/script.js", c.Umami.ScriptURL.String())
+	assert.Equal(t, "https://analytics.example.org", c.Umami.Origin())
+	assert.Equal(t, "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", c.Umami.WebsiteID)
+	assert.Equal(t, "12345678-1234-4123-8123-123456789abc", c.Umami.AdminWebsiteID)
+	assert.Empty(t, c.Warnings)
+
+	m["UMAMI_ADMIN_WEBSITE_ID"] = ""
+	c, err = Load(getenv(m))
+	require.NoError(t, err)
+	require.NotNil(t, c.Umami)
+	assert.Empty(t, c.Umami.AdminWebsiteID, "a site without an ID is not measured")
+	assert.Empty(t, c.Warnings)
+
+	m["UMAMI_WEBSITE_ID"] = ""
+	c, err = Load(getenv(m))
+	require.NoError(t, err)
+	assert.Nil(t, c.Umami, "a script without any site ID measures nothing: Umami is off")
+	require.Len(t, c.Warnings, 1)
+	require.ErrorContains(t, c.Warnings[0], "UMAMI_SCRIPT_URL")
+
+	m = validEnv()
+	m["APP_ENV"] = "development"
+	m["BASE_URL"] = "http://sos.localhost:8080"
+	m["ADMIN_BASE_URL"] = "http://comite.localhost:8080"
+	m["UMAMI_SCRIPT_URL"] = "http://127.0.0.1:3000/script.js"
+	m["UMAMI_WEBSITE_ID"] = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+	c, err = Load(getenv(m))
+	require.NoError(t, err)
+	require.NotNil(t, c.Umami, "development accepts http")
+	assert.Equal(t, "http://127.0.0.1:3000", c.Umami.Origin())
+}
+
+// An invalid optional tool never stops the server: it is turned off with a
+// warning (owner decision, 2026-10-06).
+func TestLoadInvalidUmamiTurnsItOffWithAWarning(t *testing.T) {
+	cases := map[string]struct {
+		set  map[string]string
+		name string
+		off  bool // the whole tool is off, not just one site
+	}{
+		"http in production": {map[string]string{"UMAMI_SCRIPT_URL": "http://analytics.example.org/script.js"}, "UMAMI_SCRIPT_URL", true},
+		"relative URL":       {map[string]string{"UMAMI_SCRIPT_URL": "/script.js"}, "UMAMI_SCRIPT_URL", true},
+		"no script path":     {map[string]string{"UMAMI_SCRIPT_URL": "https://analytics.example.org"}, "UMAMI_SCRIPT_URL", true},
+		"with a query":       {map[string]string{"UMAMI_SCRIPT_URL": "https://analytics.example.org/script.js?v=2"}, "UMAMI_SCRIPT_URL", true},
+		// Same origin: Referrer-Policy same-origin would hand Umami the
+		// tracking page's address, token included, in the Referer header.
+		"members origin":   {map[string]string{"UMAMI_SCRIPT_URL": "https://SOS.example.org:443/umami/script.js"}, "UMAMI_SCRIPT_URL", true},
+		"committee origin": {map[string]string{"UMAMI_SCRIPT_URL": "https://comite.sos.example.org/umami/script.js"}, "UMAMI_SCRIPT_URL", true},
+		"members ID":       {map[string]string{"UMAMI_WEBSITE_ID": "not-a-uuid"}, "UMAMI_WEBSITE_ID", false},
+		"committee ID":     {map[string]string{"UMAMI_ADMIN_WEBSITE_ID": "12345678123441238123123456789abc"}, "UMAMI_ADMIN_WEBSITE_ID", false},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			m := validEnv()
+			m["UMAMI_SCRIPT_URL"] = "https://analytics.example.org/script.js"
+			m["UMAMI_WEBSITE_ID"] = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+			m["UMAMI_ADMIN_WEBSITE_ID"] = "12345678-1234-4123-8123-123456789abc"
+			maps.Copy(m, tc.set)
+			c, err := Load(getenv(m))
+			require.NoError(t, err, "never a startup failure")
+			require.Len(t, c.Warnings, 1)
+			require.ErrorContains(t, c.Warnings[0], tc.name)
+			if tc.off {
+				assert.Nil(t, c.Umami)
+				return
+			}
+			require.NotNil(t, c.Umami)
+			ids := c.Umami.WebsiteID + "|" + c.Umami.AdminWebsiteID
+			assert.NotContains(t, ids, tc.set[tc.name], "the invalid ID is dropped")
+		})
+	}
+}

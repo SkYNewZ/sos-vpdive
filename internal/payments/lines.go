@@ -97,6 +97,13 @@ func (t lineTable) Purge(ctx context.Context) error {
 	})
 }
 
+// Expired reports an import older than the 90-day retention: once the daily
+// purge has run, its lines are gone (spec §8.3). A recent import may hold no
+// line at all, when the VPDive filters matched nothing.
+func (t lineTable) Expired(info imports.Info) bool {
+	return t.now().Sub(info.ImportedAt) > retention
+}
+
 // Count returns the number of lines of nameHash, ambiguous ones included.
 func (t lineTable) Count(ctx context.Context, nameHash []byte) (int, error) {
 	var n int
@@ -202,10 +209,10 @@ func (t lineTable) nameLines(ctx context.Context, nameHash []byte) (BlockState, 
 	switch {
 	case err != nil:
 		return "", imports.Info{}, nil, err
-	case !inPlace && imported:
-		return BlockPurged, info, nil, nil
-	case !inPlace:
+	case !imported:
 		return BlockNoLines, info, nil, nil
+	case !inPlace && t.Expired(info):
+		return BlockPurged, info, nil, nil
 	case nameHash == nil:
 		return BlockNoMember, info, nil, nil
 	}

@@ -2,19 +2,19 @@
 {{$d := .Data}}
 <h1 class="text-2xl font-bold text-primary">Sorties annulées</h1>
 <p class="mt-4">Cette page liste les sorties dont le titre contient « annul » et qui ont encore des inscriptions payées. Le trésorier rembourse les paiements en argent réel, puis supprime la sortie dans VPDive : la suppression recrédite les carnets.</p>
-{{if not $d.InPlace}}
-{{template "noPayments" (ne $d.Import.ID 0)}}
+{{if not $d.Imported}}
+{{template "noPayments" $d.Purged}}
 {{else}}
 {{template "paymentsImport" $d.Import}}
 {{with $d.Rows}}
 <p class="mt-6 font-semibold">{{len .}} sortie{{if gt (len .) 1}}s{{end}}, {{$d.Lines}} ligne{{if gt $d.Lines 1}}s{{end}}, {{$d.Persons}} inscription{{if gt $d.Persons 1}}s{{end}}.</p>
-<div class="overflow-x-auto"><table class="table mt-2 max-sm:[&_:is(th,td)]:px-1">
-<thead><tr><th scope="col">Sortie</th><th scope="col" class="hidden md:table-cell">Date</th><th scope="col">Ancienneté</th><th scope="col" class="text-right">Personnes</th><th scope="col" class="hidden text-right md:table-cell">Lignes</th><th scope="col" class="text-right">Réglé par carnet</th><th scope="col" class="text-right">Réglé en argent réel</th></tr></thead>
+<div class="overflow-x-auto"><table class="table mt-2 max-sm:[&_:is(th,td)]:px-1 max-sm:[&_th]:whitespace-normal">
+<thead><tr><th scope="col">Sortie</th><th scope="col" class="hidden md:table-cell">Date</th><th scope="col" class="hidden sm:table-cell">Ancienneté</th><th scope="col" class="hidden text-right sm:table-cell">Personnes</th><th scope="col" class="hidden text-right md:table-cell">Lignes</th><th scope="col" class="text-right">Réglé par carnet</th><th scope="col" class="text-right">Réglé en argent réel</th></tr></thead>
 <tbody>{{range .}}<tr>
-<td class="break-words">{{.Title}}</td>
+<td class="break-words">{{.Title}}<span class="block text-sm sm:hidden">Ancienneté : {{template "age" .Age}}, {{.Persons}} personne{{if gt .Persons 1}}s{{end}}</span></td>
 <td class="hidden whitespace-nowrap md:table-cell">{{with formatTime .Starts}}{{.}}{{else}}inconnue{{end}}</td>
-<td class="whitespace-nowrap">{{with .Age}}{{template "age" .}}{{else}}inconnue{{end}}</td>
-<td class="text-right">{{.Persons}}</td>
+<td class="hidden whitespace-nowrap sm:table-cell">{{template "age" .Age}}</td>
+<td class="hidden text-right sm:table-cell">{{.Persons}}</td>
 <td class="hidden text-right md:table-cell">{{.Lines}}</td>
 <td class="text-right whitespace-nowrap">{{.ByCarnet.Euros}}</td>
 <td class="text-right whitespace-nowrap">{{.ByMoney.Euros}}</td>

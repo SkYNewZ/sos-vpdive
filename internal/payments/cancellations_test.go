@@ -16,12 +16,13 @@ func TestCancellations(t *testing.T) {
 	ctx := context.Background()
 	c, err := f.store.Cancellations(ctx)
 	require.NoError(t, err)
-	assert.False(t, c.InPlace)
+	assert.False(t, c.Imported)
+	assert.False(t, c.Purged)
 
 	f.importPayments(t, f.valid(t))
 	c, err = f.store.Cancellations(ctx)
 	require.NoError(t, err)
-	require.True(t, c.InPlace)
+	require.True(t, c.Imported)
 	assert.Equal(t, "alice", c.Import.ImportedBy)
 	loc := paris(t)
 	want := []Outing{
@@ -68,6 +69,6 @@ func TestCancellationsAfterThePurge(t *testing.T) {
 
 	c, err := f.store.Cancellations(ctx)
 	require.NoError(t, err)
-	assert.False(t, c.InPlace)
-	assert.Equal(t, "alice", c.Import.ImportedBy, "the page can say the lines were purged")
+	assert.False(t, c.Imported)
+	assert.True(t, c.Purged, "the page can say the lines were purged")
 }

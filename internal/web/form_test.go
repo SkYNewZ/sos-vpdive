@@ -238,6 +238,9 @@ func TestFormClosedWithoutMembersList(t *testing.T) {
 	rec := e.sendRequest(t, validRequest(strings.Repeat("a", 43)))
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
 	assert.Zero(t, e.count(t, "tickets"))
+	events := e.sentryEvents(t)
+	require.Len(t, events, 1, "a 503 reaches Sentry")
+	assert.Equal(t, "form closed, no members list", events[0].Message)
 }
 
 func TestHoneypotAndExpiredKey(t *testing.T) {

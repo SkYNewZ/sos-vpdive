@@ -43,7 +43,7 @@ func TestSecurityHeadersOnEveryResponse(t *testing.T) {
 	for _, path := range []string{"/", "/nope", "/robots.txt", "/static/fonts/OFL.txt"} {
 		rec := e.do(t, http.MethodGet, publicHost, path, nil)
 		h := rec.Header()
-		assert.Equal(t, contentSecurityPolicy, h.Get("Content-Security-Policy"), path)
+		assert.Equal(t, lot1CSP, h.Get("Content-Security-Policy"), path)
 		assert.Equal(t, "nosniff", h.Get("X-Content-Type-Options"), path)
 		assert.NotEmpty(t, h.Get("Strict-Transport-Security"), path)
 		assert.Equal(t, "noindex, nofollow, noai, noimageai", h.Get("X-Robots-Tag"), path)

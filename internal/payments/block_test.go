@@ -102,3 +102,30 @@ func TestLineReading(t *testing.T) {
 	assert.False(t, Line{State: StatePaid, Method: MethodVPayDive, Paid: -3500, ProductType: TypeCard}.ProbableRefund())
 	assert.False(t, Line{State: StatePaid, Method: MethodVPayDive, Paid: 3500}.ProbableRefund())
 }
+
+// An export with no row (wrong VPDive filters) is a recent import, not a
+// purge: only 90 days without an import make the lines « effacées ».
+func TestEmptyImportIsNotAPurge(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	memberstest.Import(t, f.members, "members_valid.xlsx")
+	f.importPayments(t, &Export{})
+
+	b, err := f.store.Block(ctx, f.nameHash("Bernard", "Hugo"))
+	require.NoError(t, err)
+	assert.Equal(t, BlockEmpty, b.State)
+	c, err := f.store.Cancellations(ctx)
+	require.NoError(t, err)
+	assert.True(t, c.Imported)
+	assert.False(t, c.Purged)
+
+	f.clock.t = f.clock.t.AddDate(0, 4, 0)
+	require.NoError(t, f.store.Purge(ctx))
+	b, err = f.store.Block(ctx, f.nameHash("Bernard", "Hugo"))
+	require.NoError(t, err)
+	assert.Equal(t, BlockPurged, b.State, "90 days without an import")
+	c, err = f.store.Cancellations(ctx)
+	require.NoError(t, err)
+	assert.False(t, c.Imported)
+	assert.True(t, c.Purged)
+}

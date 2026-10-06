@@ -230,7 +230,7 @@ func (s *Store) upload(ctx context.Context, captures []Upload) ([]string, error)
 			err = s.Blobs.Put(ctx, key, s.Keys.Seal(c.Data))
 		}
 		if err != nil {
-			s.Logger.WarnContext(ctx, "capture upload failed", "error", err)
+			s.Logger.ErrorContext(ctx, "capture upload failed", "error", err)
 			s.deleteObjects(ctx, keys)
 			return nil, fmt.Errorf("%w: %w", ErrStorage, err)
 		}

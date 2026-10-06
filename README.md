@@ -42,7 +42,7 @@ show on the committee's « Envois » page after 7 days.
 ## Deploy with Docker Compose
 
 ```sh
-docker build -t sos-vpdive:local .
+docker build --build-arg VERSION=$(git describe --tags --always) -t sos-vpdive:local .
 cp .env.example .env                                    # fill every required value
 docker run --rm -it sos-vpdive:local hash-password      # once per account
 mkdir -p admins && cp admins.example.yaml admins/admins.yaml   # paste the hashes
@@ -322,6 +322,46 @@ Screenshots live in an S3-compatible bucket, Cloudflare R2 in production:
   every object it does not recognise once it is older than 24 hours.
 - `backup` covers the database only; screenshots stay in the bucket.
 
+## Usage and errors
+
+Both tools are optional and stay off until configured. An invalid value logs
+a warning at startup and leaves that tool off; the service runs as before.
+
+Umami counts page views. Set `UMAMI_SCRIPT_URL` to the script of your
+instance, then one website ID per site: `UMAMI_WEBSITE_ID` for the members
+site, `UMAMI_ADMIN_WEBSITE_ID` for the committee site. A site without an ID is
+not measured, and without any ID Umami stays off. The instance must live on
+another origin than both sites: on the same origin, the browser would send it
+a tracking page's full address, token included, in the `Referer` header, so
+such a URL is refused.
+
+- A page is reported by its route, never by its address: a tracking page
+  counts as `/suivi/[masqué]`, a request page as `/demandes/[id]`. The
+  previous page and the title are not sent.
+- With Do Not Track on, the browser never loads the script.
+- Umami sets no cookie. The Content Security Policy allows its origin for
+  the script and the page views, and for nothing else.
+- No custom event is sent.
+
+Sentry receives the server's errors, logs and traces when `SENTRY_DSN` is
+set. It stays off with `APP_ENV=development`, even with a DSN.
+
+- Every log line at error level becomes a Sentry issue, on the trace of its
+  request: panics, 5xx answers, failed background jobs, notifications that
+  failed for good. Expected refusals are not reported: invalid input, an
+  address missing from the members list, rate limits, a postponed mail.
+- Before an event leaves, the request (body, cookies, headers, IP address,
+  URL) and the user are removed from it. Its message is the log line's, and
+  logs never hold personal data.
+- Traces are the OpenTelemetry spans, sent over OTLP to the DSN's project,
+  always with the DSN's scheme: the `OTEL_EXPORTER_OTLP_*` variables of
+  another collector do not apply to it.
+- An unreachable Sentry slows no request. Nothing runs in the browser.
+
+Events carry the build version. `make build` takes it from `git describe`;
+for an image, pass `--build-arg VERSION=…` to `docker build`. The startup log
+line shows it too.
+
 ## Data protection
 
 - Personal data (names, emails, imported VPDive fields, request descriptions
@@ -341,7 +381,12 @@ Screenshots live in an S3-compatible bucket, Cloudflare R2 in production:
   next imports bring back what VPDive still holds.
 - A masked line to check is stored as an HMAC of the line, without a name.
 - Logs and traces never contain a token, an email address, a name or a
-  request body; spans are named after route patterns.
+  request body; spans are named after route patterns. Sentry, when
+  configured, receives these logs and traces and nothing more (see Usage and
+  errors).
+- Umami, when configured, receives page views reported by route, without
+  the real address, the previous page or the title, and nothing from a
+  browser with Do Not Track on.
 
 ## Backup and restore
 
@@ -383,6 +428,7 @@ are allowed), and an image build. No image is published.
 | `golang.org/x/image` | WebP decoding: screenshots are re-encoded to drop their metadata, and the standard library reads no WebP |
 | `go.yaml.in/yaml/v3` | YAML content and accounts files (maintained successor of `gopkg.in/yaml.v3`) |
 | `go.opentelemetry.io/otel`, `otel/trace`, `otel/sdk`, `otlptracehttp` | Traces over OTLP/HTTP, exported only when configured |
+| `github.com/getsentry/sentry-go`, `sentry-go/otel`, `sentry-go/slog` | Optional error, log and trace reporting to Sentry: the official SDK, the link between its errors and the existing spans, and its `log/slog` handler |
 | `github.com/dicebear/dicebear-go/v10`, `github.com/dicebear/styles/v10` | Committee avatars generated offline (Voxel Art style, CC0); they pull `github.com/dicebear/schema` and `github.com/santhosh-tekuri/jsonschema/v6` indirectly |
 | `github.com/minio/minio-go/v7` | S3 client for the private screenshot bucket (Cloudflare R2, any S3-compatible store); it pulls `klauspost/compress`, `klauspost/cpuid`, `klauspost/crc32`, `minio/crc64nvme`, `minio/md5-simd`, `philhofer/fwd`, `rs/xid`, `tinylib/msgp`, `zeebo/xxh3` and `gopkg.in/ini.v1` indirectly |
 | `github.com/stretchr/testify` | Tests only |

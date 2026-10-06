@@ -51,7 +51,7 @@ func TestSetupWithoutEndpointExportsNothing(t *testing.T) {
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
 	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "")
 	var logs bytes.Buffer
-	shutdown, err := Setup(context.Background(), NewLogger(&logs, slog.LevelDebug))
+	_, shutdown, err := Setup(context.Background(), NewLogger(&logs, slog.LevelDebug), SentryOptions{})
 	require.NoError(t, err)
 
 	_, span := otel.Tracer("test").Start(context.Background(), "op")
@@ -75,7 +75,7 @@ func TestSetupExportsToConfiguredEndpoint(t *testing.T) {
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", collector.URL)
 	t.Setenv("OTEL_SERVICE_NAME", "")
 
-	shutdown, err := Setup(context.Background(), NewLogger(&bytes.Buffer{}, slog.LevelInfo))
+	_, shutdown, err := Setup(context.Background(), NewLogger(&bytes.Buffer{}, slog.LevelInfo), SentryOptions{})
 	require.NoError(t, err)
 	_, span := otel.Tracer("test").Start(context.Background(), "op")
 	span.End()

@@ -166,6 +166,7 @@ func TestTurnstileOnLogin(t *testing.T) {
 	rec = post()
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
 	assert.Contains(t, rec.Body.String(), "club@example.org")
+	assert.Contains(t, e.logs.String(), `"level":"ERROR","msg":"turnstile unavailable"`, "a 503 reaches Sentry")
 }
 
 func countSessions(t *testing.T, e *testEnv) int {

@@ -269,6 +269,7 @@ func TestPaymentsImportPreviewThenConfirm(t *testing.T) {
 		assert.Contains(t, body, want)
 	}
 	assert.NotContains(t, body, "confirmer_moitie")
+	assert.NotContains(t, body, "Colonnes absentes", "the fixture has every optional column")
 
 	done := e.confirmAs(t, cookie, csrf, "paiements", previewID(t, rec), false)
 	require.Equal(t, http.StatusSeeOther, done.Code, done.Body.String())
@@ -320,7 +321,16 @@ func TestPaymentsImportBelowHalfNeedsSecondConfirmation(t *testing.T) {
 
 	rec := e.uploadAs(t, cookie, csrf, "paiements", paymentsSheet(t, 3))
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	assert.Contains(t, html.UnescapeString(rec.Body.String()), "moins de la moitié des 20 lignes en place")
+	body := html.UnescapeString(rec.Body.String())
+	assert.Contains(t, body, "moins de la moitié des 20 lignes en place")
+	// The sheet has the required columns only: spec §7.3 makes the others
+	// optional, so the preview names what each absence costs instead of refusing.
+	for _, want := range []string{
+		"Colonnes absentes", "« Methode de paiement » : toute sortie annulée passera pour réglée en argent réel",
+		"« Date paiement »", "second « Materiel » : pas de montant de location",
+	} {
+		assert.Contains(t, body, want)
+	}
 	id := previewID(t, rec)
 
 	refused := e.confirmAs(t, cookie, csrf, "paiements", id, false)

@@ -157,10 +157,12 @@ func (s *Server) importsView(ctx context.Context, d *importsData) error {
 type lineStore interface {
 	LastImport(ctx context.Context) (imports.Info, bool, error)
 	Report(ctx context.Context) (payments.Report, error)
+	Expired(info imports.Info) bool
 }
 
 // fillLines fills the latest import of a lines section and the attribution
-// of the lines in place: none after an import means the 90-day purge.
+// of the lines in place: none after an import older than 90 days means the
+// purge, while a recent import may hold no line at all.
 func fillLines(ctx context.Context, sec *linesSection, store lineStore) error {
 	last, ok, err := store.LastImport(ctx)
 	if err != nil || !ok {
@@ -168,7 +170,7 @@ func fillLines(ctx context.Context, sec *linesSection, store lineStore) error {
 	}
 	sec.Last = &last
 	sec.Report, err = store.Report(ctx)
-	sec.Purged = sec.Report == payments.Report{}
+	sec.Purged = sec.Report == payments.Report{} && store.Expired(last)
 	return err
 }
 

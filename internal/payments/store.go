@@ -14,14 +14,15 @@ import (
 type Preview struct {
 	imports.Meta
 
-	Created       time.Time // workbook creation date, indicative
-	Lines         int
-	Current       int // lines in place
-	Skipped       int
-	ToCheck       int // partial payments (spec §7.7)
-	UnknownStates map[string]int
-	PeriodFrom    time.Time
-	PeriodTo      time.Time
+	Created        time.Time // workbook creation date, indicative
+	Lines          int
+	Current        int // lines in place
+	Skipped        int
+	ToCheck        int // partial payments (spec §7.7)
+	UnknownStates  map[string]int
+	MissingColumns []string
+	PeriodFrom     time.Time
+	PeriodTo       time.Time
 
 	lines []Line
 }
@@ -72,16 +73,17 @@ func (s *Store) NewPreview(ctx context.Context, username string, exp *Export) (*
 		return nil, err
 	}
 	p := &Preview{
-		Meta:          meta,
-		Created:       exp.Created,
-		Lines:         len(exp.Lines),
-		Current:       current,
-		Skipped:       exp.Skipped,
-		ToCheck:       exp.ToCheck(),
-		UnknownStates: exp.UnknownStates,
-		PeriodFrom:    exp.PeriodFrom,
-		PeriodTo:      exp.PeriodTo,
-		lines:         exp.Lines,
+		Meta:           meta,
+		Created:        exp.Created,
+		Lines:          len(exp.Lines),
+		Current:        current,
+		Skipped:        exp.Skipped,
+		ToCheck:        exp.ToCheck(),
+		UnknownStates:  exp.UnknownStates,
+		MissingColumns: exp.MissingColumns,
+		PeriodFrom:     exp.PeriodFrom,
+		PeriodTo:       exp.PeriodTo,
+		lines:          exp.Lines,
 	}
 	if err := s.previews.Put(p); err != nil {
 		return nil, err

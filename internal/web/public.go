@@ -111,6 +111,7 @@ func (s *Server) submit(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	case !open:
+		s.logger.ErrorContext(ctx, "form closed, no members list")
 		d.Open = false
 		s.renderForm(w, r, http.StatusServiceUnavailable, d, nil)
 		return
