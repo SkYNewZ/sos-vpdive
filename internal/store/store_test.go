@@ -51,8 +51,8 @@ func TestOpenCreatesSchemaAndIsIdempotent(t *testing.T) {
 	}
 	require.NoError(t, rows.Err())
 	assert.Equal(t, []string{
-		"attachments", "counters", "deflections", "events", "imports", "members", "messages",
-		"meta", "outbox", "payment_lines", "push_subscriptions", "sessions", "stats_monthly", "tickets",
+		"attachments", "counters", "deflections", "dismissed_checks", "events", "imports", "members", "messages",
+		"meta", "online_payment_lines", "outbox", "payment_lines", "push_subscriptions", "sessions", "stats_monthly", "tickets",
 	}, tables)
 
 	var mode string
@@ -65,6 +65,86 @@ func TestOpenCreatesSchemaAndIsIdempotent(t *testing.T) {
 	again, err := Open(ctx, path)
 	require.NoError(t, err)
 	require.NoError(t, again.Close())
+}
+
+// TestMigration6KeepsImportsAndPaymentLines migrates a version-5 database
+// holding imports and payment lines: imports is rebuilt under the lines that
+// point at it.
+func TestMigration6KeepsImportsAndPaymentLines(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), FileName)
+	old, err := sql.Open("sqlite", path+dsnParams)
+	require.NoError(t, err)
+	entries, err := migrations.ReadDir("migrations")
+	require.NoError(t, err)
+	require.NoError(t, Tx(ctx, old, "test.v5", func(ctx context.Context, tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `CREATE TABLE meta (key TEXT PRIMARY KEY, value BLOB NOT NULL)`); err != nil {
+			return err
+		}
+		for _, e := range entries[:5] {
+			script, err := migrations.ReadFile("migrations/" + e.Name())
+			if err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, string(script)); err != nil {
+				return err
+			}
+		}
+		_, err := tx.ExecContext(ctx, `INSERT INTO meta (key, value) VALUES ('schema_version', CAST('5' AS BLOB));
+			INSERT INTO imports (id, kind, exported_at, imported_at, imported_by, row_count, skipped_count)
+			VALUES (3, 'members', 100, 200, 'alice', 2, 0), (7, 'payments', NULL, 300, 'bob', 2, 1);
+			INSERT INTO payment_lines (import_id, name_hash, data) VALUES (7, x'01', x'02'), (7, x'03', x'04');`)
+		return err
+	}))
+	require.NoError(t, old.Close())
+
+	db, err := Open(ctx, path)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, db.Close()) })
+
+	var version []byte
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version))
+	assert.Equal(t, "6", string(version))
+	type journal struct {
+		id                  int64
+		kind, by            string
+		exported            sql.NullInt64
+		imported, rows, skp int
+		hash                []byte
+	}
+	rows, err := db.QueryContext(ctx, `SELECT id, kind, imported_by, exported_at, imported_at, row_count, skipped_count, file_hash FROM imports ORDER BY id`)
+	got, err := Collect(rows, err, func(rows *sql.Rows) (j journal, err error) {
+		err = rows.Scan(&j.id, &j.kind, &j.by, &j.exported, &j.imported, &j.rows, &j.skp, &j.hash)
+		return j, err
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []journal{
+		{id: 3, kind: "members", by: "alice", exported: sql.NullInt64{Int64: 100, Valid: true}, imported: 200, rows: 2},
+		{id: 7, kind: "payments", by: "bob", imported: 300, rows: 2, skp: 1},
+	}, got, "ids and values kept, no file hash before lot 7")
+	var lines int
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT COUNT(*) FROM payment_lines WHERE import_id = 7`).Scan(&lines))
+	assert.Equal(t, 2, lines)
+	fkRows, err := db.QueryContext(ctx, `PRAGMA foreign_key_check`)
+	violations, err := Collect(fkRows, err, func(rows *sql.Rows) (string, error) {
+		var table string
+		var rowid, parent, fkid sql.NullString
+		return table, rows.Scan(&table, &rowid, &parent, &fkid)
+	})
+	require.NoError(t, err)
+	assert.Empty(t, violations)
+
+	_, err = db.ExecContext(ctx, `INSERT INTO imports (kind, imported_at, imported_by, row_count, skipped_count, file_hash)
+		VALUES ('vpaydive', 400, 'script', 1, 0, x'05')`)
+	require.NoError(t, err, "the new kind is accepted")
+	_, err = db.ExecContext(ctx, `INSERT INTO imports (kind, imported_at, imported_by, row_count, skipped_count) VALUES ('other', 0, 'x', 0, 0)`)
+	require.Error(t, err, "the kind is still checked")
+	_, err = db.ExecContext(ctx, `INSERT INTO payment_lines (import_id, name_hash, data) VALUES (7, x'05', x'06')`)
+	require.NoError(t, err, "payment lines point at the rebuilt imports")
+	_, err = db.ExecContext(ctx, `INSERT INTO payment_lines (import_id, name_hash, data) VALUES (99, x'01', x'02')`)
+	require.Error(t, err, "and the reference is still enforced")
+	_, err = db.ExecContext(ctx, `INSERT INTO online_payment_lines (import_id, name_hash, data) VALUES (99, x'01', x'02')`)
+	require.Error(t, err, "so do Mollie lines")
 }
 
 func TestOpenRefusesNewerSchema(t *testing.T) {
