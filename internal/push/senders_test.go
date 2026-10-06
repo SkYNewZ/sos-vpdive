@@ -82,6 +82,24 @@ func TestWebPushSendsToEveryBrowserAndDropsTheGoneOnes(t *testing.T) {
 	assert.Contains(t, logs.String(), "subscription_id=")
 }
 
+func TestWebPushDropsASubscriptionOfARemovedHost(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	ps := fanOut(t, map[string]int{"/ok": http.StatusCreated})
+	sender := NewWebPush(newTestClient(newTestVAPID(t), ps), s.Store, slog.New(slog.DiscardHandler))
+	kept, _ := testSubscription(t, ps.URL+"/ok")
+	require.NoError(t, s.Save(ctx, s.session(t, "kept", "alice"), "alice", kept))
+	removed, _ := testSubscription(t, "https://push.removed.example/wpush/abc") // host no longer in PUSH_ALLOWED_HOSTS
+	require.NoError(t, s.Save(ctx, s.session(t, "removed", "alice"), "alice", removed))
+
+	require.NoError(t, sender.Send(ctx, alert()))
+	assert.Equal(t, 1, ps.count())
+	subs, err := s.List(ctx)
+	require.NoError(t, err)
+	require.Len(t, subs, 1, "a refused endpoint will be refused at every alert: deleted")
+	assert.Equal(t, kept.Endpoint, subs[0].Endpoint)
+}
+
 func TestWebPushOutcomeWithoutDelivery(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

@@ -25,8 +25,8 @@ func NewWebPush(client *Client, store *Store, logger *slog.Logger) *WebPush {
 }
 
 // Send pushes m to the subscriptions of the moment. A subscription the push
-// service no longer knows is deleted; other failures are logged. The alert
-// fails only when no browser got it.
+// service no longer knows, or whose host left PUSH_ALLOWED_HOSTS, is deleted;
+// other failures are logged. The alert fails only when no browser got it.
 func (w *WebPush) Send(ctx context.Context, m mail.Message) error {
 	payload, err := json.Marshal(struct {
 		Title string `json:"title"`
@@ -47,8 +47,8 @@ func (w *WebPush) Send(ctx context.Context, m mail.Message) error {
 		case err == nil:
 			delivered++
 			err = w.store.Touch(ctx, sub.ID)
-		case errors.Is(err, errGone):
-			w.logger.InfoContext(ctx, "push subscription gone, deleted", "subscription_id", sub.ID)
+		case errors.Is(err, errGone), errors.Is(err, errEndpointRefused):
+			w.logger.InfoContext(ctx, "push subscription unusable, deleted", "subscription_id", sub.ID, "error", err)
 			err = w.store.Delete(ctx, sub.ID)
 		default:
 			w.logger.WarnContext(ctx, "push alert not delivered", "subscription_id", sub.ID, "error", err)
