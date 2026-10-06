@@ -121,7 +121,7 @@ func (c *Client) Send(ctx context.Context, sub Subscription, payload []byte) err
 	resp, err := c.http.Do(req)
 	if err != nil {
 		telemetry.Fail(span, "push_unavailable")
-		return fmt.Errorf("push service unreachable: %w", err)
+		return fmt.Errorf("push service unreachable: %w", unwrapURL(err))
 	}
 	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
