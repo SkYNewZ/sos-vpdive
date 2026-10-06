@@ -121,28 +121,6 @@ func (s *Store) List(ctx context.Context) ([]Subscription, error) {
 	return out, nil
 }
 
-func (s *Store) open(id int64, endpoint, sealed []byte) (sub Subscription, err error) {
-	sub.ID = id
-	if sub.Endpoint, err = s.keys.OpenString(endpoint); err != nil {
-		return sub, fmt.Errorf("endpoint: %w", err)
-	}
-	raw, err := s.keys.Open(sealed)
-	if err != nil {
-		return sub, fmt.Errorf("keys: %w", err)
-	}
-	var k sealedKeys
-	if err = json.Unmarshal(raw, &k); err != nil {
-		return sub, fmt.Errorf("keys: %w", err)
-	}
-	if sub.P256DH, err = base64.RawURLEncoding.DecodeString(k.P256DH); err != nil {
-		return sub, fmt.Errorf("keys: %w", err)
-	}
-	if sub.Auth, err = base64.RawURLEncoding.DecodeString(k.Auth); err != nil {
-		return sub, fmt.Errorf("keys: %w", err)
-	}
-	return sub, nil
-}
-
 // Delete removes a subscription the push service no longer knows.
 func (s *Store) Delete(ctx context.Context, id int64) error {
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM push_subscriptions WHERE id = ?`, id); err != nil {
@@ -166,4 +144,26 @@ func (s *Store) Purge(ctx context.Context) error {
 		return fmt.Errorf("purge push subscriptions: %w", err)
 	}
 	return nil
+}
+
+func (s *Store) open(id int64, endpoint, sealed []byte) (sub Subscription, err error) {
+	sub.ID = id
+	if sub.Endpoint, err = s.keys.OpenString(endpoint); err != nil {
+		return sub, fmt.Errorf("endpoint: %w", err)
+	}
+	raw, err := s.keys.Open(sealed)
+	if err != nil {
+		return sub, fmt.Errorf("keys: %w", err)
+	}
+	var k sealedKeys
+	if err = json.Unmarshal(raw, &k); err != nil {
+		return sub, fmt.Errorf("keys: %w", err)
+	}
+	if sub.P256DH, err = base64.RawURLEncoding.DecodeString(k.P256DH); err != nil {
+		return sub, fmt.Errorf("keys: %w", err)
+	}
+	if sub.Auth, err = base64.RawURLEncoding.DecodeString(k.Auth); err != nil {
+		return sub, fmt.Errorf("keys: %w", err)
+	}
+	return sub, nil
 }
