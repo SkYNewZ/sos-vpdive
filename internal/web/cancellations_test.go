@@ -92,7 +92,7 @@ func TestEmptyPaymentsImportIsNotAPurge(t *testing.T) {
 	paymentstest.ImportBytes(t, e.deps.Payments, paymentsSheet(t, 0))
 
 	ticket := e.openTicket(t, cookie, hugo.ID).body
-	assert.Contains(t, ticket, "Aucune ligne pour ce membre dans l'export.")
+	assert.Contains(t, ticket, "Aucune ligne de paiement en place pour ce membre.", "true after an erasure too")
 	for _, path := range []string{"/annulations", "/imports"} {
 		rec := e.do(t, http.MethodGet, adminHost, path, nil, withCookie(cookie))
 		require.Equal(t, http.StatusOK, rec.Code)

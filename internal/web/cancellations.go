@@ -15,11 +15,11 @@ type cancellationsData struct {
 }
 
 // outingView is an outing with its age, counted from its date: the date of
-// the cancellation is not in the export. Age is nil when the date is unknown.
+// the cancellation is not in the export.
 type outingView struct {
 	payments.Outing
 
-	Age *ageView
+	Age ageView
 }
 
 func (s *Server) cancellationsPage(w http.ResponseWriter, r *http.Request) {
@@ -31,9 +31,9 @@ func (s *Server) cancellationsPage(w http.ResponseWriter, r *http.Request) {
 	d := cancellationsData{Cancellations: c, Rows: make([]outingView, len(c.Outings))}
 	for i, o := range c.Outings {
 		d.Rows[i].Outing = o
+		d.Rows[i].Age = ageView{Text: "inconnue", Level: ageNeutral}
 		if !o.Starts.IsZero() {
-			age := s.age(o.Starts, time.Time{})
-			d.Rows[i].Age = &age
+			d.Rows[i].Age = s.age(o.Starts, time.Time{})
 		}
 	}
 	p, err := s.adminPage(r, "Sorties annulées")

@@ -125,7 +125,7 @@
 {{template "paymentsImport" .Import}}
 {{if eq .State "no_member"}}<p class="mt-3">Le demandeur n'est pas dans la liste des membres : ses paiements ne peuvent pas être rattachés.</p>
 {{else if eq .State "ambiguous"}}<p class="mt-3">Plusieurs membres portent ce nom : aucune ligne n'est affichée. Cherche dans VPDive.</p>
-{{else if eq .State "empty"}}<p class="mt-3">Aucune ligne pour ce membre dans l'export.</p>
+{{else if eq .State "empty"}}<p class="mt-3">Aucune ligne de paiement en place pour ce membre.</p>
 {{else}}
 {{with .Balances}}<h3 class="mt-4 font-semibold">Soldes de carnet et de formation</h3>
 <div class="overflow-x-auto"><table class="table mt-2 max-sm:[&_:is(th,td)]:px-1">
