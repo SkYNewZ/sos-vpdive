@@ -23,13 +23,13 @@
 {{end}}
 {{end}}
 
-{{define "checks"}}<div class="overflow-x-auto"><table class="table mt-2 max-sm:[&_:is(th,td)]:px-1">
-<thead><tr><th scope="col">Personne</th><th scope="col">Date</th><th scope="col" class="hidden md:table-cell">Produit</th><th scope="col" class="text-right">Montant</th><th scope="col">Signal</th><th scope="col">Ancienneté</th><th scope="col"><span class="sr-only">Masquage</span></th></tr></thead>
+{{define "checks"}}<div class="overflow-x-auto"><table class="table mt-2 max-md:[&_thead]:hidden max-md:[&_tr]:block max-md:[&_tr]:py-2 max-md:[&_td]:block max-md:[&_td]:px-0 max-md:[&_td]:py-0.5">
+<thead><tr><th scope="col">Personne</th><th scope="col">Date</th><th scope="col">Produit</th><th scope="col" class="text-right">Montant</th><th scope="col">Signal</th><th scope="col">Ancienneté</th><th scope="col"><span class="sr-only">Masquage</span></th></tr></thead>
 <tbody>{{range .Rows}}<tr>
 <td class="break-words">{{with .Person.Name}}{{.}}{{else}}absent de la liste des membres{{end}}{{if .Person.Shared}} <span class="text-sm">(plusieurs membres portent ce nom)</span>{{end}}</td>
 <td class="whitespace-nowrap">{{formatTime .Date}}</td>
-<td class="hidden break-words md:table-cell">{{.Product}}{{with .Service}} · {{.}}{{end}}</td>
-<td class="text-right">{{if eq .Signal "partial"}}{{.Amount.Euros}} payés, prix {{.UnitPrice.Euros}}{{else}}<span class="whitespace-nowrap">{{.Amount.Euros}}</span>{{end}}</td>
+<td class="break-words">{{.Product}}{{with .Service}} · {{.}}{{end}}</td>
+<td class="md:text-right">{{if eq .Signal "partial"}}{{.Amount.Euros}} payés, prix {{.UnitPrice.Euros}}{{else}}<span class="whitespace-nowrap">{{.Amount.Euros}}</span>{{end}}</td>
 <td>{{if eq .Signal "partial"}}paiement partiel{{else}}encaissé par Mollie, non soldé dans VPDive{{end}}</td>
 <td class="whitespace-nowrap">{{template "age" .Age}}</td>
 <td>{{with .Dismissal}}masquée par {{author .By}} le {{formatDate .At}}{{else}}<form method="post" action="/anomalies/masquer">
