@@ -19,9 +19,11 @@ import (
 
 	"github.com/SkYNewZ/sos-vpdive/internal/admins"
 	"github.com/SkYNewZ/sos-vpdive/internal/config"
+	"github.com/SkYNewZ/sos-vpdive/internal/kb"
 	"github.com/SkYNewZ/sos-vpdive/internal/mail"
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
+	"github.com/SkYNewZ/sos-vpdive/internal/suggest"
 	"github.com/SkYNewZ/sos-vpdive/internal/tickets"
 )
 
@@ -35,11 +37,13 @@ type Deps struct {
 	Tickets *tickets.Store
 	Outbox  *mail.Outbox
 	Broker  *Broker // shared with tickets.Deps.OnChange
+	KB      *kb.Base
 	Content fs.FS
 	Logger  *slog.Logger
 	Now     func() time.Time
 
-	Turnstile *Turnstile // nil in development without keys
+	Turnstile *Turnstile      // nil in development without keys
+	Suggest   *suggest.Client // nil without LLM_API_KEY: no screen 2
 }
 
 // Server routes requests to the members or the committee site by host.
@@ -52,7 +56,10 @@ type Server struct {
 	tickets   *tickets.Store
 	outbox    *mail.Outbox
 	broker    *Broker
-	keepAlive time.Duration // event stream keepalive and session check, shortened by tests
+	kb        *kb.Base
+	suggest   *suggest.Client
+	fiches    []suggest.Fiche // what the model reads of the knowledge base
+	keepAlive time.Duration   // event stream keepalive and session check, shortened by tests
 	logger    *slog.Logger
 	now       func() time.Time
 	paris     *time.Location
@@ -94,7 +101,7 @@ func New(d Deps) (*Server, error) {
 	}
 	s := &Server{
 		cfg: d.Config, db: d.DB, keys: d.Keys, members: d.Members, admins: d.Admins,
-		tickets: d.Tickets, outbox: d.Outbox, broker: d.Broker,
+		tickets: d.Tickets, outbox: d.Outbox, broker: d.Broker, kb: d.KB, suggest: d.Suggest,
 		keepAlive: keepAliveInterval,
 		logger:    d.Logger, now: d.Now, paris: paris, tracer: otel.Tracer(tracerName),
 		turnstile: d.Turnstile,
@@ -103,6 +110,9 @@ func New(d Deps) (*Server, error) {
 	}
 	if s.dummyHash, err = dummyHash(); err != nil {
 		return nil, err
+	}
+	for _, f := range d.KB.Fiches {
+		s.fiches = append(s.fiches, suggest.Fiche{ID: f.ID, Title: f.Title, Answer: f.AnswerText})
 	}
 	funcs := template.FuncMap{
 		"static": s.assets.URL, "formatTime": s.formatTime, "formatDate": s.formatDate, "author": s.tickets.AccountName,
@@ -147,6 +157,10 @@ func (s *Server) publicRoutes() *http.ServeMux {
 	s.commonRoutes(mux)
 	s.handle(mux, "GET /{$}", s.formPage)
 	s.handle(mux, "POST /demandes", s.submit)
+	s.handle(mux, "POST /demandes/confirmer", s.confirmDraft)
+	s.handle(mux, "POST /demandes/abandonner", s.abandonDraft)
+	s.handle(mux, "POST /demandes/lien", s.resendDraftLink)
+	s.handle(mux, "GET /demandes/abandonnee", s.solvedPage)
 	s.handle(mux, "GET /demandes/envoyee", s.sentPage)
 	s.handle(mux, "GET /suivi/{jeton}", s.trackingPage)
 	s.handle(mux, "POST /suivi/{jeton}/reponse", s.memberReply)

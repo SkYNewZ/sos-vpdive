@@ -30,6 +30,7 @@ import (
 	"github.com/SkYNewZ/sos-vpdive/internal/admins"
 	"github.com/SkYNewZ/sos-vpdive/internal/blobs"
 	"github.com/SkYNewZ/sos-vpdive/internal/config"
+	"github.com/SkYNewZ/sos-vpdive/internal/kb"
 	"github.com/SkYNewZ/sos-vpdive/internal/mail"
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
 	"github.com/SkYNewZ/sos-vpdive/internal/members/memberstest"
@@ -174,6 +175,10 @@ func newTestEnv(t *testing.T, opts ...func(*Deps)) *testEnv {
 	}
 	catalog, err := tickets.LoadCatalog(sosvpdive.Content)
 	require.NoError(t, err)
+	links, err := VPDiveLinkKeys(sosvpdive.Content)
+	require.NoError(t, err)
+	base, err := kb.Load(sosvpdive.Content, catalog.Has, func(k string) bool { return links[k] })
+	require.NoError(t, err)
 	blobStore, err := blobs.NewDir(filepath.Join(dir, "captures"))
 	require.NoError(t, err)
 	memberStore := members.NewStore(db, keys, clock.now)
@@ -186,7 +191,7 @@ func newTestEnv(t *testing.T, opts ...func(*Deps)) *testEnv {
 	})
 	deps := Deps{
 		Config: cfg, DB: db, Keys: keys, Members: memberStore, Admins: registry,
-		Tickets: ticketStore, Outbox: outbox, Broker: broker,
+		Tickets: ticketStore, Outbox: outbox, Broker: broker, KB: base,
 		Content: sosvpdive.Content, Logger: logger, Now: clock.now,
 	}
 	for _, opt := range opts {

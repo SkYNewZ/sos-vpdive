@@ -1,0 +1,26 @@
+{{define "main"}}
+{{$d := .Data}}
+<h1 class="text-2xl font-bold text-primary">Avant d'envoyer</h1>
+<p class="mt-4">Ces fiches répondent peut-être à ta question. Si l'une d'elles règle ton problème, tu n'as pas besoin d'envoyer ta demande.</p>
+{{if $d.OpenRequest}}
+<div class="mt-6 border border-base-300 p-4">
+<p class="font-semibold">Tu as déjà une demande en cours.</p>
+<p class="mt-2">Tu peux envoyer celle-ci quand même. Si tu as perdu le lien de suivi de la première, on te le renvoie par mail.</p>
+<form method="post" action="/demandes/lien" class="mt-3">
+<input type="hidden" name="brouillon" value="{{$d.Token}}">
+<button class="btn btn-outline min-h-11" type="submit">Recevoir de nouveau le lien par mail</button>
+</form>
+</div>
+{{end}}
+<ol class="mt-6 flex flex-col gap-6">
+{{range $d.Fiches}}<li class="border-l-4 border-primary pl-4">
+<h2 class="text-xl font-semibold">{{.Title}}</h2>
+<div class="mt-2 flex flex-col gap-2">{{template "blocks" .Answer}}</div>
+</li>
+{{end}}</ol>
+<form method="post" action="/demandes/abandonner" class="mt-8 flex flex-col gap-3 sm:flex-row">
+<input type="hidden" name="brouillon" value="{{$d.Token}}">
+<button class="btn btn-primary min-h-11" type="submit">Ça règle mon problème</button>
+<button class="btn btn-outline min-h-11" type="submit" formaction="/demandes/confirmer">Envoyer ma demande quand même</button>
+</form>
+{{end}}

@@ -27,6 +27,7 @@ import (
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 	"github.com/SkYNewZ/sos-vpdive/internal/store"
+	"github.com/SkYNewZ/sos-vpdive/internal/suggest"
 	"github.com/SkYNewZ/sos-vpdive/internal/telemetry"
 	"github.com/SkYNewZ/sos-vpdive/internal/tickets"
 	"github.com/SkYNewZ/sos-vpdive/internal/web"
@@ -110,7 +111,7 @@ func setup(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*app, 
 	a.web, err = web.New(web.Deps{
 		Config: cfg, DB: db, Keys: keys, Members: memberStore, Admins: registry,
 		Content: sosvpdive.Content, Logger: logger, Now: time.Now, Turnstile: turnstile,
-		Tickets: ticketStore, Outbox: outbox, Broker: broker,
+		Tickets: ticketStore, Outbox: outbox, Broker: broker, KB: base, Suggest: suggest.New(cfg.LLM),
 	})
 	if err != nil {
 		return fail(err)

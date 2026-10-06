@@ -13,8 +13,9 @@ import (
 	"github.com/SkYNewZ/sos-vpdive/internal/tickets"
 )
 
-// Member form (spec §3.1–3.3, §11.3). Without the model there is no screen
-// 2: a valid request is stored as a draft and confirmed at once.
+// Member form (spec §3.1–3.3, §11.3). A valid request is stored as a draft;
+// when the model matches it with fiches, screen 2 shows them, otherwise the
+// request is confirmed at once.
 const (
 	turnstileRequest = "demande"
 	honeypotField    = "site_web"
@@ -35,6 +36,7 @@ type formData struct {
 	Values       url.Values
 	Errors       map[string]string
 	CapturesLost bool // screenshots were sent: a browser never refills a file input
+	Suggestions  bool // the description goes to the model (spec §11.7)
 	FAQ          vpdiveLink
 	Tarifs       vpdiveLink
 }
@@ -72,6 +74,7 @@ func (s *Server) renderForm(w http.ResponseWriter, r *http.Request, status int, 
 	p := s.newPage(r, "Demande d'aide")
 	d.Categories = s.tickets.Catalog.Public()
 	d.FAQ, d.Tarifs = s.vpdive["faq"], s.vpdive["tarifs"]
+	d.Suggestions = s.suggest != nil
 	if s.turnstile != nil {
 		d.SiteKey = s.turnstile.SiteKey
 	}
@@ -120,14 +123,14 @@ func (s *Server) submit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// A resend of the same form (lost response, double tap) finds the request
-	// already filed, whatever its new anti-robot token.
+	// already filed or its screen 2, whatever its new anti-robot token.
 	out, found, err := s.tickets.Resubmitted(ctx, d.FormKey)
 	if err != nil {
 		s.serverError(w, r, err)
 		return
 	}
 	if found {
-		redirectSent(w, r, out.Ref)
+		s.filed(w, r, out)
 		return
 	}
 	sub := s.readSubmission(&d)
@@ -140,7 +143,7 @@ func (s *Server) submit(w http.ResponseWriter, r *http.Request) {
 		// A duplicate POST can land while the first is still being filed and
 		// count against the limit: the request exists, so confirm it.
 		if out, found, err := s.tickets.Resubmitted(ctx, d.FormKey); err == nil && found {
-			redirectSent(w, r, out.Ref)
+			s.filed(w, r, out)
 			return
 		}
 		s.renderForm(w, r, http.StatusTooManyRequests, d, &notice{Kind: noticeError,
@@ -163,7 +166,7 @@ func (s *Server) submit(w http.ResponseWriter, r *http.Request) {
 		s.renderForm(w, r, http.StatusUnprocessableEntity, d, nil)
 		return
 	}
-	out, err = s.tickets.Submit(ctx, sub, nil)
+	out, err = s.tickets.Submit(ctx, sub, s.chooser(sub))
 	switch {
 	case errors.Is(err, tickets.ErrStorage):
 		s.renderForm(w, r, http.StatusServiceUnavailable, d, &notice{Kind: noticeError,
@@ -171,8 +174,18 @@ func (s *Server) submit(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		s.serverError(w, r, err)
 	default:
-		redirectSent(w, r, out.Ref)
+		s.filed(w, r, out)
 	}
+}
+
+// filed answers a sent form: the confirmation, or screen 2 behind its draft
+// token. Screen 2 is the response itself: the token never goes into a URL.
+func (s *Server) filed(w http.ResponseWriter, r *http.Request, out tickets.Outcome) {
+	if out.Token == "" {
+		redirectSent(w, r, out.Ref)
+		return
+	}
+	s.renderBefore(w, r, http.StatusOK, out.Token, nil)
 }
 
 // readSubmission checks the typed fields. Problems land in d.Errors, keyed
