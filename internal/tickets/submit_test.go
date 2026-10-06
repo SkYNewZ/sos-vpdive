@@ -220,3 +220,52 @@ func TestEveryMailTemplateRenders(t *testing.T) {
 		assert.NotContains(t, subject(ev, d.Ref), "Léa", "subjects never carry member text")
 	}
 }
+
+// alertsOf keeps the committee alerts of a batch of sent notifications.
+func alertsOf(msgs []mail.Message) []mail.Message {
+	var out []mail.Message
+	for _, m := range msgs {
+		if m.Channel != mail.ChannelEmail {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+func TestCommitteeAlertsCarryTheRefAndCategoryOnly(t *testing.T) {
+	e := newTestStore(t, func(d *Deps) { d.Alerts = []mail.Channel{mail.ChannelPushover, mail.ChannelWebPush} })
+	ctx := context.Background()
+	id, _ := e.submit(t)
+	label := e.store.Catalog.CategoryLabel("carnet")
+	msgs := e.mails(t)
+	assert.Len(t, msgs, 4, "two mails, two alerts")
+	alerts := alertsOf(msgs)
+	require.Len(t, alerts, 2)
+	assert.ElementsMatch(t, []mail.Channel{mail.ChannelPushover, mail.ChannelWebPush}, []mail.Channel{alerts[0].Channel, alerts[1].Channel})
+	for _, m := range alerts {
+		assert.Equal(t, mail.Message{Channel: m.Channel, TicketID: id, Subject: "Nouvelle demande", Text: "CPP-0001 · " + label}, m)
+	}
+
+	require.NoError(t, e.store.MemberReply(ctx, id, "Léa Martin : voici le détail de ma plongée.", nil))
+	alerts = alertsOf(e.mails(t))
+	require.Len(t, alerts, 2)
+	for _, m := range alerts {
+		assert.Equal(t, "Réponse de l'adhérent", m.Subject)
+		assert.Equal(t, "CPP-0001 · "+label, m.Text, "never a name nor the member's text")
+	}
+
+	require.NoError(t, e.apply(t, id, Command{Action: ActionClose, Actor: "alice"}))
+	e.mails(t)
+	require.NoError(t, e.store.MemberReply(ctx, id, "Finalement ça bloque encore.", nil))
+	assert.Len(t, alertsOf(e.mails(t)), 2, "a reply that reopens the request alerts too")
+
+	require.NoError(t, e.apply(t, id, Command{Action: ActionReassign, Actor: "alice", Assignee: "bob"}))
+	e.mails(t)
+	e.mu.Lock()
+	delete(e.accounts, "bob")
+	e.mu.Unlock()
+	require.NoError(t, e.store.ReleaseMissing(ctx, func(u string) bool { _, ok := e.account(u); return ok }))
+	msgs = e.mails(t)
+	assert.Len(t, msgs, 1, "a release is told by mail only")
+	assert.Empty(t, alertsOf(msgs))
+}

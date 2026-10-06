@@ -77,12 +77,33 @@ func (s *Store) memberMail(ctx context.Context, tx *sql.Tx, t ticketRow, message
 	return s.queue(ctx, tx, mail.Mail{TicketID: t.id, MessageID: messageID, Event: ev, To: t.email}, d)
 }
 
+// alertTitles are the committee alerts that reach phones besides the club
+// mail (spec §6, §9.6): a new request and a member reply.
+var alertTitles = map[mail.Event]string{
+	mail.EventNewTicket:     "Nouvelle demande",
+	mail.EventMemberReplied: "Réponse de l'adhérent",
+}
+
 // clubMail queues a mail to the club mailbox, with the admin link and never
-// the secret tracking link (spec §6).
+// the secret tracking link (spec §6), then the alerts of the event on every
+// configured channel: the reference and the category, never a name or text.
 func (s *Store) clubMail(ctx context.Context, tx *sql.Tx, t ticketRow, messageID int64, ev mail.Event, d mailData) error {
 	d.Ref, d.Category, d.Link = t.ref, s.Catalog.CategoryLabel(t.category), s.adminLink(t.id)
 	d.Name = strings.TrimSpace(t.firstName + " " + t.lastName)
-	return s.queue(ctx, tx, mail.Mail{TicketID: t.id, MessageID: messageID, Event: ev, To: s.ClubEmail}, d)
+	if err := s.queue(ctx, tx, mail.Mail{TicketID: t.id, MessageID: messageID, Event: ev, To: s.ClubEmail}, d); err != nil {
+		return err
+	}
+	title, ok := alertTitles[ev]
+	if !ok {
+		return nil
+	}
+	for _, ch := range s.Alerts {
+		alert := mail.Mail{TicketID: t.id, MessageID: messageID, Event: ev, Channel: ch, Subject: title, Text: t.ref + " · " + d.Category}
+		if err := s.Outbox.Enqueue(ctx, tx, alert); err != nil {
+			return fmt.Errorf("queue %s alert: %w", ch, err)
+		}
+	}
+	return nil
 }
 
 func (s *Store) queue(ctx context.Context, tx *sql.Tx, m mail.Mail, d mailData) error {

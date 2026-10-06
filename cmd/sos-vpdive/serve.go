@@ -24,6 +24,7 @@ import (
 	"github.com/SkYNewZ/sos-vpdive/internal/config"
 	"github.com/SkYNewZ/sos-vpdive/internal/mail"
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
+	"github.com/SkYNewZ/sos-vpdive/internal/push"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 	"github.com/SkYNewZ/sos-vpdive/internal/store"
 	"github.com/SkYNewZ/sos-vpdive/internal/telemetry"
@@ -47,6 +48,8 @@ type app struct {
 	members *members.Store
 	tickets *tickets.Store
 	outbox  *mail.Outbox
+	senders mail.Router // one sender per configured channel
+	push    *push.Store
 	broker  *web.Broker
 	web     *web.Server
 }
@@ -91,14 +94,19 @@ func setup(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*app, 
 	}
 	memberStore := members.NewStore(db, keys, time.Now)
 	outbox := mail.NewOutbox(db, keys, time.Now)
+	pushStore := push.NewStore(db, keys, time.Now)
+	senders, alerts := alertSenders(cfg, registry, pushStore, logger)
 	broker := web.NewBroker()
 	ticketStore := tickets.NewStore(tickets.Deps{
 		DB: db, Keys: keys, Catalog: catalog, Members: memberStore, Outbox: outbox, Blobs: captures,
 		Account: registry.Get, BaseURL: cfg.BaseURL, AdminBaseURL: cfg.AdminBaseURL,
-		ClubEmail: cfg.NotifyEmail.Address, RetentionDays: cfg.RetentionDays,
+		ClubEmail: cfg.NotifyEmail.Address, Alerts: alerts, RetentionDays: cfg.RetentionDays,
 		Now: time.Now, Logger: logger, OnChange: broker.Publish,
 	})
-	a := &app{logger: logger, db: db, admins: registry, members: memberStore, tickets: ticketStore, outbox: outbox, broker: broker}
+	a := &app{
+		logger: logger, db: db, admins: registry, members: memberStore, tickets: ticketStore, outbox: outbox,
+		senders: senders, push: pushStore, broker: broker,
+	}
 	if err := ticketStore.ReleaseMissing(ctx, a.knownAccount); err != nil {
 		return fail(fmt.Errorf("release requests of removed accounts: %w", err))
 	}
@@ -115,6 +123,24 @@ func setup(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*app, 
 		return fail(err)
 	}
 	return a, nil
+}
+
+// alertSenders returns the outbox senders and the alert channels that the
+// configuration turns on: the mail always, Pushover with its token, Web Push
+// with the VAPID keys (spec §6, §9.6).
+func alertSenders(cfg *config.Config, registry *admins.Registry, subs *push.Store, logger *slog.Logger) (mail.Router, []mail.Channel) {
+	senders := mail.Router{mail.ChannelEmail: mail.NewSMTP(cfg.SMTP, cfg.MailFrom)}
+	var alerts []mail.Channel
+	if cfg.PushoverToken != "" {
+		senders[mail.ChannelPushover] = push.NewPushover(cfg.PushoverToken, cfg.AdminBaseURL, registry.Accounts, logger)
+		alerts = append(alerts, mail.ChannelPushover)
+	}
+	if cfg.VAPID != nil {
+		client := push.NewClient(cfg.VAPID, cfg.PushAllowedHosts, time.Now)
+		senders[mail.ChannelWebPush] = push.NewWebPush(client, subs, logger)
+		alerts = append(alerts, mail.ChannelWebPush)
+	}
+	return senders, alerts
 }
 
 // validateKB runs the checks of the start on the fiches, without the
@@ -175,7 +201,7 @@ func serve(ctx context.Context, getenv func(string) string, stdout io.Writer) (e
 	var jobs sync.WaitGroup
 	jobs.Go(func() { a.admins.Watch(ctx, accountsPollInterval, a.onAccountsChange) })
 	jobs.Go(func() { a.runPurges(ctx) })
-	jobs.Go(func() { a.outbox.Run(ctx, mail.NewSMTP(cfg.SMTP, cfg.MailFrom), logger) })
+	jobs.Go(func() { a.outbox.Run(ctx, a.senders, logger) })
 
 	httpServer := &http.Server{
 		Addr:              ":" + strconv.Itoa(cfg.Port),
@@ -234,6 +260,7 @@ func (a *app) purge(ctx context.Context) {
 		{"purge_members", a.members.Purge},
 		{"purge_tickets", a.tickets.Purge},
 		{"purge_outbox", a.outbox.Purge},
+		{"purge_push", a.push.Purge},
 		{"sweep_captures", a.tickets.SweepOrphans},
 	}
 	for _, step := range steps {

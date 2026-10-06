@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/base64"
 	"log/slog"
+	"maps"
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -19,6 +21,7 @@ import (
 
 	"github.com/SkYNewZ/sos-vpdive/internal/admins"
 	"github.com/SkYNewZ/sos-vpdive/internal/config"
+	"github.com/SkYNewZ/sos-vpdive/internal/mail"
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
 	"github.com/SkYNewZ/sos-vpdive/internal/members/memberstest"
 	"github.com/SkYNewZ/sos-vpdive/internal/store"
@@ -275,24 +278,50 @@ func TestValidateKBNeedsNoEnvironment(t *testing.T) {
 	assert.Regexp(t, `^(warning: kb/[a-z0-9-]+\.md: \d+ \[À COMPLÉTER\] mark\(s\) to fill in\n)*\d+ fiches are valid\n$`, out.String())
 }
 
-func TestVAPIDKeysGivesAPairTheConfigurationAccepts(t *testing.T) {
+// withVAPIDKeys runs vapid-keys and copies its variables into env.
+func withVAPIDKeys(t *testing.T, env map[string]string) string {
+	t.Helper()
 	var out bytes.Buffer
 	require.NoError(t, run(context.Background(), []string{"vapid-keys"}, getenv(nil), nil, &out))
-	env := devEnv(t, freePort(t))
 	for line := range strings.SplitSeq(out.String(), "\n") {
 		if name, value, ok := strings.Cut(line, "="); ok && !strings.HasPrefix(name, "#") {
 			env[name] = value
 		}
 	}
+	env["VAPID_SUBJECT"] = "mailto:club@example.org"
+	return out.String()
+}
+
+func TestVAPIDKeysGivesAPairTheConfigurationAccepts(t *testing.T) {
+	env := devEnv(t, freePort(t))
+	out := withVAPIDKeys(t, env)
 	require.NotEmpty(t, env["VAPID_PUBLIC_KEY"])
 	require.NotEmpty(t, env["VAPID_PRIVATE_KEY"])
-	assert.Contains(t, out.String(), "VAPID_SUBJECT", "the output reminds the third variable")
-	env["VAPID_SUBJECT"] = "mailto:club@example.org"
+	assert.Contains(t, out, "# Add VAPID_SUBJECT", "the output reminds the third variable")
 	cfg, err := config.Load(getenv(env))
 	require.NoError(t, err)
 	require.NotNil(t, cfg.VAPID)
+	assert.NotEqual(t, out, withVAPIDKeys(t, map[string]string{}), "every run draws a new pair")
+}
 
-	var again bytes.Buffer
-	require.NoError(t, run(context.Background(), []string{"vapid-keys"}, getenv(nil), nil, &again))
-	assert.NotEqual(t, out.String(), again.String(), "every run draws a new pair")
+func TestSetupWiresTheConfiguredAlertChannels(t *testing.T) {
+	ctx := context.Background()
+	env := devEnv(t, freePort(t))
+	cfg, err := config.Load(getenv(env))
+	require.NoError(t, err)
+	a, err := setup(ctx, cfg, quietLogger())
+	require.NoError(t, err)
+	assert.Empty(t, a.tickets.Alerts, "no alert without configuration")
+	assert.Equal(t, []mail.Channel{mail.ChannelEmail}, slices.Sorted(maps.Keys(a.senders)))
+	require.NoError(t, a.db.Close())
+
+	withVAPIDKeys(t, env)
+	env["PUSHOVER_APP_TOKEN"] = "azGDORePK8gMaC0QOYAMyEEuzJnyUi"
+	cfg, err = config.Load(getenv(env))
+	require.NoError(t, err)
+	a, err = setup(ctx, cfg, quietLogger())
+	require.NoError(t, err)
+	defer func() { assert.NoError(t, a.db.Close()) }()
+	assert.Equal(t, []mail.Channel{mail.ChannelPushover, mail.ChannelWebPush}, a.tickets.Alerts)
+	assert.Equal(t, []mail.Channel{mail.ChannelEmail, mail.ChannelPushover, mail.ChannelWebPush}, slices.Sorted(maps.Keys(a.senders)))
 }

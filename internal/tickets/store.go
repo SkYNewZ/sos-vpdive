@@ -161,9 +161,10 @@ type Deps struct {
 	Outbox        *mail.Outbox
 	Blobs         blobs.Store
 	Account       func(username string) (admins.Account, bool)
-	BaseURL       *url.URL // members site, in member mails
-	AdminBaseURL  *url.URL // committee site, in club mails
-	ClubEmail     string   // NOTIFY_EMAIL address, recipient of club mails
+	BaseURL       *url.URL       // members site, in member mails
+	AdminBaseURL  *url.URL       // committee site, in club mails
+	ClubEmail     string         // NOTIFY_EMAIL address, recipient of club mails
+	Alerts        []mail.Channel // configured alert channels besides the club mail; none allowed
 	RetentionDays int
 	Now           func() time.Time
 	Logger        *slog.Logger

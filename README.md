@@ -168,6 +168,25 @@ then sent by a background worker: retries after 1 minute, 5 minutes,
 definitive refusal, the mail is marked failed and listed on the committee's
 « Envois » page, where it can be sent again.
 
+## Committee alerts
+
+Besides the mail to the club mailbox, a new request and a member's reply can
+reach the committee's phones. An alert carries the request reference and its
+category, never a name or what the member wrote: it travels through Apple's,
+Google's or Pushover's servers.
+
+- Pushover: set `PUSHOVER_APP_TOKEN` to the token of an application created
+  on pushover.net, and give each resolver who wants the alerts a
+  `pushover_user_key` in the accounts file. Editing the file applies at once.
+- Web Push, to the installed committee app: run `sos-vpdive vapid-keys`
+  (`docker run --rm sos-vpdive:local vapid-keys`) once, copy both keys into
+  `.env` and set `VAPID_SUBJECT=mailto:<club address>`. Keep the keys: new
+  ones break every existing subscription. `PUSH_ALLOWED_HOSTS` lists the push
+  services a phone may subscribe through.
+
+An alert is sent once, within the hour. If that fails, the log says so and
+the mail still arrives. Alerts never show on the « Envois » page.
+
 ## Screenshot storage
 
 Screenshots live in an S3-compatible bucket, Cloudflare R2 in production:
