@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/SkYNewZ/sos-vpdive/internal/imports"
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
 	"github.com/SkYNewZ/sos-vpdive/internal/telemetry"
 	"github.com/SkYNewZ/sos-vpdive/internal/xlsx"
@@ -30,7 +31,7 @@ type importsData struct {
 	importMessage
 
 	MembersLink vpdiveLink
-	Last        *members.ImportInfo
+	Last        *imports.Info
 	Preview     *members.Preview
 }
 
@@ -165,7 +166,7 @@ func (s *Server) confirmImport(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case err == nil:
 		http.Redirect(w, r, "/imports?importe=1", http.StatusSeeOther)
-	case errors.Is(err, members.ErrSecondConfirmRequired):
+	case errors.Is(err, imports.ErrSecondConfirmRequired):
 		preview, perr := s.members.Preview(id, username)
 		if perr != nil {
 			s.renderImports(w, r, http.StatusConflict, nil, importMessage{Notice: expiredNotice()})
@@ -173,9 +174,9 @@ func (s *Server) confirmImport(w http.ResponseWriter, r *http.Request) {
 		}
 		s.renderImports(w, r, http.StatusUnprocessableEntity, preview, importMessage{
 			Confirm: "Coche la seconde confirmation : ce fichier contient moins de la moitié des comptes de la liste actuelle."})
-	case errors.Is(err, members.ErrPreviewNotFound):
+	case errors.Is(err, imports.ErrPreviewNotFound):
 		s.renderImports(w, r, http.StatusConflict, nil, importMessage{Notice: expiredNotice()})
-	case errors.Is(err, members.ErrStale):
+	case errors.Is(err, imports.ErrStale):
 		s.renderImports(w, r, http.StatusConflict, nil, importMessage{Notice: &notice{Kind: noticeError,
 			Text: "Un autre import est passé entre-temps. Dépose de nouveau le fichier pour voir un aperçu à jour."}})
 	default:
