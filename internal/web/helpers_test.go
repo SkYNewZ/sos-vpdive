@@ -235,18 +235,9 @@ func (e *testEnv) sentryEvents(t *testing.T) []*sentry.Event {
 func (e *testEnv) sentryPayload(t *testing.T) string {
 	t.Helper()
 	require.True(t, e.sentry.Flush(time.Second))
-	var b strings.Builder
-	for _, ev := range e.sentryOut.Events() {
-		raw, err := json.Marshal(ev)
-		require.NoError(t, err)
-		b.Write(raw)
-		for _, l := range ev.Logs {
-			raw, err := json.Marshal(l)
-			require.NoError(t, err)
-			b.Write(raw)
-		}
-	}
-	return b.String()
+	raw, err := json.Marshal(e.sentryOut.Events()) // log events carry their logs as "items"
+	require.NoError(t, err)
+	return string(raw)
 }
 
 // do sends a request to host. Mutations carry the host's Origin unless a

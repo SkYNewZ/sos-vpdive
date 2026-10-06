@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
@@ -43,20 +44,25 @@ const (
 	ctxSession ctxKey = iota
 )
 
-// recoverPanics answers 500 instead of dropping the connection. It logs the
-// panic type only: the value could hold request data. Routes recover in
-// instrument; this catches the rest (headers, host routing, robots).
+// recoverPanics answers 500 instead of dropping the connection. Routes
+// recover in instrument; this catches the rest (headers, host routing, robots).
 func (s *Server) recoverPanics(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		defer func() {
 			if v := recover(); v != nil {
-				s.logger.ErrorContext(ctx, "handler panic", "type", fmt.Sprintf("%T", v))
-				http.Error(w, "Erreur interne.", http.StatusInternalServerError)
+				s.answerPanic(ctx, w, v)
 			}
 		}()
 		next.ServeHTTP(w, r)
 	})
+}
+
+// answerPanic logs a recovered panic by its type only, since the value
+// could hold request data, and answers 500.
+func (s *Server) answerPanic(ctx context.Context, w http.ResponseWriter, v any) {
+	s.logger.ErrorContext(ctx, "handler panic", "type", fmt.Sprintf("%T", v))
+	http.Error(w, "Erreur interne.", http.StatusInternalServerError)
 }
 
 // clientIP returns the visitor's address. Forwarded headers are read only
@@ -169,11 +175,9 @@ func (s *Server) instrument(route string, next http.Handler) http.Handler {
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		defer func() {
 			// Recovered here, where ctx holds the span, a panic reaches Sentry
-			// on the request's trace (spec §9.10). The type only: the value
-			// could hold request data.
+			// on the request's trace (spec §9.10).
 			if v := recover(); v != nil {
-				s.logger.ErrorContext(ctx, "handler panic", "type", fmt.Sprintf("%T", v))
-				http.Error(rec, "Erreur interne.", http.StatusInternalServerError)
+				s.answerPanic(ctx, rec, v)
 			}
 			span.SetAttributes(attribute.Int("http.response.status_code", rec.status))
 			if rec.status >= http.StatusInternalServerError {

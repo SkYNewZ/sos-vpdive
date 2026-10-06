@@ -185,16 +185,3 @@ func TestSetupSendsSpansErrorsAndLogsToSentry(t *testing.T) {
 	assert.Positive(t, fake.count("/api/42/envelope/"), "the error event and the logs")
 	assert.NotContains(t, logs.String(), "trace export failed")
 }
-
-func TestSetupWithInvalidDSNRunsWithoutSentry(t *testing.T) {
-	restoreGlobalProvider(t)
-	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
-	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "")
-	var logs bytes.Buffer
-	base := NewLogger(&logs, slog.LevelInfo)
-	logger, shutdown, err := Setup(context.Background(), base, SentryOptions{DSN: "not a dsn"})
-	require.NoError(t, err, "never a startup failure")
-	assert.Same(t, base, logger)
-	assert.Contains(t, logs.String(), `"level":"WARN","msg":"sentry is off: invalid SENTRY_DSN"`)
-	require.NoError(t, shutdown(context.Background()))
-}

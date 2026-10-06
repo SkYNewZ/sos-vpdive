@@ -352,6 +352,14 @@ func TestLoadSentry(t *testing.T) {
 	assert.Empty(t, c.SentryDSN, "Sentry is fully off in development")
 	assert.Equal(t, "development", c.SentryEnvironment)
 	assert.Empty(t, c.Warnings)
+
+	m = validEnv()
+	m["SENTRY_DSN"] = "not a dsn"
+	c, err = Load(getenv(m))
+	require.NoError(t, err, "never a startup failure")
+	assert.Empty(t, c.SentryDSN, "an invalid DSN turns Sentry off")
+	require.Len(t, c.Warnings, 1)
+	require.ErrorContains(t, c.Warnings[0], "SENTRY_DSN")
 }
 
 func TestLoadUmami(t *testing.T) {

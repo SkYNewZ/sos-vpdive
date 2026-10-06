@@ -29,8 +29,8 @@ const defaultServiceName = "support-vpdive-cpp"
 // SDK would post to localhost:4318, so no exporter is created at all.
 //
 // With s.DSN set, spans also go to Sentry over OTLP, and the returned logger
-// feeds Sentry too (WithSentry). An invalid DSN turns Sentry off with a
-// warning instead of stopping the server (owner decision, 2026-10-06).
+// feeds Sentry too (WithSentry). config.Load has already turned an invalid
+// DSN into a warning and an empty one.
 //
 // No global propagator is installed: trace context is never sent to third
 // parties, and incoming context is read explicitly from trusted proxies only.
@@ -57,10 +57,8 @@ func Setup(ctx context.Context, logger *slog.Logger, s SentryOptions) (*slog.Log
 	var client *sentry.Client
 	if s.DSN != "" {
 		if client, err = NewSentry(s); err != nil {
-			logger.WarnContext(ctx, "sentry is off: invalid SENTRY_DSN", "error", err)
+			return nil, nil, fmt.Errorf("sentry: %w", err)
 		}
-	}
-	if client != nil {
 		exporter, err := sentryotlp.NewTraceExporter(ctx, s.DSN)
 		if err != nil {
 			return nil, nil, fmt.Errorf("sentry exporter: %w", err)

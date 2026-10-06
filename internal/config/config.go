@@ -17,6 +17,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/getsentry/sentry-go"
 )
 
 const (
@@ -192,13 +194,11 @@ func Load(getenv func(string) string) (*Config, error) {
 	c.VAPID = p.vapid()
 	c.PushAllowedHosts = p.hosts("PUSH_ALLOWED_HOSTS", defaultPushHosts)
 	c.SentryEnvironment = p.optional("SENTRY_ENVIRONMENT", string(c.Env))
-	if c.Env == EnvProduction { // Sentry is fully off in development (owner decision)
-		c.SentryDSN = p.value("SENTRY_DSN")
-	}
 	c.Umami = p.umami(c.Env)
 	if c.Env == EnvProduction {
 		p.requireHTTPS("BASE_URL", c.BaseURL)
 		p.requireHTTPS("ADMIN_BASE_URL", c.AdminBaseURL)
+		c.SentryDSN = p.sentryDSN() // Sentry is fully off in development (owner decision)
 	}
 	if err := errors.Join(p.errs...); err != nil {
 		return nil, fmt.Errorf("invalid configuration:\n%w", err)
@@ -540,6 +540,20 @@ func (p *parser) umami(env Env) *Umami {
 		WebsiteID:      p.websiteID("UMAMI_WEBSITE_ID"),
 		AdminWebsiteID: p.websiteID("UMAMI_ADMIN_WEBSITE_ID"),
 	}
+}
+
+// sentryDSN reads the optional Sentry DSN. An invalid one turns Sentry off
+// with a warning, like the other optional tools.
+func (p *parser) sentryDSN() string {
+	dsn := p.value("SENTRY_DSN")
+	if dsn == "" {
+		return ""
+	}
+	if _, err := sentry.NewDsn(dsn); err != nil {
+		p.warn("SENTRY_DSN", fmt.Errorf("must be a valid DSN, Sentry is off: %w", err))
+		return ""
+	}
+	return dsn
 }
 
 func (p *parser) websiteID(name string) string {
