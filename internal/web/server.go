@@ -57,6 +57,8 @@ type Server struct {
 	keys      *secure.Keys
 	members   *members.Store
 	payments  *payments.Store
+	mollie    *payments.MollieStore
+	checks    *payments.CheckStore
 	admins    *admins.Registry
 	tickets   *tickets.Store
 	outbox    *mail.Outbox
@@ -107,7 +109,8 @@ func New(d Deps) (*Server, error) {
 		return nil, fmt.Errorf("time zone: %w", err)
 	}
 	s := &Server{
-		cfg: d.Config, db: d.DB, keys: d.Keys, members: d.Members, payments: d.Payments, admins: d.Admins,
+		cfg: d.Config, db: d.DB, keys: d.Keys, members: d.Members, payments: d.Payments, mollie: d.Mollie,
+		checks: payments.NewCheckStore(d.DB, d.Keys, d.Now), admins: d.Admins,
 		tickets: d.Tickets, outbox: d.Outbox, push: d.Push, broker: d.Broker, kb: d.KB, suggest: suggest.New(d.Config.LLM),
 		keepAlive: keepAliveInterval,
 		logger:    d.Logger, now: d.Now, paris: paris, tracer: otel.Tracer(tracerName),
@@ -198,6 +201,8 @@ func (s *Server) adminRoutes() *http.ServeMux {
 	s.handle(mux, "POST /effacement", s.signedIn(s.erase))
 	s.handle(mux, "GET /fiches", s.signedIn(s.fichesPage))
 	s.handle(mux, "GET /annulations", s.signedIn(s.cancellationsPage))
+	s.handle(mux, "GET /anomalies", s.signedIn(s.checksPage))
+	s.handle(mux, "POST /anomalies/masquer", s.signedIn(s.dismissCheck))
 	s.handle(mux, "GET /envois", s.signedIn(s.failedMails))
 	s.handle(mux, "GET /notifications", s.signedIn(s.notificationsPage))
 	if s.cfg.VAPID != nil {

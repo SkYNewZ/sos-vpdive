@@ -2,14 +2,11 @@ package payments
 
 import (
 	"context"
-	"database/sql"
-	"fmt"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/imports"
-	"github.com/SkYNewZ/sos-vpdive/internal/store"
 )
 
 // Outing is a cancelled outing whose paid lines wait for its deletion in
@@ -38,14 +35,9 @@ type Cancellations struct {
 // ponytail: decrypts every line at each call (a few thousand, a few ms); store
 // a clear "cancelled outing" flag at import if it ever shows in traces.
 func (s *Store) Cancellations(ctx context.Context) (Cancellations, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT name_hash, data FROM payment_lines ORDER BY id`)
-	type row struct{ nameHash, data []byte }
-	found, err := store.Collect(rows, err, func(rows *sql.Rows) (r row, err error) {
-		err = rows.Scan(&r.nameHash, &r.data)
-		return r, err
-	})
+	found, err := sealedLines(ctx, s.db, `SELECT name_hash, ambiguous, data FROM payment_lines ORDER BY id`)
 	if err != nil {
-		return Cancellations{}, fmt.Errorf("payment lines: %w", err)
+		return Cancellations{}, err
 	}
 	c := Cancellations{InPlace: len(found) > 0}
 	if c.Import, _, err = s.LastImport(ctx); err != nil || !c.InPlace {
@@ -58,7 +50,7 @@ func (s *Store) Cancellations(ctx context.Context) (Cancellations, error) {
 	index := map[key]int{}
 	var payers []map[string]bool // by outing index
 	for _, r := range found {
-		l, err := s.open(r.data)
+		l, err := openLine[Line](s.keys, r.data)
 		if err != nil {
 			return Cancellations{}, err
 		}

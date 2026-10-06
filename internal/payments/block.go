@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/imports"
+	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 	"github.com/SkYNewZ/sos-vpdive/internal/store"
 )
 
@@ -101,20 +102,12 @@ func (s *Store) Block(ctx context.Context, nameHash []byte) (Block, error) {
 	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM members WHERE name_hash = ?`, nameHash).Scan(&members); err != nil {
 		return Block{}, fmt.Errorf("members of a name: %w", err)
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT ambiguous, data FROM payment_lines WHERE name_hash = ? ORDER BY id DESC`, nameHash)
-	type row struct {
-		ambiguous bool
-		data      []byte
-	}
-	found, err := store.Collect(rows, err, func(rows *sql.Rows) (r row, err error) {
-		err = rows.Scan(&r.ambiguous, &r.data)
-		return r, err
-	})
+	found, err := sealedLines(ctx, s.db, `SELECT name_hash, ambiguous, data FROM payment_lines WHERE name_hash = ? ORDER BY id DESC`, nameHash)
 	if err != nil {
-		return Block{}, fmt.Errorf("payment lines of a name: %w", err)
+		return Block{}, err
 	}
 	switch {
-	case members > 1 || slices.ContainsFunc(found, func(r row) bool { return r.ambiguous }):
+	case members > 1 || slices.ContainsFunc(found, func(r sealedLine) bool { return r.ambiguous }):
 		b.State = BlockAmbiguous
 		return b, nil
 	case len(found) == 0:
@@ -123,7 +116,7 @@ func (s *Store) Block(ctx context.Context, nameHash []byte) (Block, error) {
 	}
 	lines := make([]Line, len(found))
 	for i, r := range found {
-		if lines[i], err = s.open(r.data); err != nil {
+		if lines[i], err = openLine[Line](s.keys, r.data); err != nil {
 			return Block{}, err
 		}
 	}
@@ -144,15 +137,36 @@ func (s *Store) Block(ctx context.Context, nameHash []byte) (Block, error) {
 	return b, nil
 }
 
-// open decrypts and decodes one stored line.
-func (s *Store) open(sealed []byte) (Line, error) {
-	plain, err := s.keys.Open(sealed)
+// sealedLine is a stored payment or Mollie line before decryption.
+type sealedLine struct {
+	nameHash  []byte
+	ambiguous bool
+	data      []byte
+}
+
+// sealedLines reads stored lines; query selects name_hash, ambiguous and
+// data.
+func sealedLines(ctx context.Context, db *sql.DB, query string, args ...any) ([]sealedLine, error) {
+	rows, err := db.QueryContext(ctx, query, args...)
+	found, err := store.Collect(rows, err, func(rows *sql.Rows) (r sealedLine, err error) {
+		err = rows.Scan(&r.nameHash, &r.ambiguous, &r.data)
+		return r, err
+	})
 	if err != nil {
-		return Line{}, fmt.Errorf("decrypt payment line: %w", err)
+		return nil, fmt.Errorf("read lines: %w", err)
 	}
-	var l Line
+	return found, nil
+}
+
+// openLine decrypts and decodes one stored line.
+func openLine[T Line | MollieLine](keys *secure.Keys, sealed []byte) (T, error) {
+	var l T
+	plain, err := keys.Open(sealed)
+	if err != nil {
+		return l, fmt.Errorf("decrypt line: %w", err)
+	}
 	if err := json.Unmarshal(plain, &l); err != nil {
-		return Line{}, fmt.Errorf("decode payment line: %w", err)
+		return l, fmt.Errorf("decode line: %w", err)
 	}
 	return l, nil
 }
