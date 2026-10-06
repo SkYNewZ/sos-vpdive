@@ -5,7 +5,7 @@
 <h2 id="membres-titre" class="text-xl font-semibold">Liste des membres</h2>
 <p class="mt-2">La liste des membres sert de liste blanche : seules ses adresses peuvent déposer une demande. Chaque import remplace toute la liste.</p>
 
-{{with .Data.Last}}
+{{with .Data.Members.Last}}
 <dl class="mt-4 grid grid-cols-1 gap-x-4 gap-y-0 sm:grid-cols-[auto_1fr] sm:gap-y-1">
 <dt class="font-semibold">Export du</dt><dd class="mb-2 sm:mb-0">{{with formatTime .ExportedAt}}{{.}}{{else}}date inconnue{{end}}</dd>
 <dt class="font-semibold">Importé le</dt><dd class="mb-2 sm:mb-0">{{formatTime .ImportedAt}}</dd>
@@ -17,7 +17,7 @@
 <p class="mt-4">Aucune liste importée pour l'instant.</p>
 {{end}}
 
-{{with .Data.Preview}}
+{{with .Data.Members.Preview}}
 <div class="mt-6 border border-primary p-4">
 <h3 class="text-lg font-semibold">Aperçu avant remplacement</h3>
 <dl class="mt-2 grid grid-cols-1 gap-x-4 gap-y-0 sm:grid-cols-[auto_1fr] sm:gap-y-1">
@@ -31,9 +31,10 @@
 <p class="mt-2 text-sm">Un nom est ambigu quand plusieurs comptes le portent, accents et majuscules mis à part. Leurs paiements ne pourront pas leur être attribués.</p>
 <form method="post" action="/imports/confirmer" class="mt-4 flex flex-col gap-3">
 <input type="hidden" name="csrf" value="{{$.CSRF}}">
+<input type="hidden" name="type" value="membres">
 <input type="hidden" name="apercu" value="{{.ID}}">
 {{if .NeedsSecondConfirm}}
-{{with $.Data.Confirm}}<p role="alert" class="text-error font-semibold">{{.}}</p>{{end}}
+{{with $.Data.Members.Confirm}}<p role="alert" class="text-error font-semibold">{{.}}</p>{{end}}
 <label class="flex min-h-11 items-start gap-3">
 <input class="checkbox mt-1" type="checkbox" name="confirmer_moitie" value="oui" required>
 <span>Ce fichier contient moins de la moitié des {{.Current}} comptes actuels. Je confirme le remplacement.</span>
@@ -47,16 +48,102 @@
 
 <form method="post" action="/imports" enctype="multipart/form-data" class="mt-6 flex flex-col gap-3">
 <input type="hidden" name="csrf" value="{{.CSRF}}">
+<input type="hidden" name="type" value="membres">
 <div class="border border-base-300 p-4">
 <p class="font-semibold">Où trouver l'export</p>
-<p class="mt-1">Dans VPDive, page <a class="link link-primary" href="{{.Data.MembersLink.URL}}" target="_blank" rel="noopener">liste des membres</a>, bouton « Télécharger », en haut à droite.</p>
+<p class="mt-1">Dans VPDive, page <a class="link link-primary" href="{{.Data.Members.Link.URL}}" target="_blank" rel="noopener">liste des membres</a>, bouton « Télécharger », en haut à droite.</p>
 </div>
 <div class="flex flex-col gap-1">
 <label class="font-semibold" for="file">Fichier exporté (.xlsx, 5 Mo au plus)</label>
 <input class="file-input w-full" id="file" name="file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
 </div>
-{{with .Data.Upload}}<p role="alert" class="text-error font-semibold">{{.}}</p>{{end}}
-<button class="btn {{if .Data.Preview}}btn-outline{{else}}btn-primary{{end}} min-h-11 self-start" type="submit">Voir l'aperçu</button>
+{{with .Data.Members.Upload}}<p role="alert" class="text-error font-semibold">{{.}}</p>{{end}}
+<button class="btn {{if .Data.Members.Preview}}btn-outline{{else}}btn-primary{{end}} min-h-11 self-start" type="submit">Voir l'aperçu</button>
+</form>
+</section>
+
+<section class="mt-10" aria-labelledby="paiements-titre">
+<h2 id="paiements-titre" class="text-xl font-semibold">Paiements</h2>
+<p class="mt-2">L'export des paiements alimente le bloc « Paiements VPDive » des demandes et la page des annulations. Chaque import remplace toutes les lignes. L'outil rattache chaque ligne à un membre par son nom, à l'affichage.</p>
+
+{{with .Data.Payments.Last}}
+<dl class="mt-4 grid grid-cols-1 gap-x-4 gap-y-0 sm:grid-cols-[auto_1fr] sm:gap-y-1">
+<dt class="font-semibold">Fichier créé le</dt><dd class="mb-2 sm:mb-0">{{with formatTime .ExportedAt}}{{.}} (indicatif){{else}}date inconnue{{end}}</dd>
+<dt class="font-semibold">Importé le</dt><dd class="mb-2 sm:mb-0">{{formatTime .ImportedAt}}</dd>
+<dt class="font-semibold">Par</dt><dd class="mb-2 sm:mb-0">{{author .ImportedBy}}</dd>
+<dt class="font-semibold">Période couverte</dt><dd class="mb-2 sm:mb-0">{{template "period" .}}{{if $.Data.Payments.ShortPeriod}}{{template "shortPeriod"}}{{end}}</dd>
+<dt class="font-semibold">Lignes importées</dt><dd class="mb-2 sm:mb-0">{{.Rows}}</dd>
+<dt class="font-semibold">Lignes sans nom écartées</dt><dd class="mb-2 sm:mb-0">{{.Skipped}}</dd>
+{{if $.Data.Payments.Purged}}</dl>
+<p class="mt-2">Plus de 90 jours sans import : les lignes de cet import ont été effacées.</p>
+{{else}}{{with $.Data.Payments.Report}}
+<dt class="font-semibold">Rattachées à un membre</dt><dd class="mb-2 sm:mb-0">{{template "lineCount" .Attached}}</dd>
+<dt class="font-semibold">Ambiguës (homonymes)</dt><dd class="mb-2 sm:mb-0">{{template "lineCount" .Ambiguous}}</dd>
+<dt class="font-semibold">Sans membre correspondant</dt><dd class="mb-2 sm:mb-0">{{template "lineCount" .Unmatched}}</dd>
+{{end}}</dl>
+<p class="mt-2 text-sm">Le rattachement se recalcule à chaque affichage avec la liste des membres en place. Quand plusieurs membres portent le même nom, leurs lignes ne s'affichent jamais.</p>
+{{end}}
+{{else}}
+<p class="mt-4">Aucun export des paiements importé pour l'instant.</p>
+{{end}}
+
+{{with .Data.Payments.Preview}}
+<div class="mt-6 border border-primary p-4">
+<h3 class="text-lg font-semibold">Aperçu avant remplacement</h3>
+<dl class="mt-2 grid grid-cols-1 gap-x-4 gap-y-0 sm:grid-cols-[auto_1fr] sm:gap-y-1">
+<dt class="font-semibold">Fichier créé le</dt><dd class="mb-2 sm:mb-0">{{with formatTime .Created}}{{.}} (indicatif){{else}}date inconnue{{end}}</dd>
+<dt class="font-semibold">Période couverte</dt><dd class="mb-2 sm:mb-0">{{template "period" .}}{{if .ShortPeriod}}{{template "shortPeriod"}}{{end}}</dd>
+<dt class="font-semibold">Lignes dans le fichier</dt><dd class="mb-2 sm:mb-0">{{.Lines}}</dd>
+<dt class="font-semibold">Lignes sans nom écartées</dt><dd class="mb-2 sm:mb-0">{{.Skipped}}</dd>
+<dt class="font-semibold">Lignes en place</dt><dd class="mb-2 sm:mb-0">{{.Current}}</dd>
+{{with .UnknownStates}}<dt class="font-semibold">États inconnus</dt><dd class="mb-2 sm:mb-0">{{range $state, $n := .}}<span class="block">{{if $state}}« {{$state}} »{{else}}état vide{{end}} : {{$n}} ligne{{if gt $n 1}}s{{end}}</span>{{end}}</dd>{{end}}
+</dl>
+{{if .UnknownStates}}<p class="mt-2 text-sm">Ces lignes sont gardées et s'affichent telles quelles.</p>{{end}}
+<form method="post" action="/imports/confirmer" class="mt-4 flex flex-col gap-3">
+<input type="hidden" name="csrf" value="{{$.CSRF}}">
+<input type="hidden" name="type" value="paiements">
+<input type="hidden" name="apercu" value="{{.ID}}">
+{{if .NeedsSecondConfirm}}
+{{with $.Data.Payments.Confirm}}<p role="alert" class="text-error font-semibold">{{.}}</p>{{end}}
+<label class="flex min-h-11 items-start gap-3">
+<input class="checkbox mt-1" type="checkbox" name="confirmer_moitie" value="oui" required>
+<span>Ce fichier contient moins de la moitié des {{.Current}} lignes en place. Je confirme le remplacement.</span>
+</label>
+{{end}}
+<button class="btn btn-primary min-h-11 self-start" type="submit">Remplacer les paiements</button>
+</form>
+<p class="mt-2 text-sm">Cet aperçu reste valable 15 minutes.</p>
+</div>
+{{end}}
+
+<form method="post" action="/imports" enctype="multipart/form-data" class="mt-6 flex flex-col gap-3">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<input type="hidden" name="type" value="paiements">
+<div class="border border-base-300 p-4">
+<p class="font-semibold">Où trouver l'export</p>
+<p class="mt-1">Dans VPDive, page <a class="link link-primary" href="{{.Data.Payments.Link.URL}}" target="_blank" rel="noopener">paiements</a>, bouton « Télécharger Excel », en haut à droite. Le fichier ne contient que ce que les filtres affichent : règle-les avant de télécharger.</p>
+<div class="overflow-x-auto">
+<table class="table mt-2"><tbody>
+<tr><th scope="row">Affichage par</th><td>Membres</td></tr>
+<tr><th scope="row">Nom du membre, type de produit</th><td>Vides</td></tr>
+<tr><th scope="row">État</th><td>Tous</td></tr>
+<tr><th scope="row">Champ de date</th><td>Date de création</td></tr>
+<tr><th scope="row">Du, au</th><td>Des 24 derniers mois à aujourd'hui, pour couvrir les carnets encore en cours</td></tr>
+</tbody></table>
+</div>
+</div>
+<div class="flex flex-col gap-1">
+<label class="font-semibold" for="file-paiements">Fichier exporté (.xlsx, 5 Mo au plus)</label>
+<input class="file-input w-full" id="file-paiements" name="file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
+</div>
+{{with .Data.Payments.Upload}}<p role="alert" class="text-error font-semibold">{{.}}</p>{{end}}
+<button class="btn {{if .Data.Payments.Preview}}btn-outline{{else}}btn-primary{{end}} min-h-11 self-start" type="submit">Voir l'aperçu</button>
 </form>
 </section>
 {{end}}
+
+{{define "period"}}{{if .PeriodFrom.IsZero}}inconnue{{else}}du {{formatDate .PeriodFrom}} au {{formatDate .PeriodTo}}{{end}}{{end}}
+
+{{define "shortPeriod"}}<span class="block font-semibold">Moins de 12 mois : élargis le filtre de dates de VPDive avant le prochain export.</span>{{end}}
+
+{{define "lineCount"}}{{.Lines}} ligne{{if gt .Lines 1}}s{{end}}, {{.Payers}} payeur{{if gt .Payers 1}}s{{end}}{{end}}

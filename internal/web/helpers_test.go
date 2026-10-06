@@ -169,6 +169,7 @@ func newTestEnv(t *testing.T, opts ...func(*Deps)) *testEnv {
 		VPDiveBaseURL:  mustURL(t, "https://vpdive.example.org"),
 		NotifyEmail:    &netmail.Address{Address: clubEmail},
 		MembersMaxAge:  336 * time.Hour,
+		PaymentsMaxAge: 168 * time.Hour,
 		TrustedProxies: []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")},
 		AgeWarnAfter:   48 * time.Hour,
 		AgeAlertAfter:  168 * time.Hour,
