@@ -1,0 +1,29 @@
+{{define "main"}}
+{{$d := .Data}}
+<h1 class="text-2xl font-bold text-primary">Sorties annulées</h1>
+<p class="mt-4">Cette page liste les sorties dont le titre contient « annul » et qui ont encore des inscriptions payées. Le trésorier rembourse les paiements en argent réel, puis supprime la sortie dans VPDive : la suppression recrédite les carnets.</p>
+{{if not $d.InPlace}}
+<p class="mt-4">Aucun paiement importé. <a class="link link-primary inline-flex min-h-11 items-center" href="/imports">Importer l'export des paiements</a></p>
+{{else}}
+<p class="mt-4">Export du fichier {{with formatDate $d.Import.ExportedAt}}créé le {{.}} (indicatif){{else}}sans date{{end}}, importé le {{formatDate $d.Import.ImportedAt}} par {{author $d.Import.ImportedBy}}.</p>
+<p class="mt-1 font-semibold">Ces données datent de l'import : vérifie dans VPDive avant d'agir.</p>
+{{with $d.Rows}}
+<p class="mt-6 font-semibold">{{len .}} sortie{{if gt (len .) 1}}s{{end}}, {{$d.Lines}} ligne{{if gt $d.Lines 1}}s{{end}}, {{$d.Persons}} inscription{{if gt $d.Persons 1}}s{{end}}.</p>
+<div class="overflow-x-auto"><table class="table mt-2">
+<thead><tr><th scope="col">Sortie</th><th scope="col" class="hidden md:table-cell">Date</th><th scope="col">Ancienneté</th><th scope="col" class="text-right">Personnes</th><th scope="col" class="hidden text-right md:table-cell">Lignes</th><th scope="col" class="text-right">Réglé par carnet</th><th scope="col" class="text-right">Réglé en argent réel</th></tr></thead>
+<tbody>{{range .}}<tr>
+<td class="break-words">{{.Title}}</td>
+<td class="hidden whitespace-nowrap md:table-cell">{{with formatTime .Starts}}{{.}}{{else}}inconnue{{end}}</td>
+<td class="whitespace-nowrap">{{with .Age}}{{template "age" .}}{{else}}inconnue{{end}}</td>
+<td class="text-right">{{.Persons}}</td>
+<td class="hidden text-right md:table-cell">{{.Lines}}</td>
+<td class="text-right whitespace-nowrap">{{.ByCarnet.Euros}}</td>
+<td class="text-right whitespace-nowrap">{{.ByMoney.Euros}}</td>
+</tr>{{end}}</tbody>
+</table></div>
+<p class="mt-2 text-sm">L'ancienneté se compte depuis la date de la sortie : l'export ne dit pas quand elle a été annulée. Une plongée réglée sur deux carnets fait deux lignes mais compte pour une personne.</p>
+{{else}}
+<p class="mt-6">Aucune sortie annulée en attente de suppression.</p>
+{{end}}
+{{end}}
+{{end}}

@@ -196,6 +196,7 @@ func (s *Server) adminRoutes() *http.ServeMux {
 	s.handle(mux, "GET /effacement", s.signedIn(s.erasurePage))
 	s.handle(mux, "POST /effacement", s.signedIn(s.erase))
 	s.handle(mux, "GET /fiches", s.signedIn(s.fichesPage))
+	s.handle(mux, "GET /annulations", s.signedIn(s.cancellationsPage))
 	s.handle(mux, "GET /envois", s.signedIn(s.failedMails))
 	s.handle(mux, "GET /notifications", s.signedIn(s.notificationsPage))
 	if s.cfg.VAPID != nil {
