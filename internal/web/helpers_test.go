@@ -33,6 +33,8 @@ import (
 	"github.com/SkYNewZ/sos-vpdive/internal/mail"
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
 	"github.com/SkYNewZ/sos-vpdive/internal/members/memberstest"
+	"github.com/SkYNewZ/sos-vpdive/internal/payments"
+	"github.com/SkYNewZ/sos-vpdive/internal/payments/paymentstest"
 	"github.com/SkYNewZ/sos-vpdive/internal/push"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 	"github.com/SkYNewZ/sos-vpdive/internal/store"
@@ -167,6 +169,7 @@ func newTestEnv(t *testing.T, opts ...func(*Deps)) *testEnv {
 		VPDiveBaseURL:  mustURL(t, "https://vpdive.example.org"),
 		NotifyEmail:    &netmail.Address{Address: clubEmail},
 		MembersMaxAge:  336 * time.Hour,
+		PaymentsMaxAge: 168 * time.Hour,
 		TrustedProxies: []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")},
 		AgeWarnAfter:   48 * time.Hour,
 		AgeAlertAfter:  168 * time.Hour,
@@ -180,15 +183,17 @@ func newTestEnv(t *testing.T, opts ...func(*Deps)) *testEnv {
 	blobStore, err := blobs.NewDir(filepath.Join(dir, "captures"))
 	require.NoError(t, err)
 	memberStore := members.NewStore(db, keys, clock.now)
+	paymentStore := payments.NewStore(db, keys, clock.now)
 	outbox := mail.NewOutbox(db, keys, clock.now)
 	broker := NewBroker()
 	ticketStore := tickets.NewStore(tickets.Deps{
-		DB: db, Keys: keys, Catalog: catalog, Members: memberStore, Outbox: outbox, Blobs: blobStore,
+		DB: db, Keys: keys, Catalog: catalog, Members: memberStore, Payments: paymentStore,
+		Outbox: outbox, Blobs: blobStore,
 		Account: registry.Get, BaseURL: cfg.BaseURL, AdminBaseURL: cfg.AdminBaseURL, ClubEmail: clubEmail,
 		RetentionDays: cfg.RetentionDays, Now: clock.now, Logger: logger, OnChange: broker.Publish,
 	})
 	deps := Deps{
-		Config: cfg, DB: db, Keys: keys, Members: memberStore, Admins: registry,
+		Config: cfg, DB: db, Keys: keys, Members: memberStore, Payments: paymentStore, Admins: registry,
 		Tickets: ticketStore, Outbox: outbox, Push: push.NewStore(db, keys, clock.now), Broker: broker, KB: base,
 		Content: sosvpdive.Content, Logger: logger, Now: clock.now,
 	}
@@ -270,6 +275,12 @@ func (e *testEnv) csrf(t *testing.T, cookie *http.Cookie, path string) string {
 func (e *testEnv) importMembers(t *testing.T, fixture string) {
 	t.Helper()
 	memberstest.Import(t, e.deps.Members, fixture)
+}
+
+// importPayments imports payments_valid.xlsx directly through the payments store.
+func (e *testEnv) importPayments(t *testing.T) {
+	t.Helper()
+	paymentstest.Import(t, e.deps.Payments, "payments_valid.xlsx")
 }
 
 // count counts the rows of a table.

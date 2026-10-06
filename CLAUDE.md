@@ -27,6 +27,11 @@ validated: it wins over this file, over existing code, and over preference.
 - Pushover is per resolver: an optional `pushover_user_key` per account in the
   accounts file; `PUSHOVER_APP_TOKEN` stays in the environment and
   `PUSHOVER_USER_KEY` is gone (§6, §10).
+- A cancelled outing on the request page (§7.3) gets a note by payment method:
+  « Prépayé » says the carnet is credited back when the outing is deleted, any
+  other method says it was paid in real money and the treasurer refunds it.
+- Erasing a person (§4.5) deletes every payment line of their name hash, a
+  homonym's included.
 
 ## Private material: `.local/` is gitignored
 
@@ -79,7 +84,7 @@ No i18n framework.
 
 ## Layout and commands
 
-- `cmd/sos-vpdive` (subcommands) + `internal/{config,secure,telemetry,store,xlsx,members,admins,tickets,mail,blobs,images,kb,suggest,push,web}`.
+- `cmd/sos-vpdive` (subcommands) + `internal/{config,secure,telemetry,store,xlsx,imports,members,payments,admins,tickets,mail,blobs,images,kb,suggest,push,web}`.
   Migrations: `internal/store/migrations/NNNN_*.sql`. Content files `config/*.yaml`
   (categories, products, vpdive, robots) are embedded by the root `content.go`.
 - `make test` / `make lint` (golangci-lint v2, `default: all`) / `make css` /
@@ -149,5 +154,9 @@ No i18n framework.
   `Page.getInstallabilityErrors` needs a persistent profile.
 - The form takes 5 sends an hour per address (20 per IP): repeated browser runs
   need several of the six `members_valid.xlsx` addresses.
+- Go 1.27 composite literals name promoted fields directly (`Info{Kind: k}`):
+  the `modernize` linter asks for it on embedded structs.
+- Payment lines are reached through the members list only (name hash), never
+  through the name typed on the form (§7.3).
 - Close response bodies through a named error return (`suggest`, `turnstile`,
   `push`); never `_ =` an error.

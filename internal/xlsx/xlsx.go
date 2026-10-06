@@ -1,7 +1,7 @@
-// Package xlsx reads the first sheet of an .xlsx workbook held in memory. It
-// streams the sheet XML, enforces size, row and cell limits while reading, and
-// never writes to disk (spec §7.2). It reads values only: no styles, no
-// formulas, no dates formatting.
+// Package xlsx reads the first sheet of an .xlsx workbook held in memory, and
+// its creation date. It streams the sheet XML, enforces size, row and cell
+// limits while reading, and never writes to disk (spec §7.2). It reads values
+// only: no styles, no formulas, no dates formatting.
 package xlsx
 
 import (
@@ -16,6 +16,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/text/unicode/norm"
 )
 
 // Reader errors.
@@ -34,6 +36,7 @@ const (
 	KindString Kind = iota + 1
 	KindNumber
 	KindBool
+	KindError // an error value such as #N/A, with no text: it reads as empty
 )
 
 // tagPhonetic is the phonetic-run element, whose text is never read.
@@ -52,6 +55,7 @@ const maxColumns = 16384
 const (
 	relOfficeDocument = "/officeDocument"
 	relSharedStrings  = "/sharedStrings"
+	relCoreProperties = "/metadata/core-properties"
 )
 
 // Cell is one non-empty cell. Text holds the string, the number as written in
@@ -102,31 +106,83 @@ type Limits struct {
 	MaxCells        int // non-empty cells in the sheet
 }
 
-// SerialDate converts an Excel serial date (1900 date system) to a UTC date.
+// SerialDate converts an Excel serial date (1900 date system) to a UTC time.
+// The fraction is the time of day, rounded to the second; the wall clock is
+// the one the file was written in.
 func SerialDate(serial float64) (time.Time, bool) {
 	if !(serial >= 1 && serial < 2958466) { // 2958466 is 10000-01-01
 		return time.Time{}, false
 	}
-	return time.Date(1899, 12, 30, 0, 0, 0, 0, time.UTC).AddDate(0, 0, int(serial)), true
+	days := math.Floor(serial)
+	seconds := math.Round((serial - days) * 86400)
+	return time.Date(1899, 12, 30, 0, 0, 0, 0, time.UTC).
+		AddDate(0, 0, int(days)).Add(time.Duration(seconds) * time.Second), true
+}
+
+// Header maps each name of a header row, NFC-normalized and trimmed, to its
+// columns in file order: an export may repeat a name.
+type Header map[string][]int
+
+// Col returns the column of the n-th (0-based) occurrence of name.
+func (h Header) Col(name string, n int) (int, bool) {
+	cols := h[name]
+	if n >= len(cols) {
+		return 0, false
+	}
+	return cols[n], true
+}
+
+// FindHeader returns the index in rows of the first row, numbered at most
+// maxRow, that holds a cell named key, with the columns of that row.
+func FindHeader(rows []Row, key string, maxRow int) (int, Header, bool) {
+	for i, row := range rows {
+		if row.Num > maxRow {
+			break
+		}
+		h := Header{}
+		for _, c := range row.Cells {
+			name := strings.TrimSpace(norm.NFC.String(c.Text))
+			h[name] = append(h[name], c.Col)
+		}
+		if _, ok := h[key]; ok {
+			return i, h, true
+		}
+	}
+	return 0, nil, false
+}
+
+// Created returns the creation date declared in the workbook's core
+// properties, or false when there is none or it cannot be read. Files saved
+// again by another program get a new one, so it is indicative only.
+func Created(data []byte, lim Limits) (time.Time, bool) {
+	r, err := newReader(data, lim)
+	if err != nil {
+		return time.Time{}, false
+	}
+	var pkgRels relationships
+	if err := r.decode("_rels/.rels", &pkgRels); err != nil {
+		return time.Time{}, false
+	}
+	corePath, ok := pkgRels.target("", relCoreProperties)
+	if !ok {
+		return time.Time{}, false
+	}
+	var core struct {
+		Created string `xml:"http://purl.org/dc/terms/ created"`
+	}
+	if err := r.decode(corePath, &core); err != nil {
+		return time.Time{}, false
+	}
+	t, err := time.Parse(time.RFC3339, strings.TrimSpace(core.Created))
+	return t, err == nil
 }
 
 // ReadFirstSheet returns the rows of the workbook's first sheet.
 func ReadFirstSheet(data []byte, lim Limits) ([]Row, error) {
-	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	r, err := newReader(data, lim)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrInvalid, err)
+		return nil, err
 	}
-	var declared uint64
-	files := make(map[string]*zip.File, len(zr.File))
-	for _, f := range zr.File {
-		declared += f.UncompressedSize64
-		files[f.Name] = f
-	}
-	if lim.MaxUncompressed < 0 || declared > uint64(lim.MaxUncompressed) {
-		return nil, ErrTooLarge
-	}
-	r := &reader{files: files, left: lim.MaxUncompressed}
-
 	var pkgRels relationships
 	if err := r.decode("_rels/.rels", &pkgRels); err != nil {
 		return nil, err
@@ -157,6 +213,24 @@ func ReadFirstSheet(data []byte, lim Limits) ([]Row, error) {
 		}
 	}
 	return r.sheet(sheetPath, shared, lim)
+}
+
+// newReader opens the archive and checks the sizes its headers declare.
+func newReader(data []byte, lim Limits) (*reader, error) {
+	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalid, err)
+	}
+	var declared uint64
+	files := make(map[string]*zip.File, len(zr.File))
+	for _, f := range zr.File {
+		declared += f.UncompressedSize64
+		files[f.Name] = f
+	}
+	if lim.MaxUncompressed < 0 || declared > uint64(lim.MaxUncompressed) {
+		return nil, ErrTooLarge
+	}
+	return &reader{files: files, left: lim.MaxUncompressed}, nil
 }
 
 type relationships struct {
@@ -439,8 +513,8 @@ func makeCell(col int, typ, raw string, shared []string) (Cell, bool, error) {
 	case "b":
 		raw = strings.TrimSpace(raw)
 		return Cell{Col: col, Kind: KindBool, Text: raw}, raw != "", nil
-	case "e": // error values such as #N/A read as empty
-		return Cell{}, false, nil
+	case "e":
+		return Cell{Col: col, Kind: KindError}, true, nil
 	case "", "n":
 		raw = strings.TrimSpace(raw)
 		if raw == "" {

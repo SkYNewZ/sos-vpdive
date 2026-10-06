@@ -17,6 +17,7 @@ import (
 	"github.com/SkYNewZ/sos-vpdive/internal/blobs"
 	"github.com/SkYNewZ/sos-vpdive/internal/mail"
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
+	"github.com/SkYNewZ/sos-vpdive/internal/payments"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 	"github.com/SkYNewZ/sos-vpdive/internal/store"
 )
@@ -158,6 +159,7 @@ type Deps struct {
 	Keys          *secure.Keys
 	Catalog       *Catalog
 	Members       *members.Store
+	Payments      *payments.Store
 	Outbox        *mail.Outbox
 	Blobs         blobs.Store
 	Account       func(username string) (admins.Account, bool)
@@ -349,13 +351,6 @@ func (s *Store) insertMessage(ctx context.Context, tx *sql.Tx, ticketID int64, a
 		return 0, fmt.Errorf("insert message: %w", err)
 	}
 	return id, nil
-}
-
-func unixTime(v sql.NullInt64) time.Time {
-	if !v.Valid {
-		return time.Time{}
-	}
-	return time.Unix(v.Int64, 0).UTC()
 }
 
 // truncate cuts s to n runes, marking the cut with an ellipsis.

@@ -24,6 +24,7 @@ import (
 	"github.com/SkYNewZ/sos-vpdive/internal/config"
 	"github.com/SkYNewZ/sos-vpdive/internal/mail"
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
+	"github.com/SkYNewZ/sos-vpdive/internal/payments"
 	"github.com/SkYNewZ/sos-vpdive/internal/push"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 	"github.com/SkYNewZ/sos-vpdive/internal/store"
@@ -42,16 +43,17 @@ const (
 // app is what serve runs. setup builds it without listening, so that tests
 // can check every startup refusal.
 type app struct {
-	logger  *slog.Logger
-	db      *sql.DB
-	admins  *admins.Registry
-	members *members.Store
-	tickets *tickets.Store
-	outbox  *mail.Outbox
-	senders mail.Router // one sender per configured channel
-	push    *push.Store
-	broker  *web.Broker
-	web     *web.Server
+	logger   *slog.Logger
+	db       *sql.DB
+	admins   *admins.Registry
+	members  *members.Store
+	payments *payments.Store
+	tickets  *tickets.Store
+	outbox   *mail.Outbox
+	senders  mail.Router // one sender per configured channel
+	push     *push.Store
+	broker   *web.Broker
+	web      *web.Server
 }
 
 // setup opens the database, refuses a SECRET_KEY that does not match it,
@@ -94,18 +96,20 @@ func setup(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*app, 
 		return fail(err)
 	}
 	memberStore := members.NewStore(db, keys, time.Now)
+	paymentStore := payments.NewStore(db, keys, time.Now)
 	outbox := mail.NewOutbox(db, keys, time.Now)
 	pushStore := push.NewStore(db, keys, time.Now)
 	senders, alerts := alertSenders(cfg, registry, pushStore, logger)
 	broker := web.NewBroker()
 	ticketStore := tickets.NewStore(tickets.Deps{
-		DB: db, Keys: keys, Catalog: catalog, Members: memberStore, Outbox: outbox, Blobs: captures,
-		Account: registry.Get, BaseURL: cfg.BaseURL, AdminBaseURL: cfg.AdminBaseURL,
+		DB: db, Keys: keys, Catalog: catalog, Members: memberStore, Payments: paymentStore, Outbox: outbox,
+		Blobs: captures, Account: registry.Get, BaseURL: cfg.BaseURL, AdminBaseURL: cfg.AdminBaseURL,
 		ClubEmail: cfg.NotifyEmail.Address, Alerts: alerts, RetentionDays: cfg.RetentionDays,
 		Now: time.Now, Logger: logger, OnChange: broker.Publish,
 	})
 	a := &app{
-		logger: logger, db: db, admins: registry, members: memberStore, tickets: ticketStore, outbox: outbox,
+		logger: logger, db: db, admins: registry, members: memberStore, payments: paymentStore,
+		tickets: ticketStore, outbox: outbox,
 		senders: senders, push: pushStore, broker: broker,
 	}
 	if err := ticketStore.ReleaseMissing(ctx, a.knownAccount); err != nil {
@@ -116,7 +120,7 @@ func setup(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*app, 
 		turnstile = web.NewTurnstile(cfg.TurnstileSiteKey, cfg.TurnstileSecretKey, "")
 	}
 	a.web, err = web.New(web.Deps{
-		Config: cfg, DB: db, Keys: keys, Members: memberStore, Admins: registry,
+		Config: cfg, DB: db, Keys: keys, Members: memberStore, Payments: paymentStore, Admins: registry,
 		Content: sosvpdive.Content, Logger: logger, Now: time.Now, Turnstile: turnstile,
 		Tickets: ticketStore, Outbox: outbox, Push: pushStore, Broker: broker, KB: base,
 	})
@@ -262,6 +266,7 @@ func (a *app) purge(ctx context.Context) {
 	}{
 		{"purge_sessions", a.web.Purge},
 		{"purge_members", a.members.Purge},
+		{"purge_payments", a.payments.Purge},
 		{"purge_tickets", a.tickets.Purge},
 		{"purge_outbox", a.outbox.Purge},
 		{"purge_push", a.push.Purge},

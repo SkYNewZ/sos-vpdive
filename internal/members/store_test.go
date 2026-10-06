@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/SkYNewZ/sos-vpdive/internal/imports"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 	"github.com/SkYNewZ/sos-vpdive/internal/store"
 )
@@ -147,7 +148,7 @@ func TestSmallerExportNeedsSecondConfirmation(t *testing.T) {
 	assert.True(t, p.NeedsSecondConfirm)
 
 	err = f.store.Confirm(ctx, p.ID, "alice", false)
-	require.ErrorIs(t, err, ErrSecondConfirmRequired)
+	require.ErrorIs(t, err, imports.ErrSecondConfirmRequired)
 	err = f.store.Confirm(ctx, p.ID, "alice", true)
 	require.NoError(t, err)
 
@@ -163,13 +164,13 @@ func TestPreviewExpiresAndBelongsToUploader(t *testing.T) {
 	require.NoError(t, err)
 
 	err = f.store.Confirm(ctx, p.ID, "bob", true)
-	require.ErrorIs(t, err, ErrPreviewNotFound)
+	require.ErrorIs(t, err, imports.ErrPreviewNotFound)
 
 	f.clock.t = f.clock.t.Add(16 * time.Minute)
 	err = f.store.Confirm(ctx, p.ID, "alice", true)
-	require.ErrorIs(t, err, ErrPreviewNotFound)
+	require.ErrorIs(t, err, imports.ErrPreviewNotFound)
 	_, err = f.store.Preview(p.ID, "alice")
-	require.ErrorIs(t, err, ErrPreviewNotFound)
+	require.ErrorIs(t, err, imports.ErrPreviewNotFound)
 }
 
 func TestConfirmRefusesStalePreview(t *testing.T) {
@@ -183,7 +184,7 @@ func TestConfirmRefusesStalePreview(t *testing.T) {
 	err = f.store.Confirm(ctx, a.ID, "alice", true)
 	require.NoError(t, err)
 	err = f.store.Confirm(ctx, b.ID, "alice", true)
-	require.ErrorIs(t, err, ErrStale)
+	require.ErrorIs(t, err, imports.ErrStale)
 
 	got, err := f.store.Lookup(ctx, "ines.leroy@example.org")
 	require.NoError(t, err)
@@ -213,7 +214,7 @@ func TestConcurrentConfirmCreatesOneImport(t *testing.T) {
 			okCount++
 			continue
 		}
-		require.ErrorIs(t, err, ErrPreviewNotFound)
+		require.ErrorIs(t, err, imports.ErrPreviewNotFound)
 	}
 	assert.Equal(t, 1, okCount)
 	var n int
@@ -265,19 +266,6 @@ func TestPurgeAfterTwelveMonths(t *testing.T) {
 	assert.False(t, has)
 }
 
-func TestPreviewIsFreedWithoutFurtherAccess(t *testing.T) {
-	f := newFixture(t)
-	f.store.ttl = 20 * time.Millisecond
-	p, err := f.store.NewPreview(context.Background(), "alice", f.export(t, "members_valid.xlsx"))
-	require.NoError(t, err)
-
-	require.Eventually(t, func() bool {
-		f.store.mu.Lock()
-		defer f.store.mu.Unlock()
-		return len(f.store.previews) == 0
-	}, 2*time.Second, 10*time.Millisecond, "preview %s still held", p.ID)
-}
-
 func TestFindAndEraseMember(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
@@ -291,6 +279,7 @@ func TestFindAndEraseMember(t *testing.T) {
 	require.NotNil(t, p.Seasons)
 	assert.Equal(t, "2026", *p.Seasons)
 	assert.Equal(t, "2026-12-31", p.LicenceExpires)
+	assert.Equal(t, f.keys.Hash(secure.NameKey("Martin", "Léa")), p.NameHash, "the key payments are found by")
 
 	p, ok, err = f.store.Find(ctx, "chloe.petit@example.org")
 	require.NoError(t, err)
@@ -303,21 +292,52 @@ func TestFindAndEraseMember(t *testing.T) {
 	_, _, err = f.store.Find(ctx, "lea martin@example.org")
 	require.ErrorIs(t, err, secure.ErrEmailSpace)
 
-	erase := func(email string) bool {
-		var found bool
+	erase := func(email string) []byte {
+		var nameHash []byte
 		require.NoError(t, store.Tx(ctx, f.db, "test.erase", func(ctx context.Context, tx *sql.Tx) error {
 			var err error
-			found, err = f.store.EraseTx(ctx, tx, email)
+			nameHash, err = f.store.EraseTx(ctx, tx, email)
 			return err
 		}))
-		return found
+		return nameHash
 	}
-	assert.True(t, erase("lea.martin@example.org"))
-	assert.False(t, erase("lea.martin@example.org"))
+	assert.Equal(t, f.keys.Hash(secure.NameKey("Martin", "Léa")), erase("lea.martin@example.org"),
+		"the erased member's name hash, to erase their payment lines")
+	assert.Nil(t, erase("lea.martin@example.org"))
 	listed, err := f.store.Lookup(ctx, "lea.martin@example.org")
 	require.NoError(t, err)
 	assert.False(t, listed)
 	listed, err = f.store.Lookup(ctx, "hugo.bernard@example.org")
 	require.NoError(t, err)
 	assert.True(t, listed, "only that address is erased")
+}
+
+// Spec §7.3: a members import that reveals homonyms marks their payment lines
+// ambiguous, and a later import keeping only one of them does not clear it.
+func TestImportMarksHomonymPaymentLines(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	homonym := f.keys.Hash(secure.NameKey("Martin", "Léa"))
+	single := f.keys.Hash(secure.NameKey("Bernard", "Hugo"))
+	_, err := f.db.ExecContext(ctx,
+		`INSERT INTO imports (id, kind, imported_at, imported_by, row_count, skipped_count) VALUES (1, 'payments', 0, 'alice', 2, 0)`)
+	require.NoError(t, err)
+	for _, h := range [][]byte{homonym, single} {
+		_, err := f.db.ExecContext(ctx, `INSERT INTO payment_lines (import_id, name_hash, data) VALUES (1, ?, x'00')`, h)
+		require.NoError(t, err)
+	}
+	ambiguous := func(h []byte) bool {
+		t.Helper()
+		var a bool
+		require.NoError(t, f.db.QueryRowContext(ctx, `SELECT ambiguous FROM payment_lines WHERE name_hash = ?`, h).Scan(&a))
+		return a
+	}
+
+	f.importFixture(t, "members_valid.xlsx")
+	assert.True(t, ambiguous(homonym), "Martin Léa and MARTIN Lea share a name")
+	assert.False(t, ambiguous(single))
+
+	f.importFixture(t, "members_minimal.xlsx")
+	assert.True(t, ambiguous(homonym), "the mark stays for the payments in place")
+	assert.False(t, ambiguous(single))
 }

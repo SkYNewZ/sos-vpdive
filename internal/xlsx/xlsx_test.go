@@ -39,7 +39,8 @@ func TestReadCellKindsAndGaps(t *testing.T) {
 		{Col: 1, Kind: KindBool, Text: "1"},
 		{Col: 2, Kind: KindString, Text: "en ligne"},
 		{Col: 3, Kind: KindString, Text: "formule"},
-	}}, rows[1])
+		{Col: 4, Kind: KindError},
+	}}, rows[1], "an error value is kept, so a reader can refuse it, but holds no text")
 	n, ok := rows[1].Cells[0].Number()
 	assert.True(t, ok)
 	assert.InDelta(t, 2026.0, n, 0)
@@ -117,6 +118,18 @@ func TestSerialDate(t *testing.T) {
 	d, ok := SerialDate(46387)
 	require.True(t, ok)
 	assert.Equal(t, time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC), d)
+	d, ok = SerialDate(46387.375)
+	require.True(t, ok)
+	assert.Equal(t, time.Date(2026, 12, 31, 9, 0, 0, 0, time.UTC), d, "the fraction is the time of day")
+	d, ok = SerialDate(46387.416666666664)
+	require.True(t, ok)
+	assert.Equal(t, time.Date(2026, 12, 31, 10, 0, 0, 0, time.UTC), d, "rounded to the second")
+	d, ok = SerialDate(46387.999999999)
+	require.True(t, ok)
+	assert.Equal(t, time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC), d, "a rounded midnight moves to the next day")
+	d, ok = SerialDate(2958465.5)
+	require.True(t, ok)
+	assert.Equal(t, time.Date(9999, 12, 31, 12, 0, 0, 0, time.UTC), d, "no overflow on the last day")
 	_, ok = SerialDate(0)
 	assert.False(t, ok)
 	_, ok = SerialDate(3_000_000)
@@ -151,4 +164,51 @@ func TestNonFiniteNumbers(t *testing.T) {
 	assert.False(t, ok)
 	_, err := ReadFirstSheet(xlsxtest.Raw(t, `<row r="1"><c r="A1"><v>NaN</v></c></row>`), testLimits)
 	require.ErrorIs(t, err, ErrInvalid)
+}
+
+func TestCreated(t *testing.T) {
+	created := time.Date(2026, 9, 1, 10, 30, 0, 0, time.FixedZone("CEST", 2*3600))
+	got, ok := Created(xlsxtest.BuildCreated(t, created, xlsxtest.Sheet{{"a"}}), testLimits)
+	require.True(t, ok)
+	assert.True(t, created.Equal(got), "got %v", got)
+
+	_, ok = Created(xlsxtest.Build(t, xlsxtest.Sheet{{"a"}}), testLimits)
+	assert.False(t, ok, "no core properties")
+	_, ok = Created([]byte("not a zip"), testLimits)
+	assert.False(t, ok)
+	_, ok = Created(xlsxtest.BuildCreated(t, created, xlsxtest.Sheet{{"a"}}), Limits{MaxUncompressed: 10, MaxRows: 1, MaxCells: 1})
+	assert.False(t, ok, "the size budget applies")
+}
+
+func TestFindHeader(t *testing.T) {
+	rows := []Row{
+		{Num: 1, Cells: []Cell{{Col: 0, Kind: KindString, Text: "Liste des paiements"}}},
+		{Num: 3, Cells: []Cell{
+			{Col: 0, Kind: KindString, Text: " Nom "},
+			{Col: 1, Kind: KindString, Text: "Pre\u0301nom"},
+			{Col: 2, Kind: KindString, Text: "Materiel"},
+			{Col: 4, Kind: KindString, Text: "Materiel"},
+			{Col: 5, Kind: KindString, Text: "Créé le"},
+		}},
+		{Num: 4, Cells: []Cell{{Col: 0, Kind: KindString, Text: "Créé le"}}},
+	}
+	i, h, ok := FindHeader(rows, "Créé le", 10)
+	require.True(t, ok)
+	assert.Equal(t, 1, i, "index in rows, not the row number")
+	col, ok := h.Col("Nom", 0)
+	assert.True(t, ok)
+	assert.Equal(t, 0, col, "names are trimmed")
+	col, ok = h.Col("Prénom", 0)
+	assert.True(t, ok)
+	assert.Equal(t, 1, col, "names are compared in NFC")
+	col, ok = h.Col("Materiel", 1)
+	assert.True(t, ok)
+	assert.Equal(t, 4, col, "the second occurrence")
+	_, ok = h.Col("Materiel", 2)
+	assert.False(t, ok)
+	_, ok = h.Col("Email", 0)
+	assert.False(t, ok)
+
+	_, _, ok = FindHeader(rows, "Créé le", 2)
+	assert.False(t, ok, "only rows numbered up to maxRow are searched")
 }

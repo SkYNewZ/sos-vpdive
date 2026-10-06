@@ -160,7 +160,7 @@ func (s *Store) scanRows(rows *sql.Rows) ([]Row, error) {
 			return r, err
 		}
 		r.Ref, r.Assignee = ref.String, assignee.String
-		r.SubmittedAt, r.ClosedAt = unixTime(submitted), unixTime(closed)
+		r.SubmittedAt, r.ClosedAt = store.UnixTime(submitted), store.UnixTime(closed)
 		r.Excerpt = truncate(strings.Join(strings.Fields(r.Excerpt), " "), excerptRunes)
 		r.MemberRepliedLast = lastBy.String == authorMember
 		return r, nil
@@ -207,7 +207,7 @@ func (s *Store) Detail(ctx context.Context, id int64) (*Detail, error) {
 		return nil, err
 	}
 	d.Assignee = assignee.String
-	d.SubmittedAt, d.ClosedAt = unixTime(submitted), unixTime(closed)
+	d.SubmittedAt, d.ClosedAt = store.UnixTime(submitted), store.UnixTime(closed)
 	if err := s.readThread(ctx, &d); err != nil {
 		return nil, err
 	}

@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/SkYNewZ/sos-vpdive/internal/imports"
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
 	"github.com/SkYNewZ/sos-vpdive/internal/xlsx"
 )
@@ -26,7 +27,7 @@ func Import(tb testing.TB, s *members.Store, name string) {
 	tb.Helper()
 	data, err := os.ReadFile(FixturePath(name))
 	require.NoError(tb, err)
-	rows, err := xlsx.ReadFirstSheet(data, members.ImportLimits())
+	rows, err := xlsx.ReadFirstSheet(data, imports.Limits())
 	require.NoError(tb, err)
 	exp, err := members.Parse(rows, time.UTC)
 	require.NoError(tb, err)

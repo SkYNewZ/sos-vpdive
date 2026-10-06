@@ -111,6 +111,7 @@ type Config struct {
 	TurnstileSiteKey   string
 	TurnstileSecretKey string
 	MembersMaxAge      time.Duration
+	PaymentsMaxAge     time.Duration
 	AgeWarnAfter       time.Duration // open request shown in orange from this age
 	AgeAlertAfter      time.Duration // and in red from this one
 	RetentionDays      int           // days a closed request is kept
@@ -150,6 +151,7 @@ func Load(getenv func(string) string) (*Config, error) {
 		TurnstileSiteKey:   p.optional("TURNSTILE_SITE_KEY", ""),
 		TurnstileSecretKey: p.optional("TURNSTILE_SECRET_KEY", ""),
 		MembersMaxAge:      p.duration("MEMBERS_MAX_AGE", "336h"),
+		PaymentsMaxAge:     p.duration("PAYMENTS_MAX_AGE", "168h"),
 		AgeWarnAfter:       p.duration("AGE_WARN_AFTER", "48h"),
 		AgeAlertAfter:      p.duration("AGE_ALERT_AFTER", "168h"),
 		RetentionDays:      p.int("RETENTION_DAYS", "365", 15, 3650),

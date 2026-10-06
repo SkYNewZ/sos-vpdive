@@ -3,6 +3,7 @@ package web
 import (
 	"bytes"
 	"context"
+	"html"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -20,6 +22,7 @@ import (
 	"go.opentelemetry.io/otel/trace/noop"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/members/memberstest"
+	"github.com/SkYNewZ/sos-vpdive/internal/xlsx/xlsxtest"
 )
 
 var previewPattern = regexp.MustCompile(`name="apercu" value="([^"]+)"`)
@@ -31,11 +34,20 @@ func fixtureBytes(t *testing.T, name string) []byte {
 	return data
 }
 
+// upload sends a members export.
 func (e *testEnv) upload(t *testing.T, cookie *http.Cookie, csrf string, data []byte) *httptest.ResponseRecorder {
+	t.Helper()
+	return e.uploadAs(t, cookie, csrf, "membres", data)
+}
+
+// uploadAs sends an export of kind (membres, paiements), fields in the
+// order the page writes them.
+func (e *testEnv) uploadAs(t *testing.T, cookie *http.Cookie, csrf, kind string, data []byte) *httptest.ResponseRecorder {
 	t.Helper()
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
 	require.NoError(t, mw.WriteField("csrf", csrf))
+	require.NoError(t, mw.WriteField("type", kind))
 	fw, err := mw.CreateFormFile("file", "export.xlsx")
 	require.NoError(t, err)
 	_, err = fw.Write(data)
@@ -45,9 +57,15 @@ func (e *testEnv) upload(t *testing.T, cookie *http.Cookie, csrf string, data []
 		func(r *http.Request) { r.Header.Set("Content-Type", mw.FormDataContentType()) }, withCookie(cookie))
 }
 
+// confirm confirms a members preview.
 func (e *testEnv) confirm(t *testing.T, cookie *http.Cookie, csrf, preview string, half bool) *httptest.ResponseRecorder {
 	t.Helper()
-	v := url.Values{"csrf": {csrf}, "apercu": {preview}}
+	return e.confirmAs(t, cookie, csrf, "membres", preview, half)
+}
+
+func (e *testEnv) confirmAs(t *testing.T, cookie *http.Cookie, csrf, kind, preview string, half bool) *httptest.ResponseRecorder {
+	t.Helper()
+	v := url.Values{"csrf": {csrf}, "type": {kind}, "apercu": {preview}}
 	if half {
 		v.Set("confirmer_moitie", "oui")
 	}
@@ -71,6 +89,11 @@ func TestImportsPageShowsWhereToFindTheExport(t *testing.T) {
 	assert.Contains(t, body, "« Télécharger »")
 	assert.Contains(t, body, "Aucune liste importée")
 	assert.Contains(t, body, `enctype="multipart/form-data"`)
+
+	assert.Contains(t, body, "https://vpdive.example.org/app/admin/vpdive/%2Ff%2Fpayment%2Findex?route=/f/payment/index")
+	assert.Contains(t, body, "« Télécharger Excel »")
+	assert.Contains(t, body, "Des 24 derniers mois à aujourd'hui")
+	assert.Contains(t, body, "Aucun export des paiements importé")
 }
 
 func TestImportPreviewThenConfirm(t *testing.T) {
@@ -88,9 +111,9 @@ func TestImportPreviewThenConfirm(t *testing.T) {
 
 	done := e.confirm(t, cookie, csrf, previewID(t, rec), false)
 	require.Equal(t, http.StatusSeeOther, done.Code, done.Body.String())
-	assert.Equal(t, "/imports?importe=1", done.Header().Get("Location"))
+	assert.Equal(t, "/imports?importe=membres", done.Header().Get("Location"))
 
-	page := e.do(t, http.MethodGet, adminHost, "/imports?importe=1", nil, withCookie(cookie)).Body.String()
+	page := e.do(t, http.MethodGet, adminHost, "/imports?importe=membres", nil, withCookie(cookie)).Body.String()
 	assert.Contains(t, page, "Liste des membres importée.")
 	assert.Contains(t, page, "Alice (Présidente)")
 	assert.NotContains(t, page, "Le formulaire est fermé")
@@ -214,6 +237,145 @@ func TestImportFlowLeaksNothingToLogsOrSpans(t *testing.T) {
 	logs := e.logs.String()
 	for _, secret := range []string{"lea.martin@example.org", "Martin", "Léa", testPassword, cookie.Value, csrf, id} {
 		assert.NotContains(t, logs, secret)
+		assert.NotContains(t, dump.String(), secret)
+	}
+}
+
+// paymentsSheet is a small payments export: the required columns only.
+func paymentsSheet(t *testing.T, lines int) []byte {
+	t.Helper()
+	sheet := make(xlsxtest.Sheet, 0, 1+lines)
+	sheet = append(sheet, []any{"Nom", "Prénom", "Prix unitaire", "Quantité", "Montant paiement", "Montant réduc.",
+		"État", "Produit/Événement", "Créé le"})
+	for range lines {
+		sheet = append(sheet, []any{"Bernard", "Hugo", 30, 1, 30, 0, "Payé", "Baptême", "05/01/2026 10:12:00"})
+	}
+	return xlsxtest.Build(t, sheet)
+}
+
+func TestPaymentsImportPreviewThenConfirm(t *testing.T) {
+	e := newTestEnv(t)
+	e.importMembers(t, "members_valid.xlsx")
+	cookie := e.login(t)
+	csrf := e.csrf(t, cookie, "/imports")
+
+	rec := e.uploadAs(t, cookie, csrf, "paiements", fixtureBytes(t, "payments_valid.xlsx"))
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	body := html.UnescapeString(rec.Body.String())
+	for _, want := range []string{
+		"Aperçu avant remplacement", "01/09/2026 à 12:50 (indicatif)", "du 05/01/2026 au 20/06/2026",
+		"Moins de 12 mois", `<dd class="mb-2 sm:mb-0">20</dd>`, "« En attente » : 1 ligne", "Remplacer les paiements",
+	} {
+		assert.Contains(t, body, want)
+	}
+	assert.NotContains(t, body, "confirmer_moitie")
+
+	done := e.confirmAs(t, cookie, csrf, "paiements", previewID(t, rec), false)
+	require.Equal(t, http.StatusSeeOther, done.Code, done.Body.String())
+	assert.Equal(t, "/imports?importe=paiements", done.Header().Get("Location"))
+
+	page := html.UnescapeString(e.do(t, http.MethodGet, adminHost, "/imports?importe=paiements", nil, withCookie(cookie)).Body.String())
+	for _, want := range []string{
+		"Paiements importés.", "Alice (Présidente)", "du 05/01/2026 au 20/06/2026",
+		"Rattachées à un membre</dt><dd class=\"mb-2 sm:mb-0\">17 lignes, 4 payeurs",
+		"Ambiguës (homonymes)</dt><dd class=\"mb-2 sm:mb-0\">2 lignes, 1 payeur",
+		"Sans membre correspondant</dt><dd class=\"mb-2 sm:mb-0\">1 ligne, 1 payeur",
+		"Lignes sans nom écartées</dt><dd class=\"mb-2 sm:mb-0\">1",
+	} {
+		assert.Contains(t, page, want)
+	}
+	assert.Equal(t, 20, e.count(t, "payment_lines"))
+}
+
+func TestPaymentsImportRefusalsKeepTheLinesAndExplain(t *testing.T) {
+	e := newTestEnv(t)
+	cookie := e.login(t)
+	csrf := e.csrf(t, cookie, "/imports")
+	for name, c := range map[string]struct {
+		data []byte
+		want string
+	}{
+		"missing column": {fixtureBytes(t, "payments_missing_column.xlsx"), "Colonne obligatoire absente : « Montant paiement »"},
+		"members export": {fixtureBytes(t, "members_valid.xlsx"), "Colonne « Créé le » introuvable"},
+		"not a workbook": {[]byte("Nom;Prénom\n"), "Dépose l'export « Télécharger Excel » de la page des paiements"},
+	} {
+		rec := e.uploadAs(t, cookie, csrf, "paiements", c.data)
+		assert.Equal(t, http.StatusUnprocessableEntity, rec.Code, name)
+		body := html.UnescapeString(rec.Body.String())
+		assert.Contains(t, body, c.want, name)
+		label, msg := strings.Index(body, `for="file-paiements"`), strings.Index(body, c.want)
+		assert.Greater(t, msg, label, "%s: the error sits after the payments file field", name)
+	}
+	assert.Zero(t, e.count(t, "payment_lines"))
+
+	bad := e.uploadAs(t, cookie, csrf, "autre", paymentsSheet(t, 1))
+	assert.Equal(t, http.StatusBadRequest, bad.Code)
+}
+
+func TestPaymentsImportBelowHalfNeedsSecondConfirmation(t *testing.T) {
+	e := newTestEnv(t)
+	e.importPayments(t)
+	cookie := e.login(t)
+	csrf := e.csrf(t, cookie, "/imports")
+
+	rec := e.uploadAs(t, cookie, csrf, "paiements", paymentsSheet(t, 3))
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Contains(t, html.UnescapeString(rec.Body.String()), "moins de la moitié des 20 lignes en place")
+	id := previewID(t, rec)
+
+	refused := e.confirmAs(t, cookie, csrf, "paiements", id, false)
+	assert.Equal(t, http.StatusUnprocessableEntity, refused.Code)
+	assert.Contains(t, html.UnescapeString(refused.Body.String()), "Coche la seconde confirmation : ce fichier contient moins de la moitié des lignes en place.")
+	assert.Equal(t, id, previewID(t, refused), "the same preview is shown again")
+	assert.Equal(t, http.StatusConflict, e.confirmAs(t, cookie, csrf, "membres", id, true).Code, "a payments preview is not a members one")
+
+	assert.Equal(t, http.StatusSeeOther, e.confirmAs(t, cookie, csrf, "paiements", id, true).Code)
+	assert.Equal(t, 3, e.count(t, "payment_lines"))
+}
+
+// Spec §7.3: past PAYMENTS_MAX_AGE, a banner asks to import again; nothing
+// before the first import.
+func TestPaymentsReminderBanner(t *testing.T) {
+	e := newTestEnv(t)
+	e.importMembers(t, "members_valid.xlsx")
+	cookie := e.login(t)
+	home := func() string {
+		t.Helper()
+		return html.UnescapeString(e.do(t, http.MethodGet, adminHost, "/", nil, withCookie(cookie)).Body.String())
+	}
+	assert.NotContains(t, home(), "Les paiements datent")
+	e.importPayments(t)
+	e.clock.advance(7 * 24 * time.Hour)
+	assert.NotContains(t, home(), "Les paiements datent")
+	e.clock.advance(2 * time.Hour)
+	assert.Contains(t, home(), "Les paiements datent du 02/09/2026. Pense à refaire l'import.")
+}
+
+func TestPaymentsImportLeaksNothingToLogsOrSpans(t *testing.T) {
+	spans := tracetest.NewSpanRecorder()
+	otel.SetTracerProvider(sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spans)))
+	t.Cleanup(func() { otel.SetTracerProvider(noop.NewTracerProvider()) })
+	e := newTestEnv(t)
+	cookie := e.login(t)
+	csrf := e.csrf(t, cookie, "/imports")
+	id := previewID(t, e.uploadAs(t, cookie, csrf, "paiements", fixtureBytes(t, "payments_valid.xlsx")))
+	require.Equal(t, http.StatusSeeOther, e.confirmAs(t, cookie, csrf, "paiements", id, false).Code)
+
+	ended := spans.Ended()
+	names := make([]string, 0, len(ended))
+	var dump strings.Builder
+	for _, s := range ended {
+		names = append(names, s.Name())
+		dump.WriteString(s.Name())
+		for _, a := range s.Attributes() {
+			dump.WriteString(" " + a.Value.String())
+		}
+	}
+	for _, want := range []string{"import.read", "import.validate", "import.replace", "db payments.replace"} {
+		assert.Contains(t, names, want)
+	}
+	for _, secret := range []string{"Bernard", "Hugo", "Porquerolles", id} {
+		assert.NotContains(t, e.logs.String(), secret)
 		assert.NotContains(t, dump.String(), secret)
 	}
 }
