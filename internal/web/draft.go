@@ -63,6 +63,9 @@ func (s *Server) suggestRequest(sub tickets.Submission) suggest.Request {
 
 // renderBefore shows screen 2 for draft d, behind its token; n, when set,
 // says what the last action did.
+// ponytail: a redeploy that removes every fiche of a draft leaves screen 2
+// with an empty list (rare, accepted by the owner); hide the list and « Ça
+// règle mon problème » if it ever shows up.
 func (s *Server) renderBefore(w http.ResponseWriter, r *http.Request, status int, token string, d tickets.Draft, n *notice) {
 	data := beforeData{Token: token, OpenRequest: d.OpenRequest}
 	for _, id := range d.KBIDs {
