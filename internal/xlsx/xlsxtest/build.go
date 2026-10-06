@@ -36,7 +36,7 @@ var modified = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 // whose shared strings are the given <si> elements, for edge cases.
 func Raw(tb testing.TB, sheetData string, sharedItems ...string) []byte {
 	tb.Helper()
-	b, err := assemble([]string{sheetData}, sharedItems)
+	b, err := assemble([]string{sheetData}, sharedItems, time.Time{})
 	if err != nil {
 		tb.Fatal(err)
 	}
@@ -45,6 +45,13 @@ func Raw(tb testing.TB, sheetData string, sharedItems ...string) []byte {
 
 // Build returns a workbook whose sheets appear in the given order.
 func Build(tb testing.TB, sheets ...Sheet) []byte {
+	tb.Helper()
+	return BuildCreated(tb, time.Time{}, sheets...)
+}
+
+// BuildCreated is Build with core properties declaring the creation date
+// created; a zero created writes none.
+func BuildCreated(tb testing.TB, created time.Time, sheets ...Sheet) []byte {
 	tb.Helper()
 	var shared []string
 	index := map[string]int{}
@@ -85,22 +92,26 @@ func Build(tb testing.TB, sheets ...Sheet) []byte {
 		}
 		sheetXML[i] = b.String()
 	}
-	b, err := assemble(sheetXML, shared)
+	b, err := assemble(sheetXML, shared, created)
 	if err != nil {
 		tb.Fatal(err)
 	}
 	return b
 }
 
-func assemble(sheets, sharedItems []string) ([]byte, error) {
-	var types, wbSheets, wbRels strings.Builder
+func assemble(sheets, sharedItems []string, created time.Time) ([]byte, error) {
+	var types, wbSheets, wbRels, pkgRels strings.Builder
 	for i := range sheets {
 		n := i + 1
 		fmt.Fprintf(&types, `<Override PartName="/xl/worksheets/sheet%d.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`, n)
 		fmt.Fprintf(&wbSheets, `<sheet name="Feuille %d" sheetId="%d" r:id="rId%d"/>`, n, n, n+1)
 		fmt.Fprintf(&wbRels, `<Relationship Id="rId%d" Type="%s/worksheet" Target="worksheets/sheet%d.xml"/>`, n+1, docRelNS, n)
 	}
-	parts := append(make([]struct{ name, body string }, 0, 5+len(sheets)), []struct{ name, body string }{
+	if !created.IsZero() {
+		types.WriteString(`<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>`)
+		pkgRels.WriteString(`<Relationship Id="rId2" Type="` + pkgRelNS + `/metadata/core-properties" Target="docProps/core.xml"/>`)
+	}
+	parts := append(make([]struct{ name, body string }, 0, 6+len(sheets)), []struct{ name, body string }{
 		{"[Content_Types].xml", `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">` +
 			`<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>` +
 			`<Default Extension="xml" ContentType="application/xml"/>` +
@@ -108,7 +119,7 @@ func assemble(sheets, sharedItems []string) ([]byte, error) {
 			`<Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>` +
 			types.String() + `</Types>`},
 		{"_rels/.rels", `<Relationships xmlns="` + pkgRelNS + `">` +
-			`<Relationship Id="rId1" Type="` + docRelNS + `/officeDocument" Target="xl/workbook.xml"/></Relationships>`},
+			`<Relationship Id="rId1" Type="` + docRelNS + `/officeDocument" Target="xl/workbook.xml"/>` + pkgRels.String() + `</Relationships>`},
 		{"xl/workbook.xml", `<workbook xmlns="` + mainNS + `" xmlns:r="` + docRelNS + `"><sheets>` + wbSheets.String() + `</sheets></workbook>`},
 		{"xl/_rels/workbook.xml.rels", `<Relationships xmlns="` + pkgRelNS + `">` +
 			`<Relationship Id="rId1" Type="` + docRelNS + `/sharedStrings" Target="sharedStrings.xml"/>` +
@@ -116,6 +127,12 @@ func assemble(sheets, sharedItems []string) ([]byte, error) {
 		{"xl/sharedStrings.xml", fmt.Sprintf(`<sst xmlns="%s" count="%d" uniqueCount="%d">`, mainNS, len(sharedItems), len(sharedItems)) +
 			strings.Join(sharedItems, "") + `</sst>`},
 	}...)
+	if !created.IsZero() {
+		parts = append(parts, struct{ name, body string }{"docProps/core.xml",
+			`<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" ` +
+				`xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">` +
+				`<dcterms:created xsi:type="dcterms:W3CDTF">` + created.Format(time.RFC3339) + `</dcterms:created></cp:coreProperties>`})
+	}
 	for i, s := range sheets {
 		parts = append(parts, struct{ name, body string }{
 			fmt.Sprintf("xl/worksheets/sheet%d.xml", i+1),

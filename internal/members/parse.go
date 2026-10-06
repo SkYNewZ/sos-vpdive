@@ -11,8 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/text/unicode/norm"
-
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 	"github.com/SkYNewZ/sos-vpdive/internal/xlsx"
 )
@@ -94,17 +92,20 @@ func (e *ParseError) Error() string {
 // file is validated before anything is returned. loc is the zone of the
 // export date written in row 2.
 func Parse(rows []xlsx.Row, loc *time.Location) (*Export, error) {
-	hi, cols, err := findHeader(rows)
-	if err != nil {
-		return nil, err
+	hi, header, ok := xlsx.FindHeader(rows, ColumnEmail, headerSearchRows)
+	if !ok {
+		return nil, &ParseError{Kind: ProblemNoHeader}
 	}
+	cols := map[string]int{}
 	for _, name := range []string{ColumnEmail, ColumnLastName, ColumnFirstName} {
-		if _, ok := cols[name]; !ok {
+		col, ok := header.Col(name, 0)
+		if !ok {
 			return nil, &ParseError{Kind: ProblemMissingColumn, Column: name}
 		}
+		cols[name] = col
 	}
-	seasonsCol, hasSeasons := cols[columnSeasons]
-	licenceCol, hasLicence := cols[columnLicence]
+	seasonsCol, hasSeasons := header.Col(columnSeasons, 0)
+	licenceCol, hasLicence := header.Col(columnLicence, 0)
 
 	exp := &Export{ExportedAt: exportDate(rows, loc)}
 	firstRow := map[string]int{}
@@ -168,25 +169,6 @@ func AmbiguousGroups(ms []Member) (groups, accounts int) {
 		}
 	}
 	return groups, accounts
-}
-
-func findHeader(rows []xlsx.Row) (int, map[string]int, error) {
-	for i, row := range rows {
-		if row.Num > headerSearchRows {
-			break
-		}
-		cols := map[string]int{}
-		for _, c := range row.Cells {
-			name := strings.TrimSpace(norm.NFC.String(c.Text))
-			if _, seen := cols[name]; !seen {
-				cols[name] = c.Col
-			}
-		}
-		if _, ok := cols[ColumnEmail]; ok {
-			return i, cols, nil
-		}
-	}
-	return 0, nil, &ParseError{Kind: ProblemNoHeader}
 }
 
 func exportDate(rows []xlsx.Row, loc *time.Location) time.Time {
