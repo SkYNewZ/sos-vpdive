@@ -20,7 +20,8 @@ type BlockState string
 
 // Block states, checked in this order.
 const (
-	BlockNoLines   BlockState = "no_lines"  // nothing imported, or purged
+	BlockNoLines   BlockState = "no_lines"  // nothing ever imported
+	BlockPurged    BlockState = "purged"    // lines deleted after 90 days without an import
 	BlockNoMember  BlockState = "no_member" // the requester left the members list
 	BlockAmbiguous BlockState = "ambiguous" // a name several members share, or marked so
 	BlockEmpty     BlockState = "empty"     // no line for this member
@@ -58,6 +59,15 @@ func (l Line) CancelledOuting() bool {
 // Prepaid reports a line settled with a carnet.
 func (l Line) Prepaid() bool { return l.Method == MethodPrepaid }
 
+// Settled is what a line cost the member: the unit price taken from a
+// carnet, or the amount paid in real money (spec §7.4).
+func (l Line) Settled() Amount {
+	if l.Prepaid() {
+		return l.UnitPrice
+	}
+	return l.Paid
+}
+
 // ProbableRefund reports a negative VPayDive payment outside carnets, shown
 // as such until the treasurer confirms the rule (spec §14.1).
 func (l Line) ProbableRefund() bool {
@@ -75,11 +85,16 @@ func (s *Store) Block(ctx context.Context, nameHash []byte) (Block, error) {
 	if err := s.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM payment_lines)`).Scan(&inPlace); err != nil {
 		return Block{}, fmt.Errorf("payment lines presence: %w", err)
 	}
-	if !inPlace {
-		return Block{State: BlockNoLines}, nil
-	}
-	if b.Import, _, err = s.LastImport(ctx); err != nil {
+	var imported bool
+	if b.Import, imported, err = s.LastImport(ctx); err != nil {
 		return Block{}, err
+	}
+	if !inPlace {
+		b.State = BlockNoLines
+		if imported {
+			b.State = BlockPurged
+		}
+		return b, nil
 	}
 	if nameHash == nil {
 		b.State = BlockNoMember

@@ -26,7 +26,7 @@ type Outing struct {
 // Cancellations is the treasurer's work list of cancelled outings.
 type Cancellations struct {
 	InPlace bool         // false when no payment line is in place
-	Import  imports.Info // the payments import in place
+	Import  imports.Info // the latest payments import, its lines purged when !InPlace
 	Outings []Outing     // oldest first, unknown dates last
 	Lines   int
 	Persons int // inscriptions: distinct payers per outing, summed
@@ -47,13 +47,9 @@ func (s *Store) Cancellations(ctx context.Context) (Cancellations, error) {
 	if err != nil {
 		return Cancellations{}, fmt.Errorf("payment lines: %w", err)
 	}
-	var c Cancellations
-	if len(found) == 0 {
-		return c, nil
-	}
-	c.InPlace = true
-	if c.Import, _, err = s.LastImport(ctx); err != nil {
-		return Cancellations{}, err
+	c := Cancellations{InPlace: len(found) > 0}
+	if c.Import, _, err = s.LastImport(ctx); err != nil || !c.InPlace {
+		return c, err
 	}
 	type key struct {
 		title  string
@@ -79,9 +75,9 @@ func (s *Store) Cancellations(ctx context.Context) (Cancellations, error) {
 		o := &c.Outings[i]
 		o.Lines++
 		if l.Prepaid() {
-			o.ByCarnet += l.UnitPrice
+			o.ByCarnet += l.Settled()
 		} else {
-			o.ByMoney += l.Paid
+			o.ByMoney += l.Settled()
 		}
 		payers[k][string(r.nameHash)] = true
 		o.Persons = len(payers[k])

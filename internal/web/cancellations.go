@@ -31,7 +31,10 @@ func (s *Server) cancellationsPage(w http.ResponseWriter, r *http.Request) {
 	d := cancellationsData{Cancellations: c, Rows: make([]outingView, len(c.Outings))}
 	for i, o := range c.Outings {
 		d.Rows[i].Outing = o
-		if !o.Starts.IsZero() {
+		switch {
+		case o.Starts.After(s.now()): // cancelled ahead of time
+			d.Rows[i].Age = &ageView{Text: "à venir", Level: ageNeutral}
+		case !o.Starts.IsZero():
 			age := s.age(o.Starts, time.Time{})
 			d.Rows[i].Age = &age
 		}

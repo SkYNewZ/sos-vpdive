@@ -58,3 +58,16 @@ func TestCancellationsOrderUnknownDatesLast(t *testing.T) {
 		"a title on two dates is two outings")
 	assert.True(t, c.Outings[3].Starts.IsZero())
 }
+
+func TestCancellationsAfterThePurge(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	f.importPayments(t, f.valid(t))
+	f.clock.t = f.clock.t.AddDate(0, 4, 0)
+	require.NoError(t, f.store.Purge(ctx))
+
+	c, err := f.store.Cancellations(ctx)
+	require.NoError(t, err)
+	assert.False(t, c.InPlace)
+	assert.Equal(t, "alice", c.Import.ImportedBy, "the page can say the lines were purged")
+}

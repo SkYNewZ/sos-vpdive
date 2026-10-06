@@ -121,6 +121,8 @@
 <h2 id="paiements" class="text-xl font-semibold">Paiements VPDive</h2>
 {{with $d.Payments}}{{if eq .State "no_lines"}}
 <p class="mt-3">Aucun paiement importé. <a class="link link-primary inline-flex min-h-11 items-center" href="/imports">Importer l'export des paiements</a></p>
+{{else if eq .State "purged"}}
+<p class="mt-3">Plus de 90 jours sans import : les lignes de paiement ont été effacées. <a class="link link-primary inline-flex min-h-11 items-center" href="/imports">Importer l'export des paiements</a></p>
 {{else}}
 <p class="mt-3">Export du fichier {{with formatDate .Import.ExportedAt}}créé le {{.}} (indicatif){{else}}sans date{{end}}, importé le {{formatDate .Import.ImportedAt}} par {{author .Import.ImportedBy}}.</p>
 <p class="mt-1 font-semibold">Ces données datent de l'import : vérifie dans VPDive avant d'agir.</p>
@@ -143,7 +145,7 @@
 {{end}}
 {{with .Cancelled}}<h3 class="mt-4 font-semibold">Sorties annulées en attente de suppression</h3>
 <ul class="mt-2 flex flex-col gap-2">{{range .}}
-<li class="border-l-2 border-warning pl-3"><span class="font-semibold break-words">{{.Product}}</span>, {{with formatTime .Starts}}le {{.}}{{else}}date inconnue{{end}}, {{.UnitPrice.Euros}}{{with .Method}} ({{.}}){{end}} : {{if .Prepaid}}le carnet sera recrédité à la suppression de la sortie{{else}}payé en argent réel : remboursement par le trésorier{{end}}.</li>{{end}}
+<li class="border-l-2 border-warning pl-3"><span class="font-semibold break-words">{{.Product}}</span>, {{with formatTime .Starts}}le {{.}}{{else}}date inconnue{{end}}, {{.Settled.Euros}}{{with .Method}} ({{.}}){{end}} : {{if .Prepaid}}le carnet sera recrédité à la suppression de la sortie{{else}}payé en argent réel : remboursement par le trésorier{{end}}.</li>{{end}}
 </ul>
 {{end}}
 <h3 class="mt-4 font-semibold">Dernières lignes</h3>

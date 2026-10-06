@@ -50,7 +50,8 @@ func TestBlockStates(t *testing.T) {
 	require.NoError(t, f.store.Purge(ctx))
 	b, err = f.store.Block(ctx, bernard)
 	require.NoError(t, err)
-	assert.Equal(t, BlockNoLines, b.State, "purged after 90 days")
+	assert.Equal(t, BlockPurged, b.State, "purged after 90 days: an import happened, its lines are gone")
+	assert.Equal(t, "alice", b.Import.ImportedBy)
 }
 
 // Spec §7.3: balances as read, lines to settle, cancelled outings still to
@@ -89,6 +90,9 @@ func TestLineReading(t *testing.T) {
 	assert.True(t, Line{State: StateDue, UnitPrice: 3500}.ToSettle())
 	assert.True(t, Line{State: StatePartial, UnitPrice: 12000}.ToSettle())
 	assert.False(t, Line{State: StateDue, ProductType: TypeCard, UnitPrice: -18000}.ToSettle(), "a balance is not due")
+
+	assert.Equal(t, Amount(3000), Line{Method: MethodPrepaid, UnitPrice: 3000}.Settled(), "a carnet pays the unit price")
+	assert.Equal(t, Amount(3000), Line{Method: MethodVPayDive, UnitPrice: 3500, Paid: 3000}.Settled(), "real money: what was paid")
 
 	assert.True(t, Line{State: StatePaid, Method: MethodVPayDive, Paid: -3500}.ProbableRefund())
 	assert.False(t, Line{State: StatePaid, Method: MethodVPayDive, Paid: -3500, ProductType: TypeCard}.ProbableRefund())
