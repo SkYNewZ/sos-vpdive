@@ -22,13 +22,14 @@ const retention = 90 * 24 * time.Hour
 type Preview struct {
 	imports.Meta
 
-	Created       time.Time // workbook creation date, indicative
-	Lines         int
-	Current       int // lines in place
-	Skipped       int
-	UnknownStates map[string]int
-	PeriodFrom    time.Time
-	PeriodTo      time.Time
+	Created        time.Time // workbook creation date, indicative
+	Lines          int
+	Current        int // lines in place
+	Skipped        int
+	UnknownStates  map[string]int
+	MissingColumns []string
+	PeriodFrom     time.Time
+	PeriodTo       time.Time
 
 	lines []Line
 }
@@ -86,6 +87,7 @@ func (s *Store) NewPreview(ctx context.Context, username string, exp *Export) (*
 		Current:            current,
 		Skipped:            exp.Skipped,
 		UnknownStates:      exp.UnknownStates,
+		MissingColumns:     exp.MissingColumns,
 		PeriodFrom:         exp.PeriodFrom,
 		PeriodTo:           exp.PeriodTo,
 		lines:              exp.Lines,

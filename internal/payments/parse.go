@@ -73,8 +73,11 @@ type Export struct {
 	Lines         []Line
 	Skipped       int            // lines without a name
 	UnknownStates map[string]int // states other than the four known ones
-	PeriodFrom    time.Time      // earliest and latest « Créé le »
-	PeriodTo      time.Time
+	// MissingColumns are the optional columns absent from the header; their
+	// cells read as empty. « Materiel » there is the second one.
+	MissingColumns []string
+	PeriodFrom     time.Time // earliest and latest « Créé le »
+	PeriodTo       time.Time
 }
 
 // ProblemKind classifies a refused export.
@@ -111,10 +114,11 @@ func (e *ParseError) Error() string {
 }
 
 // columns are the positions of the read columns; -1 when an optional one is
-// absent, which reads as an empty cell.
+// absent, which reads as an empty cell, and its name is in missing.
 type columns struct {
 	last, first, unitPrice, quantity, paid, discount, state, product, created int
 	method, productType, starts, paidAt, rental                               int
+	missing                                                                   []string
 }
 
 // Parse reads a payments export (spec §7.3). The header row is the first of
@@ -130,7 +134,7 @@ func Parse(rows []xlsx.Row, created time.Time, loc *time.Location) (*Export, err
 	if err != nil {
 		return nil, err
 	}
-	exp := &Export{Created: created, UnknownStates: map[string]int{}}
+	exp := &Export{Created: created, UnknownStates: map[string]int{}, MissingColumns: cols.missing}
 	var badNumbers, badDates []int
 	emptyProducts := 0
 	for _, row := range rows[hi+1:] {
@@ -180,14 +184,15 @@ func findColumns(h xlsx.Header) (columns, error) {
 		}
 		return col, nil
 	}
+	var c columns
 	optional := func(name string, n int) int {
 		col, ok := h.Col(name, n)
 		if !ok {
+			c.missing = append(c.missing, name)
 			return -1
 		}
 		return col
 	}
-	var c columns
 	for _, r := range []struct {
 		dst  *int
 		name string

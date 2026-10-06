@@ -97,8 +97,10 @@
 <dt class="font-semibold">Lignes sans nom écartées</dt><dd class="mb-2 sm:mb-0">{{.Skipped}}</dd>
 <dt class="font-semibold">Lignes en place</dt><dd class="mb-2 sm:mb-0">{{.Current}}</dd>
 {{with .UnknownStates}}<dt class="font-semibold">États inconnus</dt><dd class="mb-2 sm:mb-0">{{range $state, $n := .}}<span class="block">{{if $state}}« {{$state}} »{{else}}état vide{{end}} : {{$n}} ligne{{if gt $n 1}}s{{end}}</span>{{end}}</dd>{{end}}
+{{with .MissingColumns}}<dt class="font-semibold">Colonnes absentes</dt><dd class="mb-2 sm:mb-0">{{range .}}<span class="block">{{if eq . "Materiel"}}second « Materiel » : pas de montant de location{{else}}« {{.}} »{{if eq . "Methode de paiement"}} : toute sortie annulée passera pour réglée en argent réel{{else if eq . "Type de produit"}} : aucun solde de carnet ni de formation{{else if eq . "Du"}} : sorties annulées sans date ni ancienneté{{end}}{{end}}</span>{{end}}</dd>{{end}}
 </dl>
 {{if .UnknownStates}}<p class="mt-2 text-sm">Ces lignes sont gardées et s'affichent telles quelles.</p>{{end}}
+{{if .MissingColumns}}<p class="mt-2 text-sm">Ces colonnes sont facultatives : l'import se fait sans elles, avec les manques indiqués. Si tu peux, refais l'export avec toutes les colonnes.</p>{{end}}
 <form method="post" action="/imports/confirmer" class="mt-4 flex flex-col gap-3">
 <input type="hidden" name="csrf" value="{{$.CSRF}}">
 <input type="hidden" name="type" value="paiements">
