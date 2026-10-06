@@ -100,6 +100,22 @@ func TestParseNamesTheMissingColumn(t *testing.T) {
 	assert.Contains(t, pe.Error(), `"Créé le"`)
 }
 
+func TestParseListsTheAbsentOptionalColumns(t *testing.T) {
+	rows, err := xlsx.ReadFirstSheet(xlsxtest.Build(t, xlsxtest.Sheet{
+		{"Nom", "Prénom", "Prix unitaire", "Quantité", "Montant paiement", "Montant réduc.", "État", columnProduct, columnCreated, "Du", "Materiel"},
+		{"Bernard", "Hugo", 30, 1, 30, 0, StatePaid, "Baptême", "05/01/2026 10:12:00", "", "Combinaison"},
+	}), imports.Limits())
+	require.NoError(t, err)
+	exp, err := Parse(rows, time.Time{}, paris(t))
+	require.NoError(t, err, "optional columns never refuse a file")
+	assert.Equal(t, []string{"Methode de paiement", "Type de produit", "Date paiement", "Materiel"}, exp.MissingColumns,
+		"a single « Materiel » lacks the second one, the rental amount")
+
+	exp, err = parseSheet(t, paid("Bernard", "Hugo", 30, "vpaydive", "Baptême", "05/01/2026 10:12:00"))
+	require.NoError(t, err)
+	assert.Empty(t, exp.MissingColumns)
+}
+
 func TestParseRefusesUnreadableAmountsWithTheirRows(t *testing.T) {
 	ok := paid("Bernard", "Hugo", 30, "vpaydive", "Baptême", "05/01/2026 10:12:00")
 	words := paid("Bernard", "Hugo", 30, "vpaydive", "Baptême", "05/01/2026 10:12:00")
