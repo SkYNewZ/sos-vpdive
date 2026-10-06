@@ -267,3 +267,10 @@ func TestSetupReleasesRequestsOfAccountsRemovedWhileStopped(t *testing.T) {
 	assert.Equal(t, tickets.StatusTodo, d.Status)
 	assert.Empty(t, d.Assignee)
 }
+
+func TestValidateKBNeedsNoEnvironment(t *testing.T) {
+	var out bytes.Buffer
+	require.NoError(t, run(context.Background(), []string{"validate-kb"}, getenv(nil), nil, &out))
+	assert.Contains(t, out.String(), "8 fiches are valid")
+	assert.Contains(t, out.String(), "warning: kb/adhesion-paiement-bloque.md: 2 [À COMPLÉTER] mark(s) to fill in")
+}

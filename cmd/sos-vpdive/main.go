@@ -18,6 +18,7 @@ commands:
   backup <file>    write a consistent copy of the database to <file>
   restore <file>   replace the database with <file> (stop the service first)
   healthcheck      exit 0 when the local server answers /healthz
+  validate-kb      check the fiches of kb/ and list the marks left to fill in
 `
 
 // usageError reports a wrong command line.
@@ -59,6 +60,8 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdin i
 		return restore(ctx, getenv, args[1], stdout)
 	case "healthcheck":
 		return healthcheck(ctx, getenv)
+	case "validate-kb":
+		return validateKB(stdout)
 	default:
 		return usageError{fmt.Sprintf("unknown command %q", args[0])}
 	}

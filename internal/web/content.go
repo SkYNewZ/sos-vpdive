@@ -76,6 +76,20 @@ type vpdiveLink struct {
 
 type vpdiveLinks map[string]vpdiveLink
 
+// VPDiveLinkKeys returns the keys of config/vpdive.yaml: the links a fiche
+// may declare (spec §5.1).
+func VPDiveLinkKeys(content fs.FS) (map[string]bool, error) {
+	links, err := loadVPDiveLinks(content, &url.URL{})
+	if err != nil {
+		return nil, err
+	}
+	keys := make(map[string]bool, len(links))
+	for k := range links {
+		keys[k] = true
+	}
+	return keys, nil
+}
+
 func loadVPDiveLinks(content fs.FS, base *url.URL) (vpdiveLinks, error) {
 	var f struct {
 		Links []struct {

@@ -22,6 +22,7 @@ import (
 	"github.com/SkYNewZ/sos-vpdive/internal/admins"
 	"github.com/SkYNewZ/sos-vpdive/internal/blobs"
 	"github.com/SkYNewZ/sos-vpdive/internal/config"
+	"github.com/SkYNewZ/sos-vpdive/internal/kb"
 	"github.com/SkYNewZ/sos-vpdive/internal/mail"
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
@@ -52,7 +53,7 @@ type app struct {
 }
 
 // setup opens the database, refuses a SECRET_KEY that does not match it,
-// loads the accounts file and the content files, releases the requests of
+// loads the accounts file, the content files and the fiches, releases the requests of
 // accounts removed while the service was stopped, and builds the web server.
 func setup(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*app, error) {
 	keys, err := secure.NewKeys(cfg.SecretKey)
@@ -77,6 +78,13 @@ func setup(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*app, 
 	catalog, err := tickets.LoadCatalog(sosvpdive.Content)
 	if err != nil {
 		return fail(err)
+	}
+	base, err := loadKB(catalog)
+	if err != nil {
+		return fail(err)
+	}
+	for _, w := range base.Warnings() {
+		logger.WarnContext(ctx, "fiche to complete", "fiche", w)
 	}
 	captures, err := blobs.New(cfg)
 	if err != nil {
@@ -108,6 +116,36 @@ func setup(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*app, 
 		return fail(err)
 	}
 	return a, nil
+}
+
+// loadKB reads the fiches and checks their categories and VPDive links
+// (spec §5.1).
+func loadKB(catalog *tickets.Catalog) (*kb.Base, error) {
+	links, err := web.VPDiveLinkKeys(sosvpdive.Content)
+	if err != nil {
+		return nil, err
+	}
+	return kb.Load(sosvpdive.Content, catalog.Has, func(key string) bool { return links[key] })
+}
+
+// validateKB runs the checks of the start on the fiches, without the
+// environment, and lists the marks left to fill in. CI runs it.
+func validateKB(stdout io.Writer) error {
+	catalog, err := tickets.LoadCatalog(sosvpdive.Content)
+	if err != nil {
+		return err
+	}
+	base, err := loadKB(catalog)
+	if err != nil {
+		return err
+	}
+	for _, w := range base.Warnings() {
+		if _, err := fmt.Fprintln(stdout, "warning:", w); err != nil {
+			return err
+		}
+	}
+	_, err = fmt.Fprintf(stdout, "%d fiches are valid\n", len(base.Fiches))
+	return err
 }
 
 func (a *app) knownAccount(username string) bool {

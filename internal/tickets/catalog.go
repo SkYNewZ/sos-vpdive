@@ -208,6 +208,12 @@ func (c *Catalog) Category(id string) (Category, bool) {
 	return Category{}, false
 }
 
+// Has reports whether id is a category.
+func (c *Catalog) Has(id string) bool {
+	_, ok := c.Category(id)
+	return ok
+}
+
 // Public returns the categories offered on the form, in file order.
 func (c *Catalog) Public() []Category {
 	var out []Category
