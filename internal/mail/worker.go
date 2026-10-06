@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -29,27 +30,45 @@ func retryDelay(attempts int) time.Duration {
 	return retrySchedule[min(attempts, len(retrySchedule))-1]
 }
 
-// Run sends due mails until ctx ends: at start, on Wake and every 30 s.
-// Logs carry the outbox id and event, never the recipient or the body.
+// Run sends due mails until ctx ends, one loop per channel: at start, on
+// Wake and every 30 s. Logs carry the outbox id and event, never the
+// recipient or the body.
 func (o *Outbox) Run(ctx context.Context, s Sender, logger *slog.Logger) {
+	var wg sync.WaitGroup
+	for ch, wake := range o.wake {
+		wg.Go(func() { o.run(ctx, ch, wake, s, logger) })
+	}
+	wg.Wait()
+}
+
+func (o *Outbox) run(ctx context.Context, ch Channel, wake <-chan struct{}, s Sender, logger *slog.Logger) {
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 	for {
-		if _, err := o.sendDue(ctx, s, logger); err != nil && ctx.Err() == nil {
-			logger.ErrorContext(ctx, "outbox pass failed", "error", err)
+		if _, err := o.sendDue(ctx, ch, s, logger); err != nil && ctx.Err() == nil {
+			logger.ErrorContext(ctx, "outbox pass failed", "channel", string(ch), "error", err)
 		}
 		select {
 		case <-ctx.Done():
 			return
-		case <-o.wake:
+		case <-wake:
 		case <-ticker.C:
 		}
 	}
 }
 
-// SendDue sends every due pending mail once; tests call it directly.
+// SendDue sends every due pending mail once, channel after channel; tests
+// call it directly.
 func (o *Outbox) SendDue(ctx context.Context, s Sender) (int, error) {
-	return o.sendDue(ctx, s, slog.New(slog.DiscardHandler))
+	sent := 0
+	for _, ch := range channels {
+		n, err := o.sendDue(ctx, ch, s, slog.New(slog.DiscardHandler))
+		sent += n
+		if err != nil {
+			return sent, err
+		}
+	}
+	return sent, nil
 }
 
 // Router delivers each message through the sender of its channel.
@@ -81,12 +100,12 @@ type queued struct {
 	body     []byte
 }
 
-// sendDue picks one due mail at a time, right before sending it, so a mail
-// deleted meanwhile is never sent. Every outcome moves the row out of "due".
-func (o *Outbox) sendDue(ctx context.Context, s Sender, logger *slog.Logger) (int, error) {
+// sendDue picks one due mail of ch at a time, right before sending it, so a
+// mail deleted meanwhile is never sent. Every outcome moves the row out of "due".
+func (o *Outbox) sendDue(ctx context.Context, ch Channel, s Sender, logger *slog.Logger) (int, error) {
 	sent := 0
 	for ctx.Err() == nil { // on shutdown the rest stays pending for the next start
-		q, err := o.nextDue(ctx)
+		q, err := o.nextDue(ctx, ch)
 		if errors.Is(err, sql.ErrNoRows) {
 			return sent, nil
 		}
@@ -104,20 +123,20 @@ func (o *Outbox) sendDue(ctx context.Context, s Sender, logger *slog.Logger) (in
 	return sent, nil
 }
 
-func (o *Outbox) nextDue(ctx context.Context) (q queued, err error) {
-	var event, channel string
+func (o *Outbox) nextDue(ctx context.Context, ch Channel) (q queued, err error) {
+	var event string
 	err = o.db.QueryRowContext(ctx,
-		`SELECT id, COALESCE(ticket_id, 0), event, channel, attempts, give_up_at, recipient, subject, body FROM outbox
-		 WHERE status = ? AND next_attempt_at <= ? ORDER BY next_attempt_at, id LIMIT 1`,
-		string(statusPending), o.now().Unix()).
-		Scan(&q.id, &q.ticketID, &event, &channel, &q.attempts, &q.giveUpAt, &q.to, &q.subject, &q.body)
+		`SELECT id, COALESCE(ticket_id, 0), event, attempts, give_up_at, recipient, subject, body FROM outbox
+		 WHERE status = ? AND channel = ? AND next_attempt_at <= ? ORDER BY next_attempt_at, id LIMIT 1`,
+		string(statusPending), string(ch), o.now().Unix()).
+		Scan(&q.id, &q.ticketID, &event, &q.attempts, &q.giveUpAt, &q.to, &q.subject, &q.body)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return q, err
 		}
 		return q, fmt.Errorf("next due mail: %w", err)
 	}
-	q.event, q.channel = Event(event), Channel(channel)
+	q.event, q.channel = Event(event), ch
 	return q, nil
 }
 

@@ -360,7 +360,7 @@ func TestRetryOpensANewWindow(t *testing.T) {
 		next: o.clock.now().Unix(), giveUp: o.clock.now().Add(7 * 24 * time.Hour).Unix(),
 	}, r)
 	select {
-	case <-o.wake:
+	case <-o.wake[ChannelEmail]:
 	default:
 		t.Fatal("Retry did not wake the worker")
 	}
@@ -519,6 +519,33 @@ func TestRunDeliversOnWakeAndStops(t *testing.T) {
 	}
 }
 
+func TestRunSendsMailsWhileAnAlertHangs(t *testing.T) {
+	o := newTestOutbox(t)
+	ticketID, _ := o.insertTicket(t)
+	alertID := o.enqueue(t, pushAlert(ticketID, ChannelWebPush)) // first in line
+	mailID := o.enqueue(t, sampleMail())
+	release := make(chan struct{})
+	answer := sync.OnceFunc(func() { close(release) })
+	mails := &fakeSender{}
+	router := Router{ChannelEmail: mails, ChannelWebPush: senderFunc(func(context.Context, Message) error {
+		<-release // a push service that does not answer
+		return nil
+	})}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		o.Run(ctx, router, slog.New(slog.DiscardHandler))
+	}()
+	t.Cleanup(func() { answer(); cancel(); <-done })
+
+	require.Eventually(t, func() bool { return len(mails.messages()) == 1 }, 2*time.Second, 10*time.Millisecond,
+		"the mail does not wait for the alert")
+	assert.Equal(t, "sent", o.row(t, mailID).status)
+	answer()
+	require.Eventually(t, func() bool { return o.row(t, alertID).status == "sent" }, 2*time.Second, 10*time.Millisecond)
+}
+
 func TestOutcomeIsRecordedWhenShutdownCancelsDuringSend(t *testing.T) {
 	o := newTestOutbox(t)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -545,7 +572,7 @@ func TestPostponedMailLogsTheFailureStageOnly(t *testing.T) {
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&logs, nil))
 
-	_, err := o.sendDue(context.Background(), smtpSender, logger)
+	_, err := o.sendDue(context.Background(), ChannelEmail, smtpSender, logger)
 	require.NoError(t, err)
 	assert.Contains(t, logs.String(), "stage=smtp_auth")
 	assert.NotContains(t, logs.String(), "example.org")

@@ -79,6 +79,10 @@ const (
 	ChannelWebPush  Channel = "webpush"
 )
 
+// channels lists every channel: the worker runs one loop per channel, so a
+// push service that does not answer never delays a mail.
+var channels = [...]Channel{ChannelEmail, ChannelPushover, ChannelWebPush}
+
 // Mail is one notification to queue. TicketID and MessageID are 0 when the
 // mail cites no request or no message; deleting either deletes the mail.
 // An alert (Pushover, Web Push) has no To: its senders know their recipients.
@@ -139,12 +143,16 @@ type Outbox struct {
 	db   *sql.DB
 	keys *secure.Keys
 	now  func() time.Time
-	wake chan struct{}
+	wake map[Channel]chan struct{}
 }
 
 // NewOutbox returns the queue; now is injectable for tests.
 func NewOutbox(db *sql.DB, keys *secure.Keys, now func() time.Time) *Outbox {
-	return &Outbox{db: db, keys: keys, now: now, wake: make(chan struct{}, 1)}
+	wake := make(map[Channel]chan struct{}, len(channels))
+	for _, ch := range channels {
+		wake[ch] = make(chan struct{}, 1)
+	}
+	return &Outbox{db: db, keys: keys, now: now, wake: wake}
 }
 
 // Enqueue seals and inserts m inside the caller's transaction (spec §6: a
@@ -181,11 +189,13 @@ func (o *Outbox) Enqueue(ctx context.Context, tx *sql.Tx, m Mail) error {
 	return nil
 }
 
-// Wake asks the worker for a pass now. It never blocks.
+// Wake asks every loop of the worker for a pass now. It never blocks.
 func (o *Outbox) Wake() {
-	select {
-	case o.wake <- struct{}{}:
-	default:
+	for _, wake := range o.wake {
+		select {
+		case wake <- struct{}{}:
+		default:
+		}
 	}
 }
 
