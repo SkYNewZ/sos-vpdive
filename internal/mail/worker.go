@@ -163,7 +163,8 @@ func (o *Outbox) deliver(ctx context.Context, s Sender, logger *slog.Logger, q q
 		return false, o.finish(ctx, q.id, statusFailed, attempts)
 	default:
 		telemetry.Fail(span, "delivery_postponed")
-		next := now.Add(retryDelay(attempts))
+		// The wait never outlasts the window: the mail then fails on time.
+		next := time.Unix(min(now.Add(retryDelay(attempts)).Unix(), q.giveUpAt), 0)
 		logger.WarnContext(ctx, "mail delivery postponed", "outbox_id", q.id, "event", string(q.event),
 			"attempts", attempts, "next_attempt", next, "stage", stageOf(sendErr))
 		if _, err := o.db.ExecContext(ctx,

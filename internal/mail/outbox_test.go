@@ -288,8 +288,7 @@ func TestGivesUpAfterSevenDays(t *testing.T) {
 	}
 	assert.Equal(t, "failed", o.row(t, id).status)
 	elapsed := o.clock.now().Sub(start)
-	assert.GreaterOrEqual(t, elapsed, 7*24*time.Hour)
-	assert.Less(t, elapsed, 8*24*time.Hour)
+	assert.Equal(t, 7*24*time.Hour, elapsed, "the last wait ends with the window, not a day later")
 
 	failed, err := o.Failed(ctx)
 	require.NoError(t, err)
