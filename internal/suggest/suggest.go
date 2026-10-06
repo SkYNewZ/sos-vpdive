@@ -38,9 +38,10 @@ const (
 
 // Failures. Their text is a stable code, put on the span (spec §9.9).
 var (
-	ErrTimeout = errors.New("timeout")
-	ErrHTTP    = errors.New("http_error")
-	ErrInvalid = errors.New("invalid_output")
+	ErrTimeout  = errors.New("timeout")
+	ErrCanceled = errors.New("canceled") // the request went away first
+	ErrHTTP     = errors.New("http_error")
+	ErrInvalid  = errors.New("invalid_output")
 )
 
 // Fiche is what the model reads of a fiche. The JSON names are those of
@@ -129,7 +130,7 @@ func (c *Client) Choose(ctx context.Context, req Request, fiches []Fiche) (res R
 
 // codeOf returns the stable code of a Choose error.
 func codeOf(err error) string {
-	for _, e := range []error{ErrTimeout, ErrHTTP, ErrInvalid} {
+	for _, e := range []error{ErrTimeout, ErrCanceled, ErrHTTP, ErrInvalid} {
 		if errors.Is(err, e) {
 			return e.Error()
 		}
@@ -219,8 +220,11 @@ func (c *Client) post(ctx context.Context, body []byte) (text string, err error)
 }
 
 func transportError(ctx context.Context, err error) error {
-	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+	switch {
+	case errors.Is(ctx.Err(), context.DeadlineExceeded):
 		return fmt.Errorf("%w: %w", ErrTimeout, err)
+	case errors.Is(ctx.Err(), context.Canceled):
+		return fmt.Errorf("%w: %w", ErrCanceled, err)
 	}
 	return fmt.Errorf("%w: %w", ErrHTTP, err)
 }

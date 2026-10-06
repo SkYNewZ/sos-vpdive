@@ -44,7 +44,7 @@ func (s *Server) subscribePush(w http.ResponseWriter, r *http.Request) {
 	f := r.PostForm
 	sub, ok := push.ParseSubscription(s.cfg.PushAllowedHosts, f.Get("endpoint"), f.Get("p256dh"), f.Get("auth"))
 	if !ok {
-		s.writeText(w, r, http.StatusBadRequest, "Abonnement refusé : l'appareil a donné une adresse de notification non reconnue.\n")
+		s.writeText(w, r, http.StatusBadRequest, "Abonnement refusé : le site ne reconnaît pas l'abonnement envoyé par ton appareil.\n")
 		return
 	}
 	sess, _ := sessionFrom(r.Context())

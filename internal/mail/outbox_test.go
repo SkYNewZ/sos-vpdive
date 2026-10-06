@@ -288,8 +288,7 @@ func TestGivesUpAfterSevenDays(t *testing.T) {
 	}
 	assert.Equal(t, "failed", o.row(t, id).status)
 	elapsed := o.clock.now().Sub(start)
-	assert.GreaterOrEqual(t, elapsed, 7*24*time.Hour)
-	assert.Less(t, elapsed, 8*24*time.Hour)
+	assert.Equal(t, 7*24*time.Hour, elapsed, "the last wait ends with the window, not a day later")
 
 	failed, err := o.Failed(ctx)
 	require.NoError(t, err)
@@ -301,6 +300,26 @@ func TestGivesUpAfterSevenDays(t *testing.T) {
 	n, err := o.FailedCount(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, 1, n)
+}
+
+func TestSendThatOutlastsTheWindowFailsTheMail(t *testing.T) {
+	o := newTestOutbox(t)
+	ctx := context.Background()
+	id := o.enqueue(t, sampleMail())
+	o.clock.advance(7*24*time.Hour - time.Minute)
+	s := &fakeSender{}
+	s.fail(errors.New("451 try again later"))
+	slow := senderFunc(func(ctx context.Context, m Message) error {
+		o.clock.advance(2 * time.Minute) // the relay answers after the window closed
+		return s.Send(ctx, m)
+	})
+
+	_, err := o.SendDue(ctx, slow)
+	require.NoError(t, err)
+	r := o.row(t, id)
+	assert.Equal(t, "failed", r.status, "not postponed past the window")
+	assert.Equal(t, 1, r.attempts)
+	assert.Equal(t, 1, s.callCount())
 }
 
 func TestPermanentFailureFailsAtOnceAndNamesTheRequest(t *testing.T) {
@@ -341,7 +360,7 @@ func TestRetryOpensANewWindow(t *testing.T) {
 		next: o.clock.now().Unix(), giveUp: o.clock.now().Add(7 * 24 * time.Hour).Unix(),
 	}, r)
 	select {
-	case <-o.wake:
+	case <-o.wake[ChannelEmail]:
 	default:
 		t.Fatal("Retry did not wake the worker")
 	}
@@ -500,6 +519,33 @@ func TestRunDeliversOnWakeAndStops(t *testing.T) {
 	}
 }
 
+func TestRunSendsMailsWhileAnAlertHangs(t *testing.T) {
+	o := newTestOutbox(t)
+	ticketID, _ := o.insertTicket(t)
+	alertID := o.enqueue(t, pushAlert(ticketID, ChannelWebPush)) // first in line
+	mailID := o.enqueue(t, sampleMail())
+	release := make(chan struct{})
+	answer := sync.OnceFunc(func() { close(release) })
+	mails := &fakeSender{}
+	router := Router{ChannelEmail: mails, ChannelWebPush: senderFunc(func(context.Context, Message) error {
+		<-release // a push service that does not answer
+		return nil
+	})}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		o.Run(ctx, router, slog.New(slog.DiscardHandler))
+	}()
+	t.Cleanup(func() { answer(); cancel(); <-done })
+
+	require.Eventually(t, func() bool { return o.row(t, mailID).status == "sent" }, 2*time.Second, 10*time.Millisecond,
+		"the mail does not wait for the alert")
+	assert.Len(t, mails.messages(), 1)
+	answer()
+	require.Eventually(t, func() bool { return o.row(t, alertID).status == "sent" }, 2*time.Second, 10*time.Millisecond)
+}
+
 func TestOutcomeIsRecordedWhenShutdownCancelsDuringSend(t *testing.T) {
 	o := newTestOutbox(t)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -526,7 +572,7 @@ func TestPostponedMailLogsTheFailureStageOnly(t *testing.T) {
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&logs, nil))
 
-	_, err := o.sendDue(context.Background(), smtpSender, logger)
+	_, err := o.sendDue(context.Background(), ChannelEmail, smtpSender, logger)
 	require.NoError(t, err)
 	assert.Contains(t, logs.String(), "stage=smtp_auth")
 	assert.NotContains(t, logs.String(), "example.org")
@@ -620,4 +666,18 @@ func TestRouterSendsThroughTheChannelSender(t *testing.T) {
 	assert.Equal(t, "sent", o.row(t, alertID).status)
 	assert.Equal(t, "failed", o.row(t, offID).status, "a channel configured away fails at once")
 	require.ErrorIs(t, router.Send(ctx, Message{Channel: ChannelWebPush}), ErrPermanent)
+}
+
+func TestFailedAlertLogsNoSMTPStage(t *testing.T) {
+	o := newTestOutbox(t)
+	ticketID, _ := o.insertTicket(t)
+	o.enqueue(t, pushAlert(ticketID, ChannelPushover))
+	s := &fakeSender{}
+	s.fail(errors.New("pushover unreachable"))
+	var logs bytes.Buffer
+
+	_, err := o.sendDue(context.Background(), ChannelPushover, s, slog.New(slog.NewTextHandler(&logs, nil)))
+	require.NoError(t, err)
+	assert.Contains(t, logs.String(), "channel=pushover")
+	assert.NotContains(t, logs.String(), "stage=", "an alert never went through SMTP")
 }

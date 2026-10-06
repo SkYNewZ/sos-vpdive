@@ -44,20 +44,23 @@ func NewPushover(token string, adminBaseURL *url.URL, accounts func() []admins.A
 // stop the others; the alert fails only when every call failed.
 func (p *Pushover) Send(ctx context.Context, m mail.Message) error {
 	link := p.admin.String() + "/demandes/" + strconv.FormatInt(m.TicketID, 10)
-	tried, sent := 0, 0
+	var keyed []admins.Account
 	for _, a := range p.accounts() {
-		if a.PushoverUserKey == "" {
-			continue
+		if a.PushoverUserKey != "" {
+			keyed = append(keyed, a)
 		}
-		tried++
-		if err := p.post(ctx, a.PushoverUserKey, m, link); err != nil {
-			p.logger.WarnContext(ctx, "pushover alert not delivered", "username", a.Username, "error", err)
+	}
+	errs := sendAll(len(keyed), func(i int) error { return p.post(ctx, keyed[i].PushoverUserKey, m, link) })
+	sent := 0
+	for i, err := range errs {
+		if err != nil {
+			p.logger.WarnContext(ctx, "pushover alert not delivered", "username", keyed[i].Username, "error", err)
 			continue
 		}
 		sent++
 	}
-	if tried > 0 && sent == 0 {
-		return fmt.Errorf("pushover alert reached none of %d accounts", tried)
+	if len(keyed) > 0 && sent == 0 {
+		return fmt.Errorf("pushover alert reached none of %d accounts", len(keyed))
 	}
 	return nil
 }

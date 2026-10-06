@@ -256,3 +256,25 @@ func TestAccountName(t *testing.T) {
 	assert.Equal(t, "Alice (Présidente)", e.store.AccountName("alice"))
 	assert.Equal(t, "zoe", e.store.AccountName("zoe"))
 }
+
+func TestCommittedMailsWakeTheOutbox(t *testing.T) {
+	e := newTestStore(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		e.outbox.Run(ctx, e.sender, slog.New(slog.DiscardHandler))
+	}()
+	t.Cleanup(func() { cancel(); <-done })
+	time.Sleep(100 * time.Millisecond) // the start pass finds nothing: what follows needs a wake
+	sent := func() int {
+		e.sender.mu.Lock()
+		defer e.sender.mu.Unlock()
+		return len(e.sender.sent)
+	}
+
+	e.submit(t)
+	require.Eventually(t, func() bool { return sent() == 2 }, 5*time.Second, 10*time.Millisecond, "acknowledgement and club mail")
+	require.NoError(t, e.store.SendLinks(context.Background(), memberAddress))
+	require.Eventually(t, func() bool { return sent() == 3 }, 5*time.Second, 10*time.Millisecond, "lost links")
+}

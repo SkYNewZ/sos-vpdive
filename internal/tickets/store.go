@@ -213,9 +213,14 @@ type ticketRow struct {
 	closedAt    int64
 }
 
-// tx runs fn in a transaction traced as "db tickets.<name>".
+// tx runs fn in a transaction traced as "db tickets.<name>". It owns the
+// outbox wake-up: once committed, the mails fn queued are sent at once.
 func (s *Store) tx(ctx context.Context, name string, fn func(context.Context, *sql.Tx) error) error {
-	return store.Tx(ctx, s.DB, "tickets."+name, fn)
+	if err := store.Tx(ctx, s.DB, "tickets."+name, fn); err != nil {
+		return err
+	}
+	s.Outbox.Wake()
+	return nil
 }
 
 // load reads one request, drafts included. ErrNotFound when absent.
@@ -281,9 +286,8 @@ func (s *Store) addEvent(ctx context.Context, tx *sql.Tx, ticketID int64, typ ev
 	return nil
 }
 
-// changed runs after a commit: it wakes the outbox and tells the live board.
+// changed runs after a commit: it tells the live board.
 func (s *Store) changed(typ ChangeType, id int64) {
-	s.Outbox.Wake()
 	if s.OnChange != nil {
 		s.OnChange(Change{Type: typ, TicketID: id})
 	}

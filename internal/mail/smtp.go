@@ -125,23 +125,21 @@ func (s *SMTP) dial(ctx context.Context) (net.Conn, error) {
 		deadline = d
 	}
 	addr := net.JoinHostPort(s.cfg.Host, strconv.Itoa(s.cfg.Port))
-	dialer := &net.Dialer{Deadline: deadline}
-	var (
-		conn net.Conn
-		err  error
-	)
-	if s.cfg.TLS == config.SMTPImplicit {
-		conn, err = (&tls.Dialer{NetDialer: dialer, Config: s.tlsConfig}).DialContext(ctx, "tcp", addr)
-	} else {
-		conn, err = dialer.DialContext(ctx, "tcp", addr)
-	}
+	conn, err := (&net.Dialer{Deadline: deadline}).DialContext(ctx, "tcp", addr)
 	if err != nil {
 		return nil, atStage(stageConnect, fmt.Errorf("smtp connect: %w", err))
 	}
 	if err := conn.SetDeadline(deadline); err != nil {
 		return nil, errors.Join(atStage(stageConnect, fmt.Errorf("smtp deadline: %w", err)), conn.Close())
 	}
-	return conn, nil
+	if s.cfg.TLS != config.SMTPImplicit {
+		return conn, nil
+	}
+	tc := tls.Client(conn, s.tlsConfig)
+	if err := tc.HandshakeContext(ctx); err != nil {
+		return nil, errors.Join(atStage(stageTLS, fmt.Errorf("smtp tls: %w", err)), conn.Close())
+	}
+	return tc, nil
 }
 
 // deliver runs the SMTP dialogue on c and ends it with a best-effort QUIT. The password

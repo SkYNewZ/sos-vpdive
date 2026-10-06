@@ -299,6 +299,20 @@ func TestSendClassifiesRefusals(t *testing.T) {
 	}
 }
 
+func TestSendNamesTheTLSStageOfAnUntrustedRelay(t *testing.T) {
+	for _, mode := range []config.SMTPTLS{config.SMTPImplicit, config.SMTPStartTLS} {
+		t.Run(string(mode), func(t *testing.T) {
+			f, s := startSMTP(t, mode, fakeOptions{offerStartTLS: true})
+			s.tlsConfig.RootCAs = x509.NewCertPool() // the relay's certificate is not trusted
+			err := s.Send(context.Background(), testMessage())
+			require.Error(t, err)
+			require.NotErrorIs(t, err, ErrPermanent)
+			assert.Equal(t, "smtp_tls", stageOf(err))
+			assert.False(t, f.snapshot().authed)
+		})
+	}
+}
+
 func TestSendIgnoresAFailedQuit(t *testing.T) {
 	f, s := startSMTP(t, config.SMTPImplicit, fakeOptions{dropOnQuit: true})
 	require.NoError(t, s.Send(context.Background(), testMessage()), "the message was accepted: no retry")

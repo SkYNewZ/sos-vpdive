@@ -30,11 +30,11 @@
 <div class="mt-6" data-board>
 {{if $d.Rows}}
 <div class="overflow-x-auto">
-<table class="table table-xs sm:table-md">
+<table class="table max-sm:[&_:is(th,td)]:px-1">
 <thead><tr>
 <th scope="col">Demande</th><th scope="col" class="hidden sm:table-cell">Nom</th><th scope="col" class="hidden sm:table-cell">Catégorie</th>
-<th scope="col" class="hidden sm:table-cell">Résumé</th><th scope="col" class="max-sm:px-1">Ancienneté</th>
-<th scope="col" class="max-sm:px-1">Statut</th><th scope="col">Résolveur</th>
+<th scope="col" class="hidden sm:table-cell">Résumé</th><th scope="col">Ancienneté</th>
+<th scope="col">Statut</th><th scope="col">Résolveur</th>
 </tr></thead>
 <tbody>
 {{range $d.Rows}}<tr data-ticket="{{.ID}}">
@@ -42,8 +42,8 @@
 <td class="hidden break-words sm:table-cell">{{.FirstName}} {{.LastName}}</td>
 <td class="hidden sm:table-cell">{{categoryLabel .Category}}</td>
 <td class="hidden max-w-xs break-words sm:table-cell">{{if .Summary}}{{.Summary}}<span class="mt-1 block text-xs">Résumé automatique, à vérifier</span>{{else}}{{.Excerpt}}{{end}}</td>
-<td class="whitespace-nowrap max-sm:px-1">{{template "age" (age .SubmittedAt .ClosedAt)}}</td>
-<td class="max-sm:px-1">{{template "status" .Status}}</td>
+<td class="whitespace-nowrap">{{template "age" (age .SubmittedAt .ClosedAt)}}</td>
+<td>{{template "status" .Status}}</td>
 <td>{{with accountOf .Assignee}}<span class="inline-flex items-center gap-2"><img src="{{.Avatar}}" alt="" width="24" height="24" class="size-6"><span>{{.Name}}</span></span>{{else}}{{if .Assignee}}{{.Assignee}}{{else}}Personne{{end}}{{end}}</td>
 </tr>
 {{end}}</tbody>

@@ -20,6 +20,7 @@ import (
 
 	"github.com/SkYNewZ/sos-vpdive/internal/admins"
 	"github.com/SkYNewZ/sos-vpdive/internal/mail"
+	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 )
 
 func alert() mail.Message {
@@ -61,7 +62,7 @@ func TestWebPushSendsToEveryBrowserAndDropsTheGoneOnes(t *testing.T) {
 
 	require.NoError(t, sender.Send(ctx, alert()), "one browser got it: the alert is sent")
 	require.Equal(t, 3, ps.count())
-	subs, err := s.List(ctx)
+	subs, _, err := s.List(ctx)
 	require.NoError(t, err)
 	assert.Len(t, subs, 2, "410 deletes the subscription")
 
@@ -75,11 +76,32 @@ func TestWebPushSendsToEveryBrowserAndDropsTheGoneOnes(t *testing.T) {
 	require.NoError(t, json.Unmarshal(decrypt(t, body, browsers["/ok"], bytes.Repeat([]byte{1}, 16)), &got))
 	assert.Equal(t, map[string]string{"title": "Nouvelle demande", "body": "CPP-0042 · Autre", "url": "/demandes/42"}, got)
 
-	var touched int
-	require.NoError(t, s.db.QueryRowContext(ctx, `SELECT count(*) FROM push_subscriptions WHERE last_used_at > created_at`).Scan(&touched))
-	assert.Equal(t, 1, touched, "only the delivered one is touched")
+	assert.Equal(t, 1, s.touched(t), "only the delivered one is touched")
 	assert.NotContains(t, logs.String(), strings.TrimPrefix(ps.URL, "https://"), "never the endpoint in logs")
 	assert.Contains(t, logs.String(), "subscription_id=")
+}
+
+func TestWebPushDropsUnusableSubscriptions(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	ps := fanOut(t, map[string]int{"/ok": http.StatusCreated})
+	sender := NewWebPush(newTestClient(newTestVAPID(t), ps), s.Store, slog.New(slog.DiscardHandler))
+	kept, _ := testSubscription(t, ps.URL+"/ok")
+	require.NoError(t, s.Save(ctx, s.session(t, "kept", "alice"), "alice", kept))
+	removed, _ := testSubscription(t, "https://push.removed.example/wpush/abc") // host no longer in PUSH_ALLOWED_HOSTS
+	require.NoError(t, s.Save(ctx, s.session(t, "removed", "alice"), "alice", removed))
+	broken, _ := testSubscription(t, ps.URL+"/broken")
+	require.NoError(t, s.Save(ctx, s.session(t, "broken", "bob"), "bob", broken))
+	_, err := s.db.ExecContext(ctx, `UPDATE push_subscriptions SET keys = X'00' WHERE endpoint_hash = ?`, secure.TokenHash(broken.Endpoint))
+	require.NoError(t, err)
+
+	require.NoError(t, sender.Send(ctx, alert()))
+	assert.Equal(t, 1, ps.count())
+	assert.Equal(t, 1, s.count(t), "a refused or unreadable subscription would fail at every alert: deleted")
+	subs, _, err := s.List(ctx)
+	require.NoError(t, err)
+	require.Len(t, subs, 1)
+	assert.Equal(t, kept.Endpoint, subs[0].Endpoint)
 }
 
 func TestWebPushOutcomeWithoutDelivery(t *testing.T) {
@@ -175,4 +197,53 @@ func TestPushoverOutcomes(t *testing.T) {
 	require.Error(t, newTestPushover(api, []admins.Account{{Username: "alice", PushoverUserKey: aliceKey}}, &logs).Send(context.Background(), m),
 		"every call failed: the alert is marked failed")
 	assert.NotContains(t, logs.String(), aliceKey)
+}
+
+// rendezvous answers status once n requests are in flight together, and 503
+// to a request left alone for a second: a sender that posts one call after
+// the other never gets through.
+func rendezvous(n, status int) http.HandlerFunc {
+	var (
+		mu      sync.Mutex
+		arrived int
+	)
+	all := make(chan struct{})
+	return func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		if arrived++; arrived == n {
+			close(all)
+		}
+		mu.Unlock()
+		select {
+		case <-all:
+			w.WriteHeader(status)
+		case <-time.After(time.Second):
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}
+	}
+}
+
+func TestWebPushSendsToEveryBrowserAtOnce(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	ps := &pushService{Server: httptest.NewTLSServer(rendezvous(3, http.StatusCreated))}
+	t.Cleanup(ps.Close)
+	sender := NewWebPush(newTestClient(newTestVAPID(t), ps), s.Store, slog.New(slog.DiscardHandler))
+	for _, device := range []string{"/phone", "/laptop", "/tablet"} {
+		sub, _ := testSubscription(t, ps.URL+device)
+		require.NoError(t, s.Save(ctx, s.session(t, device, "alice"), "alice", sub))
+	}
+	s.clock.advance(time.Minute)
+
+	require.NoError(t, sender.Send(ctx, alert()), "a device that does not answer delays no other")
+	assert.Equal(t, 3, s.touched(t))
+}
+
+func TestPushoverPostsToEveryAccountAtOnce(t *testing.T) {
+	api := &pushoverAPI{Server: httptest.NewTLSServer(rendezvous(2, http.StatusOK))}
+	t.Cleanup(api.Close)
+	var logs bytes.Buffer
+	accounts := []admins.Account{{Username: "alice", PushoverUserKey: aliceKey}, {Username: "bob", PushoverUserKey: bobKey}}
+	require.NoError(t, newTestPushover(api, accounts, &logs).Send(context.Background(), alert()))
+	assert.NotContains(t, logs.String(), "level=WARN", "both accounts got it")
 }

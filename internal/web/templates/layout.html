@@ -4,12 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow, noai, noimageai">
-<meta name="theme-color" content="#0b2e4a">
+<meta name="theme-color" content="{{themeColor}}">
 <title>{{.Title}} · {{if .Admin}}SOS CPP Comité{{else}}SOS CPP{{end}}</title>
 <link rel="manifest" href="/manifest.webmanifest">
 {{$icons := "icons/membres/"}}{{if .Admin}}{{$icons = "icons/comite/"}}{{end}}<link rel="icon" type="image/png" sizes="32x32" href="{{static (print $icons "favicon-32.png")}}">
 <link rel="apple-touch-icon" href="{{static (print $icons "apple-touch-icon.png")}}">
-<link rel="preload" href="/static/fonts/atkinson-hyperlegible-next-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="{{static "app.css"}}">
 <script src="{{static "compat.js"}}" defer></script>
 <script src="{{static "app.js"}}" defer></script>
@@ -38,7 +37,7 @@
 {{define "adminNav"}}<header class="border-b border-base-300">
 <nav class="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-2" aria-label="Navigation du comité">
 <a class="inline-flex min-h-11 items-center text-lg font-bold text-primary" href="/">SOS CPP Comité</a>
-<ul class="flex gap-4">
+<ul class="flex flex-wrap gap-x-4">
 <li><a class="link link-hover inline-flex min-h-11 items-center" href="/">Demandes</a></li>
 <li><a class="link link-hover inline-flex min-h-11 items-center" href="/fiches">Fiches</a></li>
 <li><a class="link link-hover inline-flex min-h-11 items-center" href="/imports">Imports</a></li>

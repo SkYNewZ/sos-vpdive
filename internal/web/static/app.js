@@ -216,8 +216,10 @@ for (const button of document.querySelectorAll("[data-copy]")) {
 
 // Installable app (spec §9.6): register the service worker. A new version
 // waits until the member or resolver taps « Recharger », so nothing being
-// typed is ever lost to a forced reload.
-if ("serviceWorker" in navigator) {
+// typed is ever lost to a forced reload. The registration rejects when the
+// browser refuses service workers (private browsing, for instance).
+const registered = "serviceWorker" in navigator ? navigator.serviceWorker.register("/sw.js") : null;
+if (registered) {
   const banner = document.querySelector("[data-update]");
   let reloading = false;
   const offer = (worker) => {
@@ -235,8 +237,7 @@ if ("serviceWorker" in navigator) {
   navigator.serviceWorker.addEventListener("controllerchange", () => {
     if (reloading) location.reload();
   });
-  navigator.serviceWorker
-    .register("/sw.js")
+  registered
     .then((registration) => {
       if (registration.waiting && navigator.serviceWorker.controller) offer(registration.waiting);
       registration.addEventListener("updatefound", () => {
@@ -274,13 +275,15 @@ if (pushBox) {
   };
   const base64 = pushBox.dataset.vapidKey.replaceAll("-", "+").replaceAll("_", "/");
   const serverKey = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-  if (!("serviceWorker" in navigator && "PushManager" in window && "Notification" in window)) {
+  if (!(registered && "PushManager" in window && "Notification" in window)) {
     show(navigator.standalone === false ? "install" : "unsupported");
   } else if (Notification.permission === "denied") {
     show("denied");
   } else {
     show(pushBox.dataset.subscribed === "true" ? "on" : "off");
-    navigator.serviceWorker.ready.then((registration) => {
+    // ready never settles without a registered worker: wait for the
+    // registration first, and say so when the browser refused it.
+    registered.then(() => navigator.serviceWorker.ready).then((registration) => {
       pushBox.querySelector("[data-push-on]").addEventListener("click", async () => {
         failed(false);
         try {
@@ -303,6 +306,6 @@ if (pushBox) {
           failed(true);
         }
       });
-    });
+    }, () => show("unsupported"));
   }
 }
