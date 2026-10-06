@@ -9,7 +9,6 @@
 <link rel="manifest" href="/manifest.webmanifest">
 {{$icons := "icons/membres/"}}{{if .Admin}}{{$icons = "icons/comite/"}}{{end}}<link rel="icon" type="image/png" sizes="32x32" href="{{static (print $icons "favicon-32.png")}}">
 <link rel="apple-touch-icon" href="{{static (print $icons "apple-touch-icon.png")}}">
-<link rel="preload" href="/static/fonts/atkinson-hyperlegible-next-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="{{static "app.css"}}">
 <script src="{{static "compat.js"}}" defer></script>
 <script src="{{static "app.js"}}" defer></script>
