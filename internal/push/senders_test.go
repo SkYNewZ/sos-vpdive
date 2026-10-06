@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/ecdh"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -30,10 +31,13 @@ func fanOut(t *testing.T, status map[string]int) *pushService {
 	t.Helper()
 	ps := &pushService{}
 	ps.Server = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body := new(bytes.Buffer)
-		_, _ = body.ReadFrom(r.Body)
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
 		ps.mu.Lock()
-		ps.requests, ps.bodies = append(ps.requests, r), append(ps.bodies, body.Bytes())
+		ps.requests, ps.bodies = append(ps.requests, r), append(ps.bodies, body)
 		ps.mu.Unlock()
 		w.WriteHeader(status[r.URL.Path])
 	}))
@@ -112,11 +116,12 @@ func newPushoverAPI(t *testing.T, refused string) *pushoverAPI {
 		api.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		if r.PostForm.Get("user") == refused {
-			w.WriteHeader(http.StatusBadRequest)
-			_, _ = w.Write([]byte(`{"user":"invalid","errors":["user identifier is not a valid user"],"status":0}`))
+			http.Error(w, `{"user":"invalid","errors":["user identifier is not a valid user"],"status":0}`, http.StatusBadRequest)
 			return
 		}
-		_, _ = w.Write([]byte(`{"status":1,"request":"abc"}`))
+		if _, err := io.WriteString(w, `{"status":1,"request":"abc"}`); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+		}
 	}))
 	t.Cleanup(api.Close)
 	return api

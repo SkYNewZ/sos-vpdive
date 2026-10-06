@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -196,10 +197,13 @@ func newPushService(t *testing.T, status int) *pushService {
 	t.Helper()
 	ps := &pushService{status: status}
 	ps.Server = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body := new(bytes.Buffer)
-		_, _ = body.ReadFrom(r.Body)
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
 		ps.mu.Lock()
-		ps.requests, ps.bodies = append(ps.requests, r), append(ps.bodies, body.Bytes())
+		ps.requests, ps.bodies = append(ps.requests, r), append(ps.bodies, body)
 		status := ps.status
 		ps.mu.Unlock()
 		if status == http.StatusFound {

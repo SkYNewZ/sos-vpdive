@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -63,7 +62,7 @@ func (p *Pushover) Send(ctx context.Context, m mail.Message) error {
 	return nil
 }
 
-func (p *Pushover) post(ctx context.Context, user string, m mail.Message, link string) error {
+func (p *Pushover) post(ctx context.Context, user string, m mail.Message, link string) (err error) {
 	ctx, span := otel.Tracer(tracerName).Start(ctx, "pushover.send", trace.WithSpanKind(trace.SpanKindClient))
 	defer span.End()
 	form := url.Values{
@@ -80,8 +79,12 @@ func (p *Pushover) post(ctx context.Context, user string, m mail.Message, link s
 		telemetry.Fail(span, "pushover_unavailable")
 		return fmt.Errorf("pushover unreachable: %w", unwrapURL(err))
 	}
-	defer func() { _ = resp.Body.Close() }()
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10)) // its errors may quote the key
+	// The body is never read: Pushover's errors may quote the user key.
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close pushover response: %w", cerr)
+		}
+	}()
 	span.SetAttributes(attribute.Int("http.response.status_code", resp.StatusCode))
 	if resp.StatusCode != http.StatusOK {
 		telemetry.Fail(span, "pushover_rejected")

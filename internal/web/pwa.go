@@ -123,9 +123,11 @@ func siteVersion() (string, error) {
 		if err != nil {
 			return err
 		}
-		_, _ = fmt.Fprintf(h, "%s %d\n", p, len(data))
-		_, _ = h.Write(data)
-		return nil
+		if _, err := fmt.Fprintf(h, "%s %d\n", p, len(data)); err != nil {
+			return err
+		}
+		_, err = h.Write(data)
+		return err
 	})
 	if err != nil {
 		return "", fmt.Errorf("hash embedded files: %w", err)

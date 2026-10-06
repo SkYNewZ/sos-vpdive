@@ -7,10 +7,8 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
@@ -84,7 +82,7 @@ func newHTTPClient() *http.Client {
 // Send encrypts payload for sub and posts it once. ErrGone when the push
 // service answers 404 or 410; ErrEndpointRefused for an endpoint outside
 // PUSH_ALLOWED_HOSTS.
-func (c *Client) Send(ctx context.Context, sub Subscription, payload []byte) error {
+func (c *Client) Send(ctx context.Context, sub Subscription, payload []byte) (err error) {
 	ctx, span := otel.Tracer(tracerName).Start(ctx, "webpush.send", trace.WithSpanKind(trace.SpanKindClient))
 	defer span.End()
 	u, err := url.Parse(sub.Endpoint)
@@ -123,8 +121,11 @@ func (c *Client) Send(ctx context.Context, sub Subscription, payload []byte) err
 		telemetry.Fail(span, "push_unavailable")
 		return fmt.Errorf("push service unreachable: %w", unwrapURL(err))
 	}
-	defer func() { _ = resp.Body.Close() }()
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close push response: %w", cerr)
+		}
+	}()
 	span.SetAttributes(attribute.Int("http.response.status_code", resp.StatusCode))
 	switch {
 	case resp.StatusCode >= 200 && resp.StatusCode < 300:
@@ -134,6 +135,6 @@ func (c *Client) Send(ctx context.Context, sub Subscription, payload []byte) err
 		return ErrGone
 	default:
 		telemetry.Fail(span, "push_rejected")
-		return fmt.Errorf("%w: status %s", errRejected, strconv.Itoa(resp.StatusCode))
+		return fmt.Errorf("%w: status %d", errRejected, resp.StatusCode)
 	}
 }
