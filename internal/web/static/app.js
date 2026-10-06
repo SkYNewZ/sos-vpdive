@@ -275,7 +275,7 @@ if (pushBox) {
   };
   const base64 = pushBox.dataset.vapidKey.replaceAll("-", "+").replaceAll("_", "/");
   const serverKey = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-  if (!("serviceWorker" in navigator && "PushManager" in window && "Notification" in window)) {
+  if (!(registered && "PushManager" in window && "Notification" in window)) {
     show(navigator.standalone === false ? "install" : "unsupported");
   } else if (Notification.permission === "denied") {
     show("denied");
