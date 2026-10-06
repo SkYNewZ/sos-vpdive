@@ -221,7 +221,8 @@ Before going live, check on a real Android phone and a real iPhone:
    the category only.
 3. Refuse the permission on another device: the « Notifications » page says
    how to allow it.
-4. Sign out: alerts stop reaching that device.
+4. Turn notifications off on the « Notifications » page, then on again;
+   sign out: alerts stop reaching that device.
 
 ## Screenshot storage
 
