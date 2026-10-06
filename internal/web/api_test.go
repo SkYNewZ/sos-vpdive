@@ -116,7 +116,7 @@ func TestPushedImportReplacesAndCounts(t *testing.T) {
 	assert.Equal(t, 6, e.count(t, "members"))
 	report, err := e.deps.Mollie.Report(context.Background())
 	require.NoError(t, err)
-	assert.Equal(t, 2, report.Ambiguous.Lines, "homonyms of a pushed list are marked as after an upload")
+	assert.Equal(t, 2, report.Ambiguous.Lines, "the homonyms' lines stay unattributed")
 }
 
 // mollieWorkbook builds a VPayDive export of n lines with the required
@@ -261,4 +261,19 @@ func TestPushedImportLimits(t *testing.T) {
 	assert.Equal(t, "rate_limited", answer(t, limited).Error)
 	assert.NotEmpty(t, limited.Header().Get("Retry-After"))
 	assert.Zero(t, e.count(t, "members"))
+}
+
+// Review focus: a pushed members list that reveals homonyms marks the lines
+// already in place, as an upload does; otherwise a later list keeping one
+// homonym would attribute the other's lines to them.
+func TestPushedMembersListMarksHomonymLines(t *testing.T) {
+	e := newTestEnv(t, withImportToken)
+	require.Equal(t, http.StatusOK, e.push(t, "vpaydive", fixtureBytes(t, "vpaydive_valid.xlsx"), importToken).Code)
+	require.Equal(t, http.StatusOK, e.push(t, "payments", fixtureBytes(t, "payments_valid.xlsx"), importToken).Code)
+	require.Equal(t, http.StatusOK, e.push(t, "members", fixtureBytes(t, "members_valid.xlsx"), importToken).Code)
+	for _, table := range []string{"online_payment_lines", "payment_lines"} {
+		var marked int
+		require.NoError(t, e.db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM "+table+" WHERE ambiguous = 1").Scan(&marked))
+		assert.Equal(t, 2, marked, table)
+	}
 }
