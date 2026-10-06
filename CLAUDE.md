@@ -168,6 +168,8 @@ No i18n framework.
   through the name typed on the form (§7.3).
 - Close response bodies through a named error return (`suggest`, `turnstile`,
   `push`); never `_ =` an error.
+- Umami drops page views from a `HeadlessChrome` user agent (answers « beep
+  boop »): give browser checks that read Umami's API a regular Chrome user agent.
 - sentry-go ≥ 0.47 has no `EnableLogs`: logs flow once `WithSentry` wraps the
   logger. A Sentry client with a custom `Transport` (tests) skips the telemetry
   buffer and delivers logs and events to it on `Flush`.
