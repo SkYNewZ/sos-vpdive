@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"sync"
+	"sync/atomic"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/mail"
 )
@@ -40,26 +42,40 @@ func (w *WebPush) Send(ctx context.Context, m mail.Message) error {
 	if err != nil {
 		return err
 	}
-	delivered := 0
-	for _, sub := range subs {
-		err := w.client.Send(ctx, sub, payload)
-		switch {
-		case err == nil:
-			delivered++
-			err = w.store.Touch(ctx, sub.ID)
-		case errors.Is(err, errGone), errors.Is(err, errEndpointRefused):
-			w.logger.InfoContext(ctx, "push subscription unusable, deleted", "subscription_id", sub.ID, "error", err)
-			err = w.store.Delete(ctx, sub.ID)
-		default:
-			w.logger.WarnContext(ctx, "push alert not delivered", "subscription_id", sub.ID, "error", err)
-			err = nil
-		}
-		if err != nil {
-			w.logger.ErrorContext(ctx, "push subscription update", "subscription_id", sub.ID, "error", err)
-		}
+	var (
+		wg        sync.WaitGroup
+		delivered atomic.Int64
+	)
+	for _, sub := range subs { // all at once: a device that does not answer delays no other
+		wg.Go(func() {
+			if w.push(ctx, sub, payload) {
+				delivered.Add(1)
+			}
+		})
 	}
-	if len(subs) > 0 && delivered == 0 {
+	wg.Wait()
+	if len(subs) > 0 && delivered.Load() == 0 {
 		return fmt.Errorf("push alert reached none of %d subscriptions", len(subs))
 	}
 	return nil
+}
+
+// push sends payload to sub and records the outcome; true when delivered.
+func (w *WebPush) push(ctx context.Context, sub Subscription, payload []byte) bool {
+	err := w.client.Send(ctx, sub, payload)
+	delivered := err == nil
+	switch {
+	case delivered:
+		err = w.store.Touch(ctx, sub.ID)
+	case errors.Is(err, errGone), errors.Is(err, errEndpointRefused):
+		w.logger.InfoContext(ctx, "push subscription unusable, deleted", "subscription_id", sub.ID, "error", err)
+		err = w.store.Delete(ctx, sub.ID)
+	default:
+		w.logger.WarnContext(ctx, "push alert not delivered", "subscription_id", sub.ID, "error", err)
+		err = nil
+	}
+	if err != nil {
+		w.logger.ErrorContext(ctx, "push subscription update", "subscription_id", sub.ID, "error", err)
+	}
+	return delivered
 }

@@ -194,3 +194,54 @@ func TestPushoverOutcomes(t *testing.T) {
 		"every call failed: the alert is marked failed")
 	assert.NotContains(t, logs.String(), aliceKey)
 }
+
+// rendezvous answers status once n requests are in flight together, and 503
+// to a request left alone for a second: a sender that posts one call after
+// the other never gets through.
+func rendezvous(n, status int) http.HandlerFunc {
+	var (
+		mu      sync.Mutex
+		arrived int
+	)
+	all := make(chan struct{})
+	return func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		if arrived++; arrived == n {
+			close(all)
+		}
+		mu.Unlock()
+		select {
+		case <-all:
+			w.WriteHeader(status)
+		case <-time.After(time.Second):
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}
+	}
+}
+
+func TestWebPushSendsToEveryBrowserAtOnce(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	ps := &pushService{Server: httptest.NewTLSServer(rendezvous(3, http.StatusCreated))}
+	t.Cleanup(ps.Close)
+	sender := NewWebPush(newTestClient(newTestVAPID(t), ps), s.Store, slog.New(slog.DiscardHandler))
+	for _, device := range []string{"/phone", "/laptop", "/tablet"} {
+		sub, _ := testSubscription(t, ps.URL+device)
+		require.NoError(t, s.Save(ctx, s.session(t, device, "alice"), "alice", sub))
+	}
+	s.clock.advance(time.Minute)
+
+	require.NoError(t, sender.Send(ctx, alert()), "a device that does not answer delays no other")
+	var touched int
+	require.NoError(t, s.db.QueryRowContext(ctx, `SELECT count(*) FROM push_subscriptions WHERE last_used_at > created_at`).Scan(&touched))
+	assert.Equal(t, 3, touched)
+}
+
+func TestPushoverPostsToEveryAccountAtOnce(t *testing.T) {
+	api := &pushoverAPI{Server: httptest.NewTLSServer(rendezvous(2, http.StatusOK))}
+	t.Cleanup(api.Close)
+	var logs bytes.Buffer
+	accounts := []admins.Account{{Username: "alice", PushoverUserKey: aliceKey}, {Username: "bob", PushoverUserKey: bobKey}}
+	require.NoError(t, newTestPushover(api, accounts, &logs).Send(context.Background(), alert()))
+	assert.NotContains(t, logs.String(), "level=WARN", "both accounts got it")
+}
