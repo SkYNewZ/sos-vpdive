@@ -9,7 +9,7 @@
 <p class="mt-1 font-semibold">Ces données datent de l'import : vérifie dans VPDive avant d'agir.</p>
 {{with $d.Rows}}
 <p class="mt-6 font-semibold">{{len .}} sortie{{if gt (len .) 1}}s{{end}}, {{$d.Lines}} ligne{{if gt $d.Lines 1}}s{{end}}, {{$d.Persons}} inscription{{if gt $d.Persons 1}}s{{end}}.</p>
-<div class="overflow-x-auto"><table class="table mt-2">
+<div class="overflow-x-auto"><table class="table mt-2 max-sm:[&_:is(th,td)]:px-1">
 <thead><tr><th scope="col">Sortie</th><th scope="col" class="hidden md:table-cell">Date</th><th scope="col">Ancienneté</th><th scope="col" class="text-right">Personnes</th><th scope="col" class="hidden text-right md:table-cell">Lignes</th><th scope="col" class="text-right">Réglé par carnet</th><th scope="col" class="text-right">Réglé en argent réel</th></tr></thead>
 <tbody>{{range .}}<tr>
 <td class="break-words">{{.Title}}</td>
