@@ -266,6 +266,9 @@ site est disponible » and reload only when asked.
   and `comite/` (192 and 512 px; a 512 px maskable one whose logo fits in the
   central 80 % circle; a 180 px Apple icon; a 32 px favicon), and the app
   names in `internal/web/pwa.go` and `templates/layout.html`.
+- The members' icons add the [SOS icon by Freepik from
+  Flaticon](https://www.flaticon.com/free-icons/sos) to the club logo; its
+  free licence asks for this credit.
 - Browsers older than Chrome 111, Safari 16.4 or Firefox 128 get a short
   notice with the club's address instead of the page.
 - The request form keeps what a member types in the browser's storage until
