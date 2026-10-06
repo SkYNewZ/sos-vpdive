@@ -90,6 +90,9 @@ func TestServiceWorkerPerHost(t *testing.T) {
 	assert.NotContains(t, workers[publicHost], `addEventListener("push"`, "members get no push")
 	assert.Contains(t, workers[adminHost], `addEventListener("push"`)
 	assert.Contains(t, workers[adminHost], `addEventListener("notificationclick"`)
+	assert.NotContains(t, workers[adminHost], ".navigate(", "a tap on an alert never steers away a window that may hold a reply being typed")
+	assert.Contains(t, workers[adminHost], "client.url === url", "it focuses a window already on the request")
+	assert.Contains(t, workers[adminHost], "clients.openWindow(url)")
 	for _, sw := range workers {
 		assert.Equal(t, 1, strings.Count(sw, "skipWaiting()"), "never at install: only when the page asks")
 		assert.Contains(t, sw, `if (event.data === "skip-waiting") self.skipWaiting();`)

@@ -67,18 +67,15 @@ self.addEventListener("push", (event) => {
   );
 });
 
+// A tap brings up the request: the window already on it, else a new one.
+// Another open window is never steered away: it may hold a reply being typed.
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const url = new URL(event.notification.data.url, location.origin).href;
   event.waitUntil(
     (async () => {
       for (const client of await clients.matchAll({ type: "window" })) {
-        try {
-          await client.focus();
-          return await client.navigate(url);
-        } catch {
-          // Not ours to steer: open a new window below.
-        }
+        if (client.url === url) return client.focus();
       }
       return clients.openWindow(url);
     })(),
