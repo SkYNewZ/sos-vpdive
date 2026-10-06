@@ -194,7 +194,7 @@ func Load(getenv func(string) string) (*Config, error) {
 	c.VAPID = p.vapid()
 	c.PushAllowedHosts = p.hosts("PUSH_ALLOWED_HOSTS", defaultPushHosts)
 	c.SentryEnvironment = p.optional("SENTRY_ENVIRONMENT", string(c.Env))
-	c.Umami = p.umami(c.Env)
+	c.Umami = p.umami(c)
 	if c.Env == EnvProduction {
 		p.requireHTTPS("BASE_URL", c.BaseURL)
 		p.requireHTTPS("ADMIN_BASE_URL", c.AdminBaseURL)
@@ -525,21 +525,35 @@ func (p *parser) hosts(name, def string) []string {
 // umami reads the optional page-view counter. An invalid value turns it off,
 // or leaves one site unmeasured, with a warning: the service runs fine
 // without it (owner decision, 2026-10-06).
-func (p *parser) umami(env Env) *Umami {
+func (p *parser) umami(c *Config) *Umami {
 	raw := p.value("UMAMI_SCRIPT_URL")
 	if raw == "" {
 		return nil
 	}
 	u, ok := absolute(raw)
-	if !ok || u.Path == "" || u.Path == "/" || (env == EnvProduction && u.Scheme != schemeHTTPS) {
+	if !ok || u.Path == "" || u.Path == "/" || (c.Env == EnvProduction && u.Scheme != schemeHTTPS) {
 		p.warn("UMAMI_SCRIPT_URL", errors.New("must be the absolute URL of the script, https in production: Umami is off"))
 		return nil
 	}
-	return &Umami{
+	// Referrer-Policy same-origin sends the full address, a tracking token
+	// included, to the site's own origin: Umami must live elsewhere.
+	u.Host = strings.TrimSuffix(strings.ToLower(u.Host), map[string]string{schemeHTTP: ":80", schemeHTTPS: ":443"}[u.Scheme])
+	for _, site := range []*url.URL{c.BaseURL, c.AdminBaseURL} {
+		if site != nil && site.Scheme == u.Scheme && site.Host == u.Host {
+			p.warn("UMAMI_SCRIPT_URL", errors.New("must be on another origin than both sites, which send it their full addresses: Umami is off"))
+			return nil
+		}
+	}
+	m := &Umami{
 		ScriptURL:      u,
 		WebsiteID:      p.websiteID("UMAMI_WEBSITE_ID"),
 		AdminWebsiteID: p.websiteID("UMAMI_ADMIN_WEBSITE_ID"),
 	}
+	if m.WebsiteID == "" && m.AdminWebsiteID == "" {
+		p.warn("UMAMI_SCRIPT_URL", errors.New("set without a valid website ID: Umami is off"))
+		return nil
+	}
+	return m
 }
 
 // sentryDSN reads the optional Sentry DSN. An invalid one turns Sentry off

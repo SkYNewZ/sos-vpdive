@@ -370,15 +370,15 @@ func TestLoadUmami(t *testing.T) {
 
 	m := validEnv()
 	m["UMAMI_SCRIPT_URL"] = "https://analytics.example.org/script.js"
-	m["UMAMI_WEBSITE_ID"] = "9B153AD4-1CAA-4C63-BD38-E20F85EE71D3"
-	m["UMAMI_ADMIN_WEBSITE_ID"] = "0429018e-82ea-44f4-bd02-661d3c2651b5"
+	m["UMAMI_WEBSITE_ID"] = "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE"
+	m["UMAMI_ADMIN_WEBSITE_ID"] = "12345678-1234-4123-8123-123456789abc"
 	c, err = Load(getenv(m))
 	require.NoError(t, err)
 	require.NotNil(t, c.Umami)
 	assert.Equal(t, "https://analytics.example.org/script.js", c.Umami.ScriptURL.String())
 	assert.Equal(t, "https://analytics.example.org", c.Umami.Origin())
-	assert.Equal(t, "9b153ad4-1caa-4c63-bd38-e20f85ee71d3", c.Umami.WebsiteID)
-	assert.Equal(t, "0429018e-82ea-44f4-bd02-661d3c2651b5", c.Umami.AdminWebsiteID)
+	assert.Equal(t, "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", c.Umami.WebsiteID)
+	assert.Equal(t, "12345678-1234-4123-8123-123456789abc", c.Umami.AdminWebsiteID)
 	assert.Empty(t, c.Warnings)
 
 	m["UMAMI_ADMIN_WEBSITE_ID"] = ""
@@ -388,11 +388,19 @@ func TestLoadUmami(t *testing.T) {
 	assert.Empty(t, c.Umami.AdminWebsiteID, "a site without an ID is not measured")
 	assert.Empty(t, c.Warnings)
 
+	m["UMAMI_WEBSITE_ID"] = ""
+	c, err = Load(getenv(m))
+	require.NoError(t, err)
+	assert.Nil(t, c.Umami, "a script without any site ID measures nothing: Umami is off")
+	require.Len(t, c.Warnings, 1)
+	require.ErrorContains(t, c.Warnings[0], "UMAMI_SCRIPT_URL")
+
 	m = validEnv()
 	m["APP_ENV"] = "development"
 	m["BASE_URL"] = "http://sos.localhost:8080"
 	m["ADMIN_BASE_URL"] = "http://comite.localhost:8080"
 	m["UMAMI_SCRIPT_URL"] = "http://127.0.0.1:3000/script.js"
+	m["UMAMI_WEBSITE_ID"] = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
 	c, err = Load(getenv(m))
 	require.NoError(t, err)
 	require.NotNil(t, c.Umami, "development accepts http")
@@ -411,15 +419,19 @@ func TestLoadInvalidUmamiTurnsItOffWithAWarning(t *testing.T) {
 		"relative URL":       {map[string]string{"UMAMI_SCRIPT_URL": "/script.js"}, "UMAMI_SCRIPT_URL", true},
 		"no script path":     {map[string]string{"UMAMI_SCRIPT_URL": "https://analytics.example.org"}, "UMAMI_SCRIPT_URL", true},
 		"with a query":       {map[string]string{"UMAMI_SCRIPT_URL": "https://analytics.example.org/script.js?v=2"}, "UMAMI_SCRIPT_URL", true},
-		"members ID":         {map[string]string{"UMAMI_WEBSITE_ID": "not-a-uuid"}, "UMAMI_WEBSITE_ID", false},
-		"committee ID":       {map[string]string{"UMAMI_ADMIN_WEBSITE_ID": "0429018e82ea44f4bd02661d3c2651b5"}, "UMAMI_ADMIN_WEBSITE_ID", false},
+		// Same origin: Referrer-Policy same-origin would hand Umami the
+		// tracking page's address, token included, in the Referer header.
+		"members origin":   {map[string]string{"UMAMI_SCRIPT_URL": "https://SOS.example.org:443/umami/script.js"}, "UMAMI_SCRIPT_URL", true},
+		"committee origin": {map[string]string{"UMAMI_SCRIPT_URL": "https://comite.sos.example.org/umami/script.js"}, "UMAMI_SCRIPT_URL", true},
+		"members ID":       {map[string]string{"UMAMI_WEBSITE_ID": "not-a-uuid"}, "UMAMI_WEBSITE_ID", false},
+		"committee ID":     {map[string]string{"UMAMI_ADMIN_WEBSITE_ID": "12345678123441238123123456789abc"}, "UMAMI_ADMIN_WEBSITE_ID", false},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			m := validEnv()
 			m["UMAMI_SCRIPT_URL"] = "https://analytics.example.org/script.js"
-			m["UMAMI_WEBSITE_ID"] = "9b153ad4-1caa-4c63-bd38-e20f85ee71d3"
-			m["UMAMI_ADMIN_WEBSITE_ID"] = "0429018e-82ea-44f4-bd02-661d3c2651b5"
+			m["UMAMI_WEBSITE_ID"] = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+			m["UMAMI_ADMIN_WEBSITE_ID"] = "12345678-1234-4123-8123-123456789abc"
 			maps.Copy(m, tc.set)
 			c, err := Load(getenv(m))
 			require.NoError(t, err, "never a startup failure")
