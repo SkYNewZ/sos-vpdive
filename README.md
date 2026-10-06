@@ -277,7 +277,10 @@ a warning at startup and leaves that tool off; the service runs as before.
 Umami counts page views. Set `UMAMI_SCRIPT_URL` to the script of your
 instance, then one website ID per site: `UMAMI_WEBSITE_ID` for the members
 site, `UMAMI_ADMIN_WEBSITE_ID` for the committee site. A site without an ID is
-not measured.
+not measured, and without any ID Umami stays off. The instance must live on
+another origin than both sites: on the same origin, the browser would send it
+a tracking page's full address, token included, in the `Referer` header, so
+such a URL is refused.
 
 - A page is reported by its route, never by its address: a tracking page
   counts as `/suivi/[masqué]`, a request page as `/demandes/[id]`. The
@@ -297,7 +300,9 @@ set. It stays off with `APP_ENV=development`, even with a DSN.
 - Before an event leaves, the request (body, cookies, headers, IP address,
   URL) and the user are removed from it. Its message is the log line's, and
   logs never hold personal data.
-- Traces are the OpenTelemetry spans, sent over OTLP to the DSN's project.
+- Traces are the OpenTelemetry spans, sent over OTLP to the DSN's project,
+  always with the DSN's scheme: the `OTEL_EXPORTER_OTLP_*` variables of
+  another collector do not apply to it.
 - An unreachable Sentry slows no request. Nothing runs in the browser.
 
 Events carry the build version. `make build` takes it from `git describe`;
@@ -369,7 +374,7 @@ are allowed), and an image build. No image is published.
 | `golang.org/x/image` | WebP decoding: screenshots are re-encoded to drop their metadata, and the standard library reads no WebP |
 | `go.yaml.in/yaml/v3` | YAML content and accounts files (maintained successor of `gopkg.in/yaml.v3`) |
 | `go.opentelemetry.io/otel`, `otel/trace`, `otel/sdk`, `otlptracehttp` | Traces over OTLP/HTTP, exported only when configured |
-| `github.com/getsentry/sentry-go`, `sentry-go/otel`, `sentry-go/otel/otlp`, `sentry-go/slog` | Optional error, log and trace reporting to Sentry: the official SDK, its OTLP exporter for the existing spans and its `log/slog` handler |
+| `github.com/getsentry/sentry-go`, `sentry-go/otel`, `sentry-go/slog` | Optional error, log and trace reporting to Sentry: the official SDK, the link between its errors and the existing spans, and its `log/slog` handler |
 | `github.com/dicebear/dicebear-go/v10`, `github.com/dicebear/styles/v10` | Committee avatars generated offline (Voxel Art style, CC0); they pull `github.com/dicebear/schema` and `github.com/santhosh-tekuri/jsonschema/v6` indirectly |
 | `github.com/minio/minio-go/v7` | S3 client for the private screenshot bucket (Cloudflare R2, any S3-compatible store); it pulls `klauspost/compress`, `klauspost/cpuid`, `klauspost/crc32`, `minio/crc64nvme`, `minio/md5-simd`, `philhofer/fwd`, `rs/xid`, `tinylib/msgp`, `zeebo/xxh3` and `gopkg.in/ini.v1` indirectly |
 | `github.com/stretchr/testify` | Tests only |
