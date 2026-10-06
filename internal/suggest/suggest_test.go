@@ -242,6 +242,16 @@ func TestChooseFailures(t *testing.T) {
 	}
 }
 
+func TestChooseReportsACancelledCall(t *testing.T) {
+	c := newClient(t, &stub{status: http.StatusOK, text: `{"fiches": []}`, delay: 5 * time.Second}, "")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	time.AfterFunc(50*time.Millisecond, cancel) // the request went away while the model was thinking
+	_, err := c.Choose(ctx, request, fiches)
+	require.ErrorIs(t, err, ErrCanceled)
+	assert.Equal(t, "canceled", codeOf(err), "a cancelled call is not a provider error")
+}
+
 func TestChooseKeepsAwkwardTextAndPaths(t *testing.T) {
 	s := &stub{status: http.StatusOK, text: `{"fiches": [], "resume": "ok"}`}
 	c := newClient(t, s, "/anthropic/")
