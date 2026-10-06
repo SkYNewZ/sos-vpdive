@@ -75,6 +75,7 @@ type Export struct {
 	UnknownStates map[string]int // states other than the four known ones
 	PeriodFrom    time.Time      // earliest and latest « Créé le »
 	PeriodTo      time.Time
+	FileHash      []byte // HMAC of the file, set by the caller (spec §7.6)
 }
 
 // ToCheck counts the lines of the « Paiements à vérifier » page (spec §7.7).

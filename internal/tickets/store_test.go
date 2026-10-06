@@ -66,6 +66,7 @@ type env struct {
 	sender   *fakeSender
 	members  *members.Store
 	payments *payments.Store
+	mollie   *payments.MollieStore
 	logs     *bytes.Buffer
 	mu       sync.Mutex
 	changes  []Change
@@ -98,8 +99,9 @@ func newTestStore(t *testing.T, opts ...func(*Deps)) *env {
 	e.outbox = mail.NewOutbox(db, keys, e.clock.now)
 	e.members = members.NewStore(db, keys, e.clock.now)
 	e.payments = payments.NewStore(db, keys, e.clock.now)
+	e.mollie = payments.NewMollieStore(db, keys, e.clock.now)
 	d := Deps{
-		DB: db, Keys: keys, Catalog: catalog, Members: e.members, Payments: e.payments, Outbox: e.outbox, Blobs: objects,
+		DB: db, Keys: keys, Catalog: catalog, Members: e.members, Payments: e.payments, Mollie: e.mollie, Outbox: e.outbox, Blobs: objects,
 		Account: e.account,
 		BaseURL: &url.URL{Scheme: "https", Host: "sos.example.org"}, AdminBaseURL: &url.URL{Scheme: "https", Host: "comite.example.org"},
 		ClubEmail: clubAddress, RetentionDays: 365, Now: e.clock.now,

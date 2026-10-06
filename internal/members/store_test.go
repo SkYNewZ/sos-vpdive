@@ -56,6 +56,40 @@ func (f *fixture) importFixture(t *testing.T, name string) {
 	require.NoError(t, f.store.Confirm(context.Background(), p.ID, "alice", true))
 }
 
+// Spec §7.6: a pushed list replaces the one in place without preview, as
+// « script », but never with less than half of its accounts.
+func TestImportPushesWithoutPreview(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	exp := f.export(t, "members_valid.xlsx")
+	exp.FileHash = []byte("file-1")
+	require.NoError(t, f.store.Import(ctx, exp))
+	last, ok, err := f.store.LastImport(ctx)
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, imports.ScriptAuthor, last.ImportedBy)
+	assert.Equal(t, []byte("file-1"), last.FileHash)
+	assert.Equal(t, 6, last.Rows)
+	found, err := f.store.Lookup(ctx, "lea.martin@example.org")
+	require.NoError(t, err)
+	assert.True(t, found)
+
+	require.ErrorIs(t, f.store.Import(ctx, exp), imports.ErrUnchanged)
+	minimal := f.export(t, "members_minimal.xlsx")
+	minimal.FileHash = []byte("file-2")
+	require.ErrorIs(t, f.store.Import(ctx, minimal), imports.ErrTooFew, "2 accounts would replace 6")
+	found, err = f.store.Lookup(ctx, "hugo.bernard@example.org")
+	require.NoError(t, err)
+	assert.True(t, found, "the list in place stays")
+
+	p, err := f.store.NewPreview(ctx, "alice", minimal)
+	require.NoError(t, err)
+	require.NoError(t, f.store.Confirm(ctx, p.ID, "alice", true), "a resolver can still confirm it by hand")
+	last, _, err = f.store.LastImport(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("file-2"), last.FileHash)
+}
+
 func TestPreviewOnEmptyList(t *testing.T) {
 	f := newFixture(t)
 	p, err := f.store.NewPreview(context.Background(), "alice", f.export(t, "members_valid.xlsx"))

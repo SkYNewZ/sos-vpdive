@@ -25,6 +25,7 @@ func (c *clock) now() time.Time { return c.t }
 
 type fixture struct {
 	store   *Store
+	mollie  *MollieStore
 	members *members.Store
 	db      *sql.DB
 	path    string
@@ -42,7 +43,7 @@ func newFixture(t *testing.T) *fixture {
 	require.NoError(t, err)
 	c := &clock{t: time.Date(2026, 10, 1, 10, 0, 0, 0, time.UTC)}
 	return &fixture{
-		store: NewStore(db, keys, c.now), members: members.NewStore(db, keys, c.now),
+		store: NewStore(db, keys, c.now), mollie: NewMollieStore(db, keys, c.now), members: members.NewStore(db, keys, c.now),
 		db: db, path: path, keys: keys, clock: c,
 	}
 }
@@ -106,6 +107,39 @@ func TestPreviewAndConfirm(t *testing.T) {
 	assert.True(t, exp.PeriodFrom.Equal(last.PeriodFrom))
 	assert.True(t, exp.PeriodTo.Equal(last.PeriodTo))
 	assert.Equal(t, 20, f.count(t, `SELECT COUNT(*) FROM payment_lines WHERE import_id = ?`, last.ID))
+	assert.Nil(t, last.FileHash, "no file hash given")
+	assert.Equal(t, 1, p.ToCheck, "the partial payment")
+}
+
+// Spec §7.6: a pushed export replaces the lines without preview, as
+// « script », and an unchanged file changes nothing.
+func TestImportPushesWithoutPreview(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	exp := f.valid(t)
+	exp.FileHash = []byte("file-1")
+	require.NoError(t, f.store.Import(ctx, exp))
+	last, ok, err := f.store.LastImport(ctx)
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, imports.ScriptAuthor, last.ImportedBy)
+	assert.Equal(t, []byte("file-1"), last.FileHash)
+	assert.Equal(t, 20, f.count(t, `SELECT COUNT(*) FROM payment_lines WHERE import_id = ?`, last.ID))
+
+	require.ErrorIs(t, f.store.Import(ctx, exp), imports.ErrUnchanged)
+	small := &Export{Lines: exp.Lines[:3], FileHash: []byte("file-2")}
+	require.ErrorIs(t, f.store.Import(ctx, small), imports.ErrTooFew)
+	assert.Equal(t, 1, f.count(t, `SELECT COUNT(*) FROM imports`))
+
+	again := f.valid(t)
+	again.FileHash = []byte("file-3")
+	p, err := f.store.NewPreview(ctx, "alice", again)
+	require.NoError(t, err)
+	require.NoError(t, f.store.Confirm(ctx, p.ID, "alice", false))
+	last, _, err = f.store.LastImport(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("file-3"), last.FileHash, "a confirmed preview journals its file hash")
+	assert.Equal(t, 20, f.count(t, `SELECT COUNT(*) FROM payment_lines`))
 }
 
 func TestSmallerExportNeedsSecondConfirmationAndStalePreviewsAreRefused(t *testing.T) {

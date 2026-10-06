@@ -46,6 +46,7 @@ type MollieExport struct {
 	UnknownSettled map[string]int // « Payé » values other than Oui and Non
 	PeriodFrom     time.Time      // earliest and latest « Date paiement »
 	PeriodTo       time.Time
+	FileHash       []byte // HMAC of the file, set by the caller (spec §7.6)
 }
 
 // ToCheck counts the lines of the « Paiements à vérifier » page (spec §7.7).

@@ -24,6 +24,7 @@ type Erasure struct {
 	Tickets      int
 	Member       bool
 	PaymentLines int // every line of the member's name, a homonym's included
+	MollieLines  int // same rule for the Mollie lines
 }
 
 // deleteCapture removes one screenshot, a CACI sent by mistake for instance.
@@ -131,13 +132,16 @@ func (s *Store) PreviewErasure(ctx context.Context, email string) (Erasure, erro
 	if e.PaymentLines, err = s.Payments.Count(ctx, p.NameHash); err != nil {
 		return Erasure{}, err
 	}
+	if e.MollieLines, err = s.Mollie.Count(ctx, p.NameHash); err != nil {
+		return Erasure{}, err
+	}
 	return e, nil
 }
 
 // Erase answers an erasure request (spec §4.5): every request of email, its
-// members row, the payment lines of that member's name and every mail to it,
-// in one transaction, then the stored captures. The next imports may list
-// the address and the lines again.
+// members row, the payment and Mollie lines of that member's name and every
+// mail to it, in one transaction, then the stored captures. The next imports
+// may list the address and the lines again.
 func (s *Store) Erase(ctx context.Context, email, actor string) (Erasure, error) {
 	normalized, err := secure.NormalizeEmail(email)
 	if err != nil {
@@ -165,6 +169,9 @@ func (s *Store) Erase(ctx context.Context, email, actor string) (Erasure, error)
 		if e.PaymentLines, err = s.Payments.EraseTx(ctx, tx, nameHash); err != nil {
 			return err
 		}
+		if e.MollieLines, err = s.Mollie.EraseTx(ctx, tx, nameHash); err != nil {
+			return err
+		}
 		return s.Outbox.DeleteRecipient(ctx, tx, normalized)
 	})
 	if err != nil {
@@ -176,7 +183,7 @@ func (s *Store) Erase(ctx context.Context, email, actor string) (Erasure, error)
 		s.changed(ChangeDeleted, d.id)
 	}
 	s.Logger.InfoContext(ctx, "person erased", "actor", actor, "tickets", e.Tickets, "member", e.Member,
-		"payment_lines", e.PaymentLines)
+		"payment_lines", e.PaymentLines, "mollie_lines", e.MollieLines)
 	return e, nil
 }
 

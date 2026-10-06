@@ -41,3 +41,22 @@ func ImportBytes(tb testing.TB, s *payments.Store, data []byte) {
 	require.NoError(tb, err)
 	require.NoError(tb, s.Confirm(ctx, p.ID, "alice", true))
 }
+
+// ImportMollie reads testdata/fixtures/<name> and replaces the Mollie lines
+// with it, as alice. Dates are read in Paris time.
+func ImportMollie(tb testing.TB, s *payments.MollieStore, name string) {
+	tb.Helper()
+	data, err := os.ReadFile(memberstest.FixturePath(name))
+	require.NoError(tb, err)
+	rows, err := xlsx.ReadFirstSheet(data, imports.Limits())
+	require.NoError(tb, err)
+	created, _ := xlsx.Created(data, imports.Limits())
+	paris, err := time.LoadLocation("Europe/Paris")
+	require.NoError(tb, err)
+	exp, err := payments.ParseMollie(rows, created, paris)
+	require.NoError(tb, err)
+	ctx := context.Background()
+	p, err := s.NewPreview(ctx, "alice", exp)
+	require.NoError(tb, err)
+	require.NoError(tb, s.Confirm(ctx, p.ID, "alice", true))
+}

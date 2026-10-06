@@ -69,6 +69,7 @@ func (s *Store) NewPreview(ctx context.Context, username string, exp *Export) (*
 		Username:           username,
 		NeedsSecondConfirm: len(exp.Members)*2 < len(current),
 		Base:               base,
+		FileHash:           exp.FileHash,
 		ExportedAt:         exp.ExportedAt,
 		Total:              len(exp.Members),
 		Added:              added,
@@ -100,13 +101,17 @@ func (s *Store) Confirm(ctx context.Context, id, username string, secondConfirm 
 		return err
 	}
 	e := imports.Entry{Kind: imports.Members, ExportedAt: p.ExportedAt, ImportedAt: s.now(),
-		ImportedBy: username, Rows: p.Total, Skipped: p.Skipped}
-	return imports.Replace(ctx, s.db, "members.replace", &p.Meta, e, func(ctx context.Context, tx *sql.Tx, _ int64) error {
-		if _, err := tx.ExecContext(ctx, `DELETE FROM members`); err != nil {
-			return fmt.Errorf("clear members: %w", err)
-		}
-		return s.insertMembers(ctx, tx, p.members)
-	})
+		ImportedBy: username, Rows: p.Total, Skipped: p.Skipped, FileHash: p.FileHash}
+	return imports.Replace(ctx, s.db, "members.replace", &p.Meta, e, s.replaceWith(p.members))
+}
+
+// Import replaces the whole list with a pushed export, without preview
+// (spec §7.6): imports.Push refuses an unchanged file and a file with less
+// than half of the accounts in place.
+func (s *Store) Import(ctx context.Context, exp *Export) error {
+	e := imports.Entry{Kind: imports.Members, ExportedAt: exp.ExportedAt, ImportedAt: s.now(),
+		ImportedBy: imports.ScriptAuthor, Rows: len(exp.Members), Skipped: exp.Skipped, FileHash: exp.FileHash}
+	return imports.Push(ctx, s.db, "members.replace", e, s.replaceWith(exp.Members))
 }
 
 // LastImport returns the latest members import, if any.
@@ -220,6 +225,16 @@ func (s *Store) Purge(ctx context.Context) error {
 		}
 		return nil
 	})
+}
+
+// replaceWith replaces the list in place with ms.
+func (s *Store) replaceWith(ms []Member) func(context.Context, *sql.Tx, int64) error {
+	return func(ctx context.Context, tx *sql.Tx, _ int64) error {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM members`); err != nil {
+			return fmt.Errorf("clear members: %w", err)
+		}
+		return s.insertMembers(ctx, tx, ms)
+	}
 }
 
 // current returns the latest members import id (0 when none) and the email

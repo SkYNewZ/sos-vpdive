@@ -107,6 +107,7 @@ func TestErase(t *testing.T) {
 	ctx := context.Background()
 	memberstest.Import(t, e.members, "members_valid.xlsx")
 	paymentstest.Import(t, e.payments, "payments_valid.xlsx")
+	paymentstest.ImportMollie(t, e.mollie, "vpaydive_valid.xlsx")
 	e.submit(t, png())
 	first, _ := e.submit(t)
 	require.NoError(t, e.apply(t, first, Command{Action: ActionClose}))
@@ -118,7 +119,7 @@ func TestErase(t *testing.T) {
 
 	preview, err := e.store.PreviewErasure(ctx, " Lea.Martin@example.org")
 	require.NoError(t, err)
-	assert.Equal(t, Erasure{Tickets: 2, Member: true, PaymentLines: 2}, preview, "the homonym's line goes too (owner decision)")
+	assert.Equal(t, Erasure{Tickets: 2, Member: true, PaymentLines: 2, MollieLines: 2}, preview, "the homonym's lines go too (owner decision)")
 
 	done, err := e.store.Erase(ctx, " Lea.Martin@example.org", "alice")
 	require.NoError(t, err)
@@ -132,6 +133,8 @@ func TestErase(t *testing.T) {
 	assert.False(t, found)
 	assert.Equal(t, 0, e.count(t, `SELECT COUNT(*) FROM payment_lines WHERE name_hash = ?`, e.keys.Hash(secure.NameKey("Martin", "Léa"))))
 	assert.Equal(t, 18, e.count(t, `SELECT COUNT(*) FROM payment_lines`), "other people keep their lines")
+	assert.Zero(t, e.count(t, `SELECT COUNT(*) FROM online_payment_lines WHERE name_hash = ?`, e.keys.Hash(secure.NameKey("Martin", "Léa"))))
+	assert.Equal(t, 14, e.count(t, `SELECT COUNT(*) FROM online_payment_lines`), "and their Mollie lines")
 	assert.Empty(t, e.objects(t))
 	assert.Equal(t, 1, e.count(t, `SELECT COUNT(*) FROM stats_monthly`), "the closed request is still counted")
 	assert.Contains(t, e.logs.String(), `"msg":"person erased"`)

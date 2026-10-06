@@ -130,18 +130,27 @@ func Push(ctx context.Context, db *sql.DB, span string, e Entry,
 		if err != nil {
 			return err
 		}
-		if ok && bytes.Equal(latest.FileHash, e.FileHash) {
+		if ok && len(e.FileHash) > 0 && bytes.Equal(latest.FileHash, e.FileHash) {
 			return ErrUnchanged
 		}
-		var current int
-		if err := tx.QueryRowContext(ctx, inPlace[e.Kind]).Scan(&current); err != nil {
-			return fmt.Errorf("count %s in place: %w", e.Kind, err)
+		current, err := countInPlace(ctx, tx, e.Kind)
+		if err != nil {
+			return err
 		}
 		if e.Rows*2 < current {
 			return ErrTooFew
 		}
 		return replace(ctx, tx, e, fn)
 	})
+}
+
+// countInPlace counts the data an import of kind replaces.
+func countInPlace(ctx context.Context, q store.Querier, kind Kind) (int, error) {
+	var n int
+	if err := q.QueryRowContext(ctx, inPlace[kind]).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count %s in place: %w", kind, err)
+	}
+	return n, nil
 }
 
 // replace journals e, lets fn replace the data and marks the lines of
@@ -187,9 +196,25 @@ type Meta struct {
 	ID                 string // set by Put
 	Username           string // the uploader, the only one who may confirm
 	NeedsSecondConfirm bool
-	Base               int64 // id of the latest import of the kind when the preview was made, 0 when none
+	Base               int64  // id of the latest import of the kind when the preview was made, 0 when none
+	FileHash           []byte // HMAC of the previewed file, journaled at confirmation
 
 	created time.Time
+}
+
+// NewMeta starts the preview of a file holding n rows for username: it binds
+// it to the latest import of kind and asks for the second confirmation when
+// the file holds less than half of the data in place, whose count it returns.
+func NewMeta(ctx context.Context, q store.Querier, kind Kind, username string, n int, fileHash []byte) (Meta, int, error) {
+	last, _, err := Last(ctx, q, kind)
+	if err != nil {
+		return Meta{}, 0, err
+	}
+	current, err := countInPlace(ctx, q, kind)
+	if err != nil {
+		return Meta{}, 0, err
+	}
+	return Meta{Username: username, NeedsSecondConfirm: n*2 < current, Base: last.ID, FileHash: fileHash}, current, nil
 }
 
 // PreviewMeta gives Previews access to the embedded Meta.

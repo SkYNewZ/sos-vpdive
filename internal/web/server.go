@@ -36,6 +36,7 @@ type Deps struct {
 	Keys     *secure.Keys
 	Members  *members.Store
 	Payments *payments.Store
+	Mollie   *payments.MollieStore
 	Admins   *admins.Registry
 	Tickets  *tickets.Store
 	Outbox   *mail.Outbox

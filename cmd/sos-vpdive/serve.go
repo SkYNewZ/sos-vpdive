@@ -48,6 +48,7 @@ type app struct {
 	admins   *admins.Registry
 	members  *members.Store
 	payments *payments.Store
+	mollie   *payments.MollieStore
 	tickets  *tickets.Store
 	outbox   *mail.Outbox
 	senders  mail.Router // one sender per configured channel
@@ -97,18 +98,19 @@ func setup(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*app, 
 	}
 	memberStore := members.NewStore(db, keys, time.Now)
 	paymentStore := payments.NewStore(db, keys, time.Now)
+	mollieStore := payments.NewMollieStore(db, keys, time.Now)
 	outbox := mail.NewOutbox(db, keys, time.Now)
 	pushStore := push.NewStore(db, keys, time.Now)
 	senders, alerts := alertSenders(cfg, registry, pushStore, logger)
 	broker := web.NewBroker()
 	ticketStore := tickets.NewStore(tickets.Deps{
-		DB: db, Keys: keys, Catalog: catalog, Members: memberStore, Payments: paymentStore, Outbox: outbox,
+		DB: db, Keys: keys, Catalog: catalog, Members: memberStore, Payments: paymentStore, Mollie: mollieStore, Outbox: outbox,
 		Blobs: captures, Account: registry.Get, BaseURL: cfg.BaseURL, AdminBaseURL: cfg.AdminBaseURL,
 		ClubEmail: cfg.NotifyEmail.Address, Alerts: alerts, RetentionDays: cfg.RetentionDays,
 		Now: time.Now, Logger: logger, OnChange: broker.Publish,
 	})
 	a := &app{
-		logger: logger, db: db, admins: registry, members: memberStore, payments: paymentStore,
+		logger: logger, db: db, admins: registry, members: memberStore, payments: paymentStore, mollie: mollieStore,
 		tickets: ticketStore, outbox: outbox,
 		senders: senders, push: pushStore, broker: broker,
 	}
@@ -120,7 +122,7 @@ func setup(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*app, 
 		turnstile = web.NewTurnstile(cfg.TurnstileSiteKey, cfg.TurnstileSecretKey, "")
 	}
 	a.web, err = web.New(web.Deps{
-		Config: cfg, DB: db, Keys: keys, Members: memberStore, Payments: paymentStore, Admins: registry,
+		Config: cfg, DB: db, Keys: keys, Members: memberStore, Payments: paymentStore, Mollie: mollieStore, Admins: registry,
 		Content: sosvpdive.Content, Logger: logger, Now: time.Now, Turnstile: turnstile,
 		Tickets: ticketStore, Outbox: outbox, Push: pushStore, Broker: broker, KB: base,
 	})
@@ -267,6 +269,7 @@ func (a *app) purge(ctx context.Context) {
 		{"purge_sessions", a.web.Purge},
 		{"purge_members", a.members.Purge},
 		{"purge_payments", a.payments.Purge},
+		{"purge_mollie", a.mollie.Purge},
 		{"purge_tickets", a.tickets.Purge},
 		{"purge_outbox", a.outbox.Purge},
 		{"purge_push", a.push.Purge},

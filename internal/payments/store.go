@@ -26,6 +26,7 @@ type Preview struct {
 	Lines         int
 	Current       int // lines in place
 	Skipped       int
+	ToCheck       int // partial payments (spec §7.7)
 	UnknownStates map[string]int
 	PeriodFrom    time.Time
 	PeriodTo      time.Time
@@ -69,26 +70,21 @@ func ShortPeriod(from, to time.Time) bool {
 // NewPreview compares exp with the lines in place and keeps the result for
 // 15 minutes, bound to username and to the import in place.
 func (s *Store) NewPreview(ctx context.Context, username string, exp *Export) (*Preview, error) {
-	last, _, err := imports.Last(ctx, s.db, imports.Payments)
+	meta, current, err := imports.NewMeta(ctx, s.db, imports.Payments, username, len(exp.Lines), exp.FileHash)
 	if err != nil {
 		return nil, err
 	}
-	var current int
-	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM payment_lines`).Scan(&current); err != nil {
-		return nil, fmt.Errorf("count payment lines: %w", err)
-	}
 	p := &Preview{
-		Username:           username,
-		NeedsSecondConfirm: len(exp.Lines)*2 < current,
-		Base:               last.ID,
-		Created:            exp.Created,
-		Lines:              len(exp.Lines),
-		Current:            current,
-		Skipped:            exp.Skipped,
-		UnknownStates:      exp.UnknownStates,
-		PeriodFrom:         exp.PeriodFrom,
-		PeriodTo:           exp.PeriodTo,
-		lines:              exp.Lines,
+		Meta:          meta,
+		Created:       exp.Created,
+		Lines:         len(exp.Lines),
+		Current:       current,
+		Skipped:       exp.Skipped,
+		ToCheck:       exp.ToCheck(),
+		UnknownStates: exp.UnknownStates,
+		PeriodFrom:    exp.PeriodFrom,
+		PeriodTo:      exp.PeriodTo,
+		lines:         exp.Lines,
 	}
 	if err := s.previews.Put(p); err != nil {
 		return nil, err
@@ -111,14 +107,20 @@ func (s *Store) Confirm(ctx context.Context, id, username string, secondConfirm 
 	}
 	e := imports.Entry{
 		Kind: imports.Payments, ExportedAt: p.Created, PeriodFrom: p.PeriodFrom, PeriodTo: p.PeriodTo,
-		ImportedAt: s.now(), ImportedBy: username, Rows: p.Lines, Skipped: p.Skipped,
+		ImportedAt: s.now(), ImportedBy: username, Rows: p.Lines, Skipped: p.Skipped, FileHash: p.FileHash,
 	}
-	return imports.Replace(ctx, s.db, "payments.replace", &p.Meta, e, func(ctx context.Context, tx *sql.Tx, importID int64) error {
-		if _, err := tx.ExecContext(ctx, `DELETE FROM payment_lines`); err != nil {
-			return fmt.Errorf("clear payment lines: %w", err)
-		}
-		return s.insertLines(ctx, tx, importID, p.lines)
-	})
+	return imports.Replace(ctx, s.db, "payments.replace", &p.Meta, e, s.replaceWith(p.lines))
+}
+
+// Import replaces every line with a pushed export, without preview (spec
+// §7.6): imports.Push refuses an unchanged file and a file with less than
+// half of the lines in place.
+func (s *Store) Import(ctx context.Context, exp *Export) error {
+	e := imports.Entry{
+		Kind: imports.Payments, ExportedAt: exp.Created, PeriodFrom: exp.PeriodFrom, PeriodTo: exp.PeriodTo,
+		ImportedAt: s.now(), ImportedBy: imports.ScriptAuthor, Rows: len(exp.Lines), Skipped: exp.Skipped, FileHash: exp.FileHash,
+	}
+	return imports.Push(ctx, s.db, "payments.replace", e, s.replaceWith(exp.Lines))
 }
 
 // LastImport returns the latest payments import, if any.
@@ -128,15 +130,20 @@ func (s *Store) LastImport(ctx context.Context) (imports.Info, bool, error) {
 
 // Report counts the lines in place by attribution.
 func (s *Store) Report(ctx context.Context) (Report, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT MAX(p.ambiguous), COUNT(*), (SELECT COUNT(*) FROM members m WHERE m.name_hash = p.name_hash)
+	return report(ctx, s.db, `SELECT MAX(p.ambiguous), COUNT(*), (SELECT COUNT(*) FROM members m WHERE m.name_hash = p.name_hash)
 		 FROM payment_lines p GROUP BY p.name_hash`)
+}
+
+// report counts lines by attribution from query, which gives per name hash
+// in place: the « ambiguë » mark, the lines and the members of that name.
+func report(ctx context.Context, db *sql.DB, query string) (Report, error) {
+	rows, err := db.QueryContext(ctx, query)
 	payers, err := store.Collect(rows, err, func(rows *sql.Rows) (c struct{ marked, lines, members int }, err error) {
 		err = rows.Scan(&c.marked, &c.lines, &c.members)
 		return c, err
 	})
 	if err != nil {
-		return Report{}, fmt.Errorf("payments report: %w", err)
+		return Report{}, fmt.Errorf("attribution report: %w", err)
 	}
 	var r Report
 	for _, p := range payers {
@@ -199,6 +206,16 @@ func (s *Store) EraseTx(ctx context.Context, tx *sql.Tx, nameHash []byte) (int, 
 		return 0, fmt.Errorf("erase payment lines: %w", err)
 	}
 	return int(n), nil
+}
+
+// replaceWith replaces the lines in place with lines.
+func (s *Store) replaceWith(lines []Line) func(context.Context, *sql.Tx, int64) error {
+	return func(ctx context.Context, tx *sql.Tx, importID int64) error {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM payment_lines`); err != nil {
+			return fmt.Errorf("clear payment lines: %w", err)
+		}
+		return s.insertLines(ctx, tx, importID, lines)
+	}
 }
 
 func (s *Store) insertLines(ctx context.Context, tx *sql.Tx, importID int64, lines []Line) (err error) {
