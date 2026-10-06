@@ -67,21 +67,24 @@ func newInstallables(a *assets) (map[bool]installable, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse service worker: %w", err)
 	}
-	precache := []string{offlinePath}
-	for name := range a.versions {
-		if strings.HasPrefix(name, "fonts/") {
-			precache = append(precache, "/static/"+name) // the stylesheet asks for the plain path
-		} else {
-			precache = append(precache, a.URL(name))
-		}
-	}
-	slices.Sort(precache)
-	list, err := json.Marshal(precache)
-	if err != nil {
-		return nil, err
-	}
 	built := map[bool]installable{}
 	for _, app := range apps {
+		precache := []string{offlinePath}
+		for name := range a.versions {
+			switch {
+			case strings.HasPrefix(name, "icons/") && !strings.HasPrefix(name, app.icons):
+				// the other app's icons
+			case strings.HasPrefix(name, "fonts/"):
+				precache = append(precache, "/static/"+name) // the stylesheet asks for the plain path
+			default:
+				precache = append(precache, a.URL(name))
+			}
+		}
+		slices.Sort(precache)
+		list, err := json.Marshal(precache)
+		if err != nil {
+			return nil, err
+		}
 		icon := func(file, sizes, purpose string) manifestIcon {
 			return manifestIcon{Src: a.URL(app.icons + file), Sizes: sizes, Type: "image/png", Purpose: purpose}
 		}

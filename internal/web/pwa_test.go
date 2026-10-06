@@ -81,6 +81,12 @@ func TestServiceWorkerPerHost(t *testing.T) {
 		assert.Contains(t, urls, "/hors-ligne")
 		assert.Contains(t, urls, e.srv.assets.URL("app.js"))
 		assert.Contains(t, urls, "/static/fonts/atkinson-hyperlegible-next-latin.woff2", "the font under the path the CSS uses")
+		own, other := "/icons/membres/", "/icons/comite/"
+		if host == adminHost {
+			own, other = other, own
+		}
+		assert.Contains(t, urls, e.srv.assets.URL(strings.TrimPrefix(own, "/")+"icon-192.png"))
+		assert.NotContains(t, m[1], other, "each app precaches its own icons only")
 		for _, u := range urls {
 			assert.Equal(t, http.StatusOK, e.do(t, http.MethodGet, host, u, nil).Code, u)
 			assert.Regexp(t, `^/(static/|hors-ligne$)`, u, "a closed list: static files and the offline page, no page with data")
