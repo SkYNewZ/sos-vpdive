@@ -15,7 +15,10 @@ import (
 	"time"
 )
 
-const schemeHTTPS = "https"
+const (
+	schemeHTTP  = "http"
+	schemeHTTPS = "https"
+)
 
 // Env is the deployment environment.
 type Env string
@@ -58,6 +61,15 @@ type S3 struct {
 	Region          string
 }
 
+// LLM holds the model provider settings (spec §5.4).
+type LLM struct {
+	BaseURL    *url.URL // the API root; the client appends /v1/messages
+	APIKey     string
+	Model      string
+	Timeout    time.Duration // the request leaves without suggestions past it
+	DailyLimit int           // model calls per day, Europe/Paris
+}
+
 // Config is the validated deployment configuration.
 type Config struct {
 	Env                Env
@@ -81,6 +93,7 @@ type Config struct {
 	AgeAlertAfter      time.Duration // and in red from this one
 	RetentionDays      int           // days a closed request is kept
 	FormRateLimit      int           // form submissions per hour and IP address
+	LLM                *LLM          // nil without LLM_API_KEY: no suggestions, no screen 2
 }
 
 // TurnstileEnabled reports whether the anti-bot check is configured.
@@ -128,6 +141,7 @@ func Load(getenv func(string) string) (*Config, error) {
 	}
 	p.turnstile(c)
 	c.S3 = p.s3(c.Env)
+	c.LLM = p.llm(c.Env)
 	if c.Env == EnvProduction {
 		p.requireHTTPS("BASE_URL", c.BaseURL)
 		p.requireHTTPS("ADMIN_BASE_URL", c.AdminBaseURL)
@@ -249,7 +263,7 @@ func (p *parser) url(name, raw string) *url.URL {
 		return nil
 	}
 	u, err := url.Parse(raw)
-	if err != nil || (u.Scheme != "http" && u.Scheme != schemeHTTPS) || u.Host == "" ||
+	if err != nil || (u.Scheme != schemeHTTP && u.Scheme != schemeHTTPS) || u.Host == "" ||
 		(u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.User != nil {
 		p.fail(name, errors.New("must be an absolute http(s) URL without path"))
 		return nil
@@ -257,8 +271,20 @@ func (p *parser) url(name, raw string) *url.URL {
 	u.Path = ""
 	// Browsers omit a scheme's default port from Origin, which is compared as
 	// an exact string.
-	defaultPort := map[string]string{"http": ":80", schemeHTTPS: ":443"}[u.Scheme]
+	defaultPort := map[string]string{schemeHTTP: ":80", schemeHTTPS: ":443"}[u.Scheme]
 	u.Host = strings.TrimSuffix(strings.ToLower(u.Host), defaultPort)
+	return u
+}
+
+// endpoint reads an absolute http(s) URL that may carry a path: a provider
+// can serve the Messages API under a prefix, such as /anthropic.
+func (p *parser) endpoint(name, raw string) *url.URL {
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != schemeHTTP && u.Scheme != schemeHTTPS) || u.Host == "" ||
+		u.RawQuery != "" || u.Fragment != "" || u.User != nil {
+		p.fail(name, errors.New("must be an absolute http(s) URL without query"))
+		return nil
+	}
 	return u
 }
 
@@ -311,6 +337,28 @@ func (p *parser) turnstile(c *Config) {
 		p.fail("TURNSTILE_SITE_KEY", fmt.Errorf("%w (only APP_ENV=development runs without Turnstile)", ErrMissing))
 		p.fail("TURNSTILE_SECRET_KEY", ErrMissing)
 	}
+}
+
+// llm reads the model variables. They are checked even without a key, so a
+// typo shows before the key is added; without a key suggestions are off.
+func (p *parser) llm(env Env) *LLM {
+	l := &LLM{
+		BaseURL:    p.endpoint("LLM_BASE_URL", p.optional("LLM_BASE_URL", "https://api.anthropic.com")),
+		APIKey:     p.value("LLM_API_KEY"),
+		Model:      p.optional("LLM_MODEL", "claude-haiku-4-5-20251001"),
+		Timeout:    p.duration("LLM_TIMEOUT", "8s"),
+		DailyLimit: p.int("LLM_DAILY_LIMIT", "200", 1, 100000),
+	}
+	if l.Timeout > time.Minute {
+		p.fail("LLM_TIMEOUT", errors.New("must be 60s at most"))
+	}
+	if env == EnvProduction {
+		p.requireHTTPS("LLM_BASE_URL", l.BaseURL)
+	}
+	if l.APIKey == "" {
+		return nil
+	}
+	return l
 }
 
 func (p *parser) s3(env Env) *S3 {
