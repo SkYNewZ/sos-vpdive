@@ -3,6 +3,7 @@ package payments
 import (
 	"context"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -35,9 +36,17 @@ type Block struct {
 	State     BlockState
 	Import    imports.Info // the payments import in place
 	Balances  []Line       // newest first, as every list
-	ToSettle  []Line
+	ToSettle  []ToSettleLine
 	Cancelled []Line
 	Latest    []Line
+}
+
+// ToSettleLine is a line still to pay; a partial payment is a line to check
+// (spec §7.7), with the dismissal of the resolver who checked it.
+type ToSettleLine struct {
+	Line
+
+	Dismissal *Dismissal
 }
 
 // Balance reports the remaining credit of a carnet or a training: due,
@@ -79,40 +88,12 @@ func (l Line) ProbableRefund() bool {
 // members list.
 func (s *Store) Block(ctx context.Context, nameHash []byte) (Block, error) {
 	var b Block
-	inPlace, err := s.HasLines(ctx)
-	if err != nil {
-		return Block{}, err
-	}
-	var imported bool
-	if b.Import, imported, err = s.LastImport(ctx); err != nil {
-		return Block{}, err
-	}
-	if !inPlace {
-		b.State = BlockNoLines
-		if imported {
-			b.State = BlockPurged
-		}
-		return b, nil
-	}
-	if nameHash == nil {
-		b.State = BlockNoMember
-		return b, nil
-	}
-	var members int
-	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM members WHERE name_hash = ?`, nameHash).Scan(&members); err != nil {
-		return Block{}, fmt.Errorf("members of a name: %w", err)
-	}
-	found, err := sealedLines(ctx, s.db, `SELECT name_hash, ambiguous, data FROM payment_lines WHERE name_hash = ? ORDER BY id DESC`, nameHash)
-	if err != nil {
-		return Block{}, err
-	}
-	switch {
-	case members > 1 || slices.ContainsFunc(found, func(r sealedLine) bool { return r.ambiguous }):
-		b.State = BlockAmbiguous
-		return b, nil
-	case len(found) == 0:
-		b.State = BlockEmpty
-		return b, nil
+	state, info, found, err := nameLines(ctx, s.db, imports.Payments,
+		`SELECT EXISTS (SELECT 1 FROM payment_lines)`,
+		`SELECT name_hash, ambiguous, data FROM payment_lines WHERE name_hash = ? ORDER BY id DESC`, nameHash)
+	b.State, b.Import = state, info
+	if err != nil || state != BlockLines {
+		return b, err
 	}
 	lines := make([]Line, len(found))
 	for i, r := range found {
@@ -120,21 +101,73 @@ func (s *Store) Block(ctx context.Context, nameHash []byte) (Block, error) {
 			return Block{}, err
 		}
 	}
+	dismissed, err := dismissals(ctx, s.db)
+	if err != nil {
+		return Block{}, err
+	}
 	// Newest first; read in reverse id order, so ties keep the file's order reversed.
 	slices.SortStableFunc(lines, func(a, b Line) int { return b.Created.Compare(a.Created) })
-	b.State = BlockLines
 	b.Latest = lines[:min(latestCount, len(lines))]
 	for _, l := range lines {
 		switch {
 		case l.Balance():
 			b.Balances = append(b.Balances, l)
 		case l.ToSettle():
-			b.ToSettle = append(b.ToSettle, l)
+			t := ToSettleLine{Line: l}
+			if l.Partial() {
+				t.Dismissal = dismissal(dismissed, l.fingerprint(s.keys, nameHash))
+			}
+			b.ToSettle = append(b.ToSettle, t)
 		case l.CancelledOuting():
 			b.Cancelled = append(b.Cancelled, l)
 		}
 	}
 	return b, nil
+}
+
+// nameLines decides what a block shows for nameHash, nil when the requester
+// is not in the members list, in the order of the BlockState values: exists
+// tells whether the table holds lines, lines selects name_hash, ambiguous and
+// data of one name. With BlockLines it returns the sealed lines of the name.
+func nameLines(ctx context.Context, db *sql.DB, kind imports.Kind, exists, lines string, nameHash []byte) (BlockState, imports.Info, []sealedLine, error) {
+	var inPlace bool
+	if err := db.QueryRowContext(ctx, exists).Scan(&inPlace); err != nil {
+		return "", imports.Info{}, nil, fmt.Errorf("presence of %s lines: %w", kind, err)
+	}
+	info, imported, err := imports.Last(ctx, db, kind)
+	switch {
+	case err != nil:
+		return "", imports.Info{}, nil, err
+	case !inPlace && imported:
+		return BlockPurged, info, nil, nil
+	case !inPlace:
+		return BlockNoLines, info, nil, nil
+	case nameHash == nil:
+		return BlockNoMember, info, nil, nil
+	}
+	var members int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM members WHERE name_hash = ?`, nameHash).Scan(&members); err != nil {
+		return "", imports.Info{}, nil, fmt.Errorf("members of a name: %w", err)
+	}
+	found, err := sealedLines(ctx, db, lines, nameHash)
+	switch {
+	case err != nil:
+		return "", imports.Info{}, nil, err
+	case members > 1 || slices.ContainsFunc(found, func(r sealedLine) bool { return r.ambiguous }):
+		return BlockAmbiguous, info, nil, nil
+	case len(found) == 0:
+		return BlockEmpty, info, nil, nil
+	}
+	return BlockLines, info, found, nil
+}
+
+// dismissal returns the dismissal of the line of fingerprint, nil when none.
+func dismissal(dismissed map[string]Dismissal, fingerprint []byte) *Dismissal {
+	d, ok := dismissed[hex.EncodeToString(fingerprint)]
+	if !ok {
+		return nil
+	}
+	return &d
 }
 
 // sealedLine is a stored payment or Mollie line before decryption.

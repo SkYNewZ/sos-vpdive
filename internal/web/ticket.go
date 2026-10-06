@@ -49,6 +49,8 @@ type ticketData struct {
 	Links      []vpdiveLink
 	Filter     paymentsFilter
 	Payments   payments.Block
+	Mollie     payments.MollieBlock
+	MollieLink vpdiveLink // VPayDive in VPDive: failed attempts show there only
 }
 
 // profileView is the requester as the last members import knows them.
@@ -152,6 +154,10 @@ func (s *Server) ticketView(ctx context.Context, t *tickets.Detail) (ticketData,
 	if d.Payments, err = s.payments.Block(ctx, profile.NameHash); err != nil {
 		return ticketData{}, err
 	}
+	if d.Mollie, err = s.mollie.Block(ctx, profile.NameHash); err != nil {
+		return ticketData{}, err
+	}
+	d.MollieLink = s.vpdive["vpaydive"]
 	today := s.now().In(s.paris)
 	d.Filter = paymentsFilter{
 		Name: name, Product: s.tickets.Catalog.Product(t.Fields),

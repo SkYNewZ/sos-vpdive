@@ -137,20 +137,46 @@
 {{with .ToSettle}}<h3 class="mt-4 font-semibold">À régler</h3>
 <div class="overflow-x-auto"><table class="table mt-2 max-sm:[&_:is(th,td)]:px-1">
 <thead><tr><th scope="col">Intitulé</th><th scope="col">État</th><th scope="col" class="text-right">Prix unitaire</th><th scope="col" class="hidden text-right md:table-cell">Quantité</th><th scope="col" class="text-right">Payé</th><th scope="col" class="hidden text-right md:table-cell">Réduction</th><th scope="col" class="hidden md:table-cell">Créée le</th></tr></thead>
-<tbody>{{range .}}<tr><td class="break-words">{{.Product}}</td><td>{{.State}}</td><td class="text-right whitespace-nowrap">{{.UnitPrice.Euros}}</td><td class="hidden text-right md:table-cell">{{.Quantity.Number}}</td><td class="text-right whitespace-nowrap">{{.Paid.Euros}}</td><td class="hidden text-right whitespace-nowrap md:table-cell">{{.Discount.Euros}}</td><td class="hidden md:table-cell">{{formatDate .Created}}</td></tr>{{end}}</tbody>
+<tbody>{{range .}}<tr{{if and .Partial (not .Dismissal)}} class="bg-warning/10"{{end}}><td class="break-words">{{.Product}}</td><td>{{.State}}{{if .Partial}}<br><span class="text-sm">{{with .Dismissal}}Vérifié par {{author .By}} le {{formatDate .At}}.{{else}}<span class="font-semibold">Paiement partiel : à vérifier.</span>{{end}}</span>{{end}}</td><td class="text-right whitespace-nowrap">{{.UnitPrice.Euros}}</td><td class="hidden text-right md:table-cell">{{.Quantity.Number}}</td><td class="text-right whitespace-nowrap">{{.Paid.Euros}}</td><td class="hidden text-right whitespace-nowrap md:table-cell">{{.Discount.Euros}}</td><td class="hidden md:table-cell">{{formatDate .Created}}</td></tr>{{end}}</tbody>
 </table></div>
 {{end}}
 {{with .Cancelled}}<h3 class="mt-4 font-semibold">Sorties annulées en attente de suppression</h3>
 <ul class="mt-2 flex flex-col gap-2">{{range .}}
-<li class="border-l-2 border-warning pl-3"><span class="font-semibold break-words">{{.Product}}</span>, {{with formatTime .Starts}}le {{.}}{{else}}date inconnue{{end}}, {{.Settled.Euros}}{{with .Method}} ({{.}}){{end}} : {{if .Prepaid}}le carnet sera recrédité à la suppression de la sortie{{else}}payé en argent réel : remboursement par le trésorier{{end}}.</li>{{end}}
+<li class="border-l-2 border-warning pl-3"><span class="font-semibold break-words">{{.Product}}</span>, {{with formatTime .Starts}}le {{.}}{{else}}date inconnue{{end}}, {{.Settled.Euros}}{{with .Method}} ({{methodLabel .}}){{end}} : {{if .Prepaid}}le carnet sera recrédité à la suppression de la sortie{{else}}payé en argent réel : remboursement par le trésorier{{end}}.</li>{{end}}
 </ul>
 {{end}}
 <h3 class="mt-4 font-semibold">Dernières lignes</h3>
 <div class="overflow-x-auto"><table class="table mt-2 max-sm:[&_:is(th,td)]:px-1">
 <thead><tr><th scope="col">Créée le</th><th scope="col">Intitulé</th><th scope="col" class="hidden md:table-cell">Type</th><th scope="col">État</th><th scope="col" class="hidden md:table-cell">Moyen</th><th scope="col" class="hidden text-right md:table-cell">Prix unitaire</th><th scope="col" class="hidden text-right md:table-cell">Quantité</th><th scope="col" class="text-right">Payé</th><th scope="col" class="hidden text-right md:table-cell">Réduction</th><th scope="col" class="hidden text-right md:table-cell">Location</th></tr></thead>
-<tbody>{{range .Latest}}<tr><td class="whitespace-nowrap">{{formatDate .Created}}</td><td class="break-words">{{.Product}}</td><td class="hidden md:table-cell">{{.ProductType}}</td><td>{{.State}}</td><td class="hidden md:table-cell">{{.Method}}</td><td class="hidden text-right whitespace-nowrap md:table-cell">{{.UnitPrice.Euros}}</td><td class="hidden text-right md:table-cell">{{.Quantity.Number}}</td><td class="text-right"><span class="whitespace-nowrap">{{.Paid.Euros}}</span>{{if .ProbableRefund}}<br><span class="text-sm">remboursement probable</span>{{end}}</td><td class="hidden text-right whitespace-nowrap md:table-cell">{{.Discount.Euros}}</td><td class="hidden text-right whitespace-nowrap md:table-cell">{{if .Rental}}{{.Rental.Euros}}{{end}}</td></tr>{{end}}</tbody>
+<tbody>{{range .Latest}}<tr><td class="whitespace-nowrap">{{formatDate .Created}}</td><td class="break-words">{{.Product}}</td><td class="hidden md:table-cell">{{.ProductType}}</td><td>{{.State}}</td><td class="hidden md:table-cell">{{methodLabel .Method}}</td><td class="hidden text-right whitespace-nowrap md:table-cell">{{.UnitPrice.Euros}}</td><td class="hidden text-right md:table-cell">{{.Quantity.Number}}</td><td class="text-right"><span class="whitespace-nowrap">{{.Paid.Euros}}</span>{{if .ProbableRefund}}<br><span class="text-sm">remboursement probable</span>{{end}}</td><td class="hidden text-right whitespace-nowrap md:table-cell">{{.Discount.Euros}}</td><td class="hidden text-right whitespace-nowrap md:table-cell">{{if .Rental}}{{.Rental.Euros}}{{end}}</td></tr>{{end}}</tbody>
 </table></div>
 {{end}}{{end}}{{end}}
+</section>
+
+<section class="mt-8" aria-labelledby="encaissements">
+<h2 id="encaissements" class="text-xl font-semibold">Encaissements Mollie</h2>
+{{with $d.Mollie}}{{if or (eq .State "no_lines") (eq .State "purged")}}
+<p class="mt-3">{{if eq .State "purged"}}Plus de 90 jours sans import : les encaissements Mollie ont été effacés.{{else}}Aucun encaissement Mollie importé.{{end}} <a class="link link-primary inline-flex min-h-11 items-center" href="/imports#encaissements-titre">Importer l'export VPayDive</a></p>
+{{else}}
+{{template "paymentsImport" .Import}}
+<p class="mt-1">Ce que Mollie a encaissé, vu par VPayDive, et si VPDive l'a soldé.</p>
+{{if eq .State "no_member"}}<p class="mt-3">Le demandeur n'est pas dans la liste des membres : ses encaissements ne peuvent pas être rattachés.</p>
+{{else if eq .State "ambiguous"}}<p class="mt-3">Plusieurs membres portent ce nom : aucun encaissement n'est affiché. Cherche dans VPDive.</p>
+{{else if eq .State "empty"}}<p class="mt-3">Aucun encaissement Mollie pour ce membre dans l'export.</p>
+{{else}}
+<ol class="mt-3 flex flex-col gap-3">{{range .Payments}}
+<li class="border border-base-300 p-3">
+<p><span class="font-semibold">{{formatTime .PaidAt}}</span>{{with .Method}} · {{.}}{{end}} · <span class="whitespace-nowrap">total {{.Total.Euros}}</span></p>
+<ul class="mt-2 flex flex-col gap-2">{{range .Lines}}
+<li{{if and .Unsettled (not .Dismissal)}} class="border-l-2 border-warning bg-warning/10 pl-2"{{end}}><span class="break-words">{{.Product}}{{with .Service}} · {{.}}{{end}}{{with formatDate .Starts}} ({{.}}){{end}}</span> : <span class="whitespace-nowrap">{{.Amount.Euros}}</span>{{if .Negative}}, remboursement ou remise{{end}}.
+<span class="block text-sm">{{if .Unsettled}}{{with .Dismissal}}Vérifié par {{author .By}} le {{formatDate .At}}.{{else}}<span class="font-semibold">Encaissé par Mollie, non soldé dans VPDive : à vérifier.</span>{{end}}{{else if eq .Settled "Oui"}}Soldé dans VPDive.{{else}}« Payé » vaut « {{.Settled}} » dans l'export.{{end}}</span></li>{{end}}
+</ul>
+</li>{{end}}
+</ol>
+{{end}}
+<p class="mt-3 text-sm">Une tentative échouée ou expirée n'apparaît pas ici : elle se voit dans VPDive.</p>
+<p class="mt-2"><a class="btn btn-outline min-h-11" href="{{$d.MollieLink.URL}}" target="_blank" rel="noopener">{{$d.MollieLink.Label}}</a></p>
+{{end}}{{end}}
 </section>
 
 <section class="mt-8" aria-labelledby="fil">
