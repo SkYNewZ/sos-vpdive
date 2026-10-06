@@ -113,6 +113,7 @@ type Config struct {
 	MembersMaxAge      time.Duration
 	PaymentsMaxAge     time.Duration
 	VPayDiveMaxAge     time.Duration
+	ImportToken        string        // turns on POST /api/imports/{type} (spec §7.6); "" when unset
 	AgeWarnAfter       time.Duration // open request shown in orange from this age
 	AgeAlertAfter      time.Duration // and in red from this one
 	RetentionDays      int           // days a closed request is kept
@@ -174,6 +175,7 @@ func Load(getenv func(string) string) (*Config, error) {
 	c.PushoverToken = p.pushoverToken()
 	c.VAPID = p.vapid()
 	c.PushAllowedHosts = p.hosts("PUSH_ALLOWED_HOSTS", defaultPushHosts)
+	c.ImportToken = p.importToken()
 	if c.Env == EnvProduction {
 		p.requireHTTPS("BASE_URL", c.BaseURL)
 		p.requireHTTPS("ADMIN_BASE_URL", c.AdminBaseURL)
@@ -247,6 +249,19 @@ func (p *parser) int(name, def string, minimum, maximum int) int {
 		return 0
 	}
 	return n
+}
+
+// minImportToken is the shortest IMPORT_TOKEN accepted (spec §10).
+const minImportToken = 32
+
+// importToken reads IMPORT_TOKEN, never echoing it in an error.
+func (p *parser) importToken() string {
+	token := p.value("IMPORT_TOKEN")
+	if token != "" && len(token) < minImportToken {
+		p.fail("IMPORT_TOKEN", fmt.Errorf("must hold %d characters at least (openssl rand -base64 32)", minImportToken))
+		return ""
+	}
+	return token
 }
 
 func (p *parser) duration(name, def string) time.Duration {

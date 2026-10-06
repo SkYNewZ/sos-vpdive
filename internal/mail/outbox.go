@@ -41,6 +41,7 @@ const (
 	EventMemberReplied Event = "member_replied" // club
 	EventLostLink      Event = "lost_link"      // member
 	EventReleased      Event = "released"       // club
+	EventImportRefused Event = "import_refused" // club: a pushed export was refused (spec §7.6)
 )
 
 // Label is the French label shown on /envois.
@@ -64,6 +65,8 @@ func (e Event) Label() string {
 		return "Liens de suivi"
 	case EventReleased:
 		return "Demande remise à traiter (club)"
+	case EventImportRefused:
+		return "Import automatique refusé (club)"
 	default:
 		return string(e)
 	}

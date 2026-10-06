@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"maps"
 	"net/netip"
+	"strings"
 	"testing"
 	"time"
 
@@ -74,6 +75,7 @@ func TestLoadValidProductionAppliesDefaults(t *testing.T) {
 	assert.Equal(t, 336*time.Hour, c.MembersMaxAge)
 	assert.Equal(t, 168*time.Hour, c.PaymentsMaxAge)
 	assert.Equal(t, 168*time.Hour, c.VPayDiveMaxAge)
+	assert.Empty(t, c.ImportToken, "no pushed imports by default")
 	assert.Equal(t, 48*time.Hour, c.AgeWarnAfter)
 	assert.Equal(t, 168*time.Hour, c.AgeAlertAfter)
 	assert.Equal(t, 365, c.RetentionDays)
@@ -145,6 +147,7 @@ func TestLoadProductionRules(t *testing.T) {
 		{"bad duration", func(m map[string]string) { m["MEMBERS_MAX_AGE"] = "two weeks" }, "MEMBERS_MAX_AGE"},
 		{"bad payments age", func(m map[string]string) { m["PAYMENTS_MAX_AGE"] = "a week" }, "PAYMENTS_MAX_AGE"},
 		{"bad VPayDive age", func(m map[string]string) { m["VPAYDIVE_MAX_AGE"] = "a week" }, "VPAYDIVE_MAX_AGE"},
+		{"short import token", func(m map[string]string) { m["IMPORT_TOKEN"] = strings.Repeat("t", 31) }, "IMPORT_TOKEN"},
 		{"bad log level", func(m map[string]string) { m["LOG_LEVEL"] = "loud" }, "LOG_LEVEL"},
 		{"bad proxy", func(m map[string]string) { m["TRUSTED_PROXIES"] = "10.0.0.0/8, nope" }, "TRUSTED_PROXIES"},
 		{"alert before warn", func(m map[string]string) { m["AGE_WARN_AFTER"] = "72h"; m["AGE_ALERT_AFTER"] = "48h" }, "AGE_ALERT_AFTER"},
@@ -330,4 +333,19 @@ func TestLoadPushRefusals(t *testing.T) {
 			assert.NotContains(t, err.Error(), private, "never echo the private key")
 		})
 	}
+}
+
+// Spec §7.6, §10: IMPORT_TOKEN turns the pushed-import route on; it holds 32
+// characters at least and never shows in an error.
+func TestImportToken(t *testing.T) {
+	m := validEnv()
+	m["IMPORT_TOKEN"] = strings.Repeat("k", 32)
+	c, err := Load(getenv(m))
+	require.NoError(t, err)
+	assert.Equal(t, strings.Repeat("k", 32), c.ImportToken)
+
+	m["IMPORT_TOKEN"] = "secret-but-short"
+	_, err = Load(getenv(m))
+	require.ErrorContains(t, err, "IMPORT_TOKEN")
+	assert.NotContains(t, err.Error(), "secret-but-short")
 }

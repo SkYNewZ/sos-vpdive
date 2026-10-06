@@ -137,7 +137,7 @@ func New(d Deps) (*Server, error) {
 		return nil, err
 	}
 	s.public = s.requireOrigin(d.Config.BaseURL, s.publicRoutes())
-	s.admin = s.requireOrigin(d.Config.AdminBaseURL, s.adminRoutes())
+	s.admin = s.apiRoutes(s.requireOrigin(d.Config.AdminBaseURL, s.adminRoutes()))
 	s.handler = s.recoverPanics(securityHeaders(s.refuseAIRobots(http.HandlerFunc(s.route))))
 	return s, nil
 }
@@ -213,6 +213,20 @@ func (s *Server) adminRoutes() *http.ServeMux {
 	// The event stream is neither traced nor logged (spec §9.9).
 	mux.HandleFunc("GET /evenements", s.events)
 	s.handle(mux, "GET /{$}", s.signedIn(s.board))
+	return mux
+}
+
+// apiRoutes puts the pushed import before the committee site: it escapes the
+// session and the Origin check, a script sends neither and its token protects
+// it (spec §11.2). Without IMPORT_TOKEN the route answers 404 (spec §7.6).
+func (s *Server) apiRoutes(site http.Handler) *http.ServeMux {
+	mux := http.NewServeMux()
+	if s.cfg.ImportToken != "" {
+		s.handle(mux, "POST /api/imports/{type}", s.apiImport)
+	} else {
+		s.handle(mux, "/api/imports/", s.notFound)
+	}
+	mux.Handle("/", site)
 	return mux
 }
 
