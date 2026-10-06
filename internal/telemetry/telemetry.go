@@ -8,13 +8,14 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/getsentry/sentry-go"
-	sentryotlp "github.com/getsentry/sentry-go/otel/otlp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -59,7 +60,7 @@ func Setup(ctx context.Context, logger *slog.Logger, s SentryOptions) (*slog.Log
 		if client, err = NewSentry(s); err != nil {
 			return nil, nil, fmt.Errorf("sentry: %w", err)
 		}
-		exporter, err := sentryotlp.NewTraceExporter(ctx, s.DSN)
+		exporter, err := sentryExporter(ctx, s.DSN)
 		if err != nil {
 			return nil, nil, fmt.Errorf("sentry exporter: %w", err)
 		}
@@ -83,6 +84,28 @@ func Setup(ctx context.Context, logger *slog.Logger, s SentryOptions) (*slog.Log
 
 // sentryFlushTimeout bounds the wait for unsent Sentry events at shutdown.
 const sentryFlushTimeout = 2 * time.Second
+
+// sentryExporter sends spans to the OTLP endpoint of the DSN's project, as
+// sentry-go's otel/otlp module does, but with WithEndpointURL: the DSN alone
+// sets the scheme, so OTEL_EXPORTER_OTLP_* variables meant for another
+// collector (an http endpoint, OTEL_EXPORTER_OTLP_INSECURE) never downgrade
+// the export that carries Sentry's key.
+func sentryExporter(ctx context.Context, rawDSN string) (*otlptrace.Exporter, error) {
+	dsn, err := sentry.NewDsn(rawDSN)
+	if err != nil {
+		return nil, fmt.Errorf("parse dsn: %w", err)
+	}
+	endpoint := dsn.GetAPIURL()
+	endpoint.Path = strings.TrimSuffix(endpoint.Path, "/envelope/") + "/integration/otlp/v1/traces/"
+	auth := "Sentry sentry_version=7, sentry_client=sentry.go/" + sentry.SDKVersion + ", sentry_key=" + dsn.GetPublicKey()
+	exporter, err := otlptracehttp.New(ctx,
+		otlptracehttp.WithEndpointURL(endpoint.String()),
+		otlptracehttp.WithHeaders(map[string]string{"X-Sentry-Auth": auth}))
+	if err != nil {
+		return nil, fmt.Errorf("otlp exporter: %w", err)
+	}
+	return exporter, nil
+}
 
 // Fail marks span as failed with a stable error code. The code is never a
 // free-form message, which could carry personal data.

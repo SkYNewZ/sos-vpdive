@@ -185,3 +185,25 @@ func TestSetupSendsSpansErrorsAndLogsToSentry(t *testing.T) {
 	assert.Positive(t, fake.count("/api/42/envelope/"), "the error event and the logs")
 	assert.NotContains(t, logs.String(), "trace export failed")
 }
+
+// An http OTLP collector configured next to Sentry must not downgrade the
+// export to Sentry, which carries its key: the DSN alone sets the scheme.
+func TestSentrySpansKeepTheDSNScheme(t *testing.T) {
+	restoreGlobalProvider(t)
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://127.0.0.1:1")
+	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "")
+	fake := &fakeSentry{hits: map[string]int{}}
+	srv := httptest.NewServer(fake) // plain HTTP behind an https DSN
+	defer srv.Close()
+	dsn := "https://public@" + strings.TrimPrefix(srv.URL, "http://") + "/42"
+
+	var logs bytes.Buffer
+	_, shutdown, err := Setup(context.Background(), NewLogger(&logs, slog.LevelInfo), SentryOptions{DSN: dsn})
+	require.NoError(t, err)
+	_, span := otel.Tracer("test").Start(context.Background(), "GET /")
+	span.End()
+	_ = shutdown(context.Background()) // both exports fail by design
+
+	assert.Zero(t, fake.count("/api/42/integration/otlp/v1/traces/"), "spans never travel in plain HTTP")
+	assert.Contains(t, logs.String(), "server gave HTTP response to HTTPS client", "the export to Sentry used https")
+}
