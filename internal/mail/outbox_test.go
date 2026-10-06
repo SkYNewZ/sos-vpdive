@@ -302,6 +302,26 @@ func TestGivesUpAfterSevenDays(t *testing.T) {
 	assert.Equal(t, 1, n)
 }
 
+func TestSendThatOutlastsTheWindowFailsTheMail(t *testing.T) {
+	o := newTestOutbox(t)
+	ctx := context.Background()
+	id := o.enqueue(t, sampleMail())
+	o.clock.advance(7*24*time.Hour - time.Minute)
+	s := &fakeSender{}
+	s.fail(errors.New("451 try again later"))
+	slow := senderFunc(func(ctx context.Context, m Message) error {
+		o.clock.advance(2 * time.Minute) // the relay answers after the window closed
+		return s.Send(ctx, m)
+	})
+
+	_, err := o.SendDue(ctx, slow)
+	require.NoError(t, err)
+	r := o.row(t, id)
+	assert.Equal(t, "failed", r.status, "not postponed past the window")
+	assert.Equal(t, 1, r.attempts)
+	assert.Equal(t, 1, s.callCount())
+}
+
 func TestPermanentFailureFailsAtOnceAndNamesTheRequest(t *testing.T) {
 	o := newTestOutbox(t)
 	ctx := context.Background()
