@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/admins"
+	"github.com/SkYNewZ/sos-vpdive/internal/kb"
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
 	"github.com/SkYNewZ/sos-vpdive/internal/tickets"
 )
@@ -42,8 +43,8 @@ type ticketData struct {
 	Others     []tickets.Row
 	Fields     []tickets.FieldValue
 	Categories []option
-	Fiches     []ficheView // chosen at submission (spec §5.3)
-	Removed    []string    // ids of chosen fiches no longer in kb/
+	Fiches     []kb.Fiche // chosen at submission (spec §5.3)
+	Removed    []string   // ids of chosen fiches no longer in kb/
 	Links      []vpdiveLink
 	Filter     paymentsFilter
 }

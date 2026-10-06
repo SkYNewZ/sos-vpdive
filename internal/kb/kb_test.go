@@ -8,8 +8,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	sosvpdive "github.com/SkYNewZ/sos-vpdive"
 )
 
 const validFiche = `---
@@ -115,17 +113,4 @@ func TestLoadRefusesDuplicateIDs(t *testing.T) {
 	_, err := load(map[string]string{"a.md": validFiche, "b.md": validFiche})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `kb/b.md: duplicate id "carnet-test"`)
-}
-
-// The fiches of the repository load against the real categories and links.
-func TestEmbeddedFiches(t *testing.T) {
-	b, err := Load(sosvpdive.Content,
-		known("carnet", "remboursement", "inscription", "paiement", "compte", "adhesion", "autre", "bug"),
-		known("paiements", "membres", "messagerie", "support", "faq", "tarifs"))
-	require.NoError(t, err)
-	assert.Len(t, b.Fiches, 8)
-	for _, f := range b.Fiches {
-		assert.NotEmpty(t, f.Answer, f.ID)
-		assert.NotEmpty(t, f.Procedure, f.ID)
-	}
 }

@@ -21,7 +21,6 @@ var ErrDraftGone = errors.New("draft unknown or expired")
 // Draft is a request waiting on screen 2.
 type Draft struct {
 	ID          int64
-	Category    string
 	KBIDs       []string // fiches to show, in the model's order
 	Email       string   // normalized, for the link resend
 	OpenRequest bool     // the address has another request in progress (spec §3.3)
@@ -96,22 +95,20 @@ func (s *Store) DraftByToken(ctx context.Context, token string) (Draft, error) {
 		created   int64
 	)
 	err := s.DB.QueryRowContext(ctx,
-		`SELECT id, status, ref, category, kb_ids, email, email_hash, created_at FROM tickets WHERE draft_token_hash = ?`,
-		secure.TokenHash(token)).Scan(&d.ID, &status, &ref, &d.Category, &kbIDs, &email, &emailHash, &created)
+		`SELECT id, status, ref, kb_ids, email, email_hash, created_at FROM tickets WHERE draft_token_hash = ?`,
+		secure.TokenHash(token)).Scan(&d.ID, &status, &ref, &kbIDs, &email, &emailHash, &created)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Draft{}, ErrDraftGone
 	}
 	if err != nil {
 		return Draft{}, fmt.Errorf("find draft token: %w", err)
 	}
-	if status == StatusDraft && created <= s.Now().Add(-draftTTL).Unix() {
+	if status == StatusDraft && s.draftExpired(created) {
 		return Draft{}, ErrDraftGone
 	}
 	d.Ref = ref.String
-	if kbIDs.Valid {
-		if err := json.Unmarshal([]byte(kbIDs.String), &d.KBIDs); err != nil {
-			return Draft{}, fmt.Errorf("decode draft fiches: %w", err)
-		}
+	if d.KBIDs, err = decodeKBIDs(kbIDs); err != nil {
+		return Draft{}, err
 	}
 	if err := s.openAll([]*string{&d.Email}, email); err != nil {
 		return Draft{}, err
@@ -124,6 +121,44 @@ func (s *Store) DraftByToken(ctx context.Context, token string) (Draft, error) {
 		return Draft{}, fmt.Errorf("find open requests: %w", err)
 	}
 	return d, nil
+}
+
+// ConfirmDraft is « Envoyer ma demande quand même »: confirming twice gives
+// the same ref (spec §3.2). ErrDraftGone for an unknown token or a draft
+// past 24 hours.
+func (s *Store) ConfirmDraft(ctx context.Context, token string) (string, error) {
+	var (
+		id      int64
+		status  Status
+		created int64
+	)
+	err := s.DB.QueryRowContext(ctx, `SELECT id, status, created_at FROM tickets WHERE draft_token_hash = ?`,
+		secure.TokenHash(token)).Scan(&id, &status, &created)
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && status == StatusDraft && s.draftExpired(created)) {
+		return "", ErrDraftGone
+	}
+	if err != nil {
+		return "", fmt.Errorf("find draft token: %w", err)
+	}
+	return s.Confirm(ctx, id)
+}
+
+// draftExpired reports a draft created 24 hours ago or more: its token no
+// longer works, even before the daily purge.
+func (s *Store) draftExpired(created int64) bool {
+	return created <= s.Now().Add(-draftTTL).Unix()
+}
+
+// decodeKBIDs reads tickets.kb_ids; NULL (the model did not answer) is nil.
+func decodeKBIDs(raw sql.NullString) ([]string, error) {
+	if !raw.Valid {
+		return nil, nil
+	}
+	var ids []string
+	if err := json.Unmarshal([]byte(raw.String), &ids); err != nil {
+		return nil, fmt.Errorf("decode ticket fiches: %w", err)
+	}
+	return ids, nil
 }
 
 // Abandon is « Ça règle mon problème »: it deletes the draft and its

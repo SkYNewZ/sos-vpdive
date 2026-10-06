@@ -22,12 +22,10 @@ import (
 	"github.com/SkYNewZ/sos-vpdive/internal/admins"
 	"github.com/SkYNewZ/sos-vpdive/internal/blobs"
 	"github.com/SkYNewZ/sos-vpdive/internal/config"
-	"github.com/SkYNewZ/sos-vpdive/internal/kb"
 	"github.com/SkYNewZ/sos-vpdive/internal/mail"
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 	"github.com/SkYNewZ/sos-vpdive/internal/store"
-	"github.com/SkYNewZ/sos-vpdive/internal/suggest"
 	"github.com/SkYNewZ/sos-vpdive/internal/telemetry"
 	"github.com/SkYNewZ/sos-vpdive/internal/tickets"
 	"github.com/SkYNewZ/sos-vpdive/internal/web"
@@ -80,7 +78,7 @@ func setup(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*app, 
 	if err != nil {
 		return fail(err)
 	}
-	base, err := loadKB(catalog)
+	base, err := web.LoadKB(sosvpdive.Content, catalog)
 	if err != nil {
 		return fail(err)
 	}
@@ -111,22 +109,12 @@ func setup(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*app, 
 	a.web, err = web.New(web.Deps{
 		Config: cfg, DB: db, Keys: keys, Members: memberStore, Admins: registry,
 		Content: sosvpdive.Content, Logger: logger, Now: time.Now, Turnstile: turnstile,
-		Tickets: ticketStore, Outbox: outbox, Broker: broker, KB: base, Suggest: suggest.New(cfg.LLM),
+		Tickets: ticketStore, Outbox: outbox, Broker: broker, KB: base,
 	})
 	if err != nil {
 		return fail(err)
 	}
 	return a, nil
-}
-
-// loadKB reads the fiches and checks their categories and VPDive links
-// (spec §5.1).
-func loadKB(catalog *tickets.Catalog) (*kb.Base, error) {
-	links, err := web.VPDiveLinkKeys(sosvpdive.Content)
-	if err != nil {
-		return nil, err
-	}
-	return kb.Load(sosvpdive.Content, catalog.Has, func(key string) bool { return links[key] })
 }
 
 // validateKB runs the checks of the start on the fiches, without the
@@ -136,7 +124,7 @@ func validateKB(stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	base, err := loadKB(catalog)
+	base, err := web.LoadKB(sosvpdive.Content, catalog)
 	if err != nil {
 		return err
 	}

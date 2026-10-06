@@ -42,8 +42,7 @@ type Deps struct {
 	Logger  *slog.Logger
 	Now     func() time.Time
 
-	Turnstile *Turnstile      // nil in development without keys
-	Suggest   *suggest.Client // nil without LLM_API_KEY: no screen 2
+	Turnstile *Turnstile // nil in development without keys
 }
 
 // Server routes requests to the members or the committee site by host.
@@ -57,7 +56,7 @@ type Server struct {
 	outbox    *mail.Outbox
 	broker    *Broker
 	kb        *kb.Base
-	suggest   *suggest.Client
+	suggest   *suggest.Client // nil without LLM_API_KEY: no screen 2
 	fiches    []suggest.Fiche // what the model reads of the knowledge base
 	keepAlive time.Duration   // event stream keepalive and session check, shortened by tests
 	logger    *slog.Logger
@@ -101,7 +100,7 @@ func New(d Deps) (*Server, error) {
 	}
 	s := &Server{
 		cfg: d.Config, db: d.DB, keys: d.Keys, members: d.Members, admins: d.Admins,
-		tickets: d.Tickets, outbox: d.Outbox, broker: d.Broker, kb: d.KB, suggest: d.Suggest,
+		tickets: d.Tickets, outbox: d.Outbox, broker: d.Broker, kb: d.KB, suggest: suggest.New(d.Config.LLM),
 		keepAlive: keepAliveInterval,
 		logger:    d.Logger, now: d.Now, paris: paris, tracer: otel.Tracer(tracerName),
 		turnstile: d.Turnstile,

@@ -203,10 +203,8 @@ func (s *Store) Detail(ctx context.Context, id int64) (*Detail, error) {
 	if err := s.openOptional(&d.Summary, summary); err != nil {
 		return nil, err
 	}
-	if kbIDs.Valid {
-		if err := json.Unmarshal([]byte(kbIDs.String), &d.KBIDs); err != nil {
-			return nil, fmt.Errorf("decode ticket fiches: %w", err)
-		}
+	if d.KBIDs, err = decodeKBIDs(kbIDs); err != nil {
+		return nil, err
 	}
 	d.Assignee = assignee.String
 	d.SubmittedAt, d.ClosedAt = unixTime(submitted), unixTime(closed)

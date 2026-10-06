@@ -130,7 +130,7 @@ func parse(text string) (Fiche, error) {
 		return Fiche{}, err
 	}
 	return Fiche{
-		ID: fm.ID, Title: strings.TrimSpace(fm.Title), Categories: fm.Categories, Links: fm.Links,
+		ID: fm.ID, Title: fm.Title, Categories: fm.Categories, Links: fm.Links,
 		AnswerText: sections[0], Answer: blocks(sections[0]), Procedure: blocks(sections[1]),
 		Todo: strings.Count(text, todoMark),
 	}, nil
@@ -268,8 +268,7 @@ func blocks(text string) []Block {
 		case open && kind == Paragraph && out[len(out)-1].Kind == Paragraph:
 			last := &out[len(out)-1]
 			last.Items[0] += " " + item
-		case open && kind != Paragraph && out[len(out)-1].Kind == kind,
-			!open && kind != Paragraph && len(out) > 0 && out[len(out)-1].Kind == kind:
+		case kind != Paragraph && len(out) > 0 && out[len(out)-1].Kind == kind:
 			last := &out[len(out)-1]
 			last.Items = append(last.Items, item)
 			open = true

@@ -26,9 +26,7 @@ func TestCommitteeSeesSummaryProcedureAndFiches(t *testing.T) {
 	assert.Contains(t, board, "Résumé automatique, à vérifier")
 	assert.NotContains(t, board, "Je ne vois plus mes réservations", "the summary replaces the excerpt")
 
-	var id string
-	require.NoError(t, e.db.QueryRowContext(context.Background(), `SELECT id FROM tickets WHERE ref = 'CPP-0001'`).Scan(&id))
-	page := html.UnescapeString(e.do(t, http.MethodGet, adminHost, "/demandes/"+id, nil, withCookie(cookie)).Body.String())
+	page := e.openTicket(t, cookie, e.firstID(t)).body
 	assert.Contains(t, page, "Résumé automatique, à vérifier")
 	assert.Contains(t, page, "Procédure suggérée")
 	assert.Contains(t, page, "Je n'arrive pas à m'inscrire à une sortie")
@@ -52,14 +50,20 @@ func TestCommitteeSeesSummaryProcedureAndFiches(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, e.do(t, http.MethodGet, publicHost, "/fiches", nil).Code, "committee only")
 }
 
+// firstID returns the id of the first request filed, CPP-0001.
+func (e *testEnv) firstID(t *testing.T) int64 {
+	t.Helper()
+	var id int64
+	require.NoError(t, e.db.QueryRowContext(context.Background(), `SELECT id FROM tickets WHERE ref = 'CPP-0001'`).Scan(&id))
+	return id
+}
+
 func TestTicketPageWithoutFiche(t *testing.T) {
 	e := newTestEnv(t)
 	e.importMembers(t, "members_valid.xlsx")
 	require.Equal(t, http.StatusSeeOther, e.sendRequest(t, validRequest(e.formKey(t))).Code)
 	cookie := e.login(t)
-	var id string
-	require.NoError(t, e.db.QueryRowContext(context.Background(), `SELECT id FROM tickets WHERE ref = 'CPP-0001'`).Scan(&id))
-	page := html.UnescapeString(e.do(t, http.MethodGet, adminHost, "/demandes/"+id, nil, withCookie(cookie)).Body.String())
+	page := e.openTicket(t, cookie, e.firstID(t)).body
 	assert.Contains(t, page, "Aucune fiche proposée à l'envoi.")
 	assert.NotContains(t, page, "Résumé automatique", "no model, no summary")
 	board := html.UnescapeString(e.do(t, http.MethodGet, adminHost, "/", nil, withCookie(cookie)).Body.String())
@@ -75,9 +79,7 @@ func TestRemovedFicheIsNamed(t *testing.T) {
 	_, err := e.db.ExecContext(context.Background(), `UPDATE tickets SET kb_ids = '["fiche-supprimee"]'`)
 	require.NoError(t, err)
 	cookie := e.login(t)
-	var id string
-	require.NoError(t, e.db.QueryRowContext(context.Background(), `SELECT id FROM tickets WHERE ref = 'CPP-0001'`).Scan(&id))
-	page := html.UnescapeString(e.do(t, http.MethodGet, adminHost, "/demandes/"+id, nil, withCookie(cookie)).Body.String())
+	page := e.openTicket(t, cookie, e.firstID(t)).body
 	assert.Contains(t, page, "Fiche retirée depuis l'envoi : fiche-supprimee")
 	assert.NotContains(t, page, "Aucune fiche proposée")
 }

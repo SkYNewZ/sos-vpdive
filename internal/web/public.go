@@ -185,7 +185,9 @@ func (s *Server) filed(w http.ResponseWriter, r *http.Request, out tickets.Outco
 		redirectSent(w, r, out.Ref)
 		return
 	}
-	s.renderBefore(w, r, http.StatusOK, out.Token, nil)
+	if d, ok := s.draft(w, r, out.Token); ok {
+		s.renderBefore(w, r, http.StatusOK, out.Token, d, nil)
+	}
 }
 
 // readSubmission checks the typed fields. Problems land in d.Errors, keyed

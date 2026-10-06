@@ -61,13 +61,9 @@ func (s *Server) suggestRequest(sub tickets.Submission) suggest.Request {
 	return req
 }
 
-// renderBefore shows screen 2 for a draft token; n, when set, says what the
-// last action did.
-func (s *Server) renderBefore(w http.ResponseWriter, r *http.Request, status int, token string, n *notice) {
-	d, ok := s.draft(w, r, token)
-	if !ok {
-		return
-	}
+// renderBefore shows screen 2 for draft d, behind its token; n, when set,
+// says what the last action did.
+func (s *Server) renderBefore(w http.ResponseWriter, r *http.Request, status int, token string, d tickets.Draft, n *notice) {
 	data := beforeData{Token: token, OpenRequest: d.OpenRequest}
 	for _, id := range d.KBIDs {
 		if f, ok := s.kb.Get(id); ok {
@@ -126,16 +122,15 @@ func (s *Server) confirmDraft(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	d, ok := s.draft(w, r, token)
-	if !ok {
-		return
-	}
-	ref, err := s.tickets.Confirm(r.Context(), d.ID)
-	if err != nil {
+	ref, err := s.tickets.ConfirmDraft(r.Context(), token)
+	switch {
+	case errors.Is(err, tickets.ErrDraftGone):
+		s.draftGone(w, r)
+	case err != nil:
 		s.serverError(w, r, err)
-		return
+	default:
+		redirectSent(w, r, ref)
 	}
-	redirectSent(w, r, ref)
 }
 
 // abandonDraft is « Ça règle mon problème »: no request, one avoided request
@@ -173,26 +168,23 @@ func (s *Server) resendDraftLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !d.OpenRequest {
-		s.renderBefore(w, r, http.StatusOK, token, nil)
+		s.renderBefore(w, r, http.StatusOK, token, d, nil)
 		return
 	}
 	ctx := r.Context()
-	allowed, err := s.limiter.allowAll(ctx,
-		rule{"recover-ip:" + s.clientIP(r).String(), recoverIPLimit, time.Hour},
-		rule{"recover-email:" + d.Email, recoverEmailLimit, 24 * time.Hour})
+	allowed, err := s.limiter.allowAll(ctx, s.recoverIPRule(r), recoverEmailRule(d.Email))
 	if err != nil {
 		s.serverError(w, r, err)
 		return
 	}
 	if !allowed {
-		s.renderBefore(w, r, http.StatusTooManyRequests, token,
-			&notice{Kind: noticeError, Text: "Trop de demandes de liens. Réessaie plus tard."})
+		s.renderBefore(w, r, http.StatusTooManyRequests, token, d, &notice{Kind: noticeError, Text: tooManyLinksText})
 		return
 	}
 	if err := s.tickets.SendLinks(ctx, d.Email); err != nil {
 		s.serverError(w, r, err)
 		return
 	}
-	s.renderBefore(w, r, http.StatusOK, token, &notice{Kind: noticeSuccess,
+	s.renderBefore(w, r, http.StatusOK, token, d, &notice{Kind: noticeSuccess,
 		Text: "Le lien de suivi de ta demande en cours part par mail. Regarde aussi dans les indésirables."})
 }

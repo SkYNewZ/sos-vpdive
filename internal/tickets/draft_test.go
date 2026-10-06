@@ -39,7 +39,6 @@ func TestFichesLeadToScreen2(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"fiche-a", "fiche-b"}, d.KBIDs)
 	assert.Equal(t, memberAddress, d.Email)
-	assert.Equal(t, "carnet", d.Category)
 	assert.False(t, d.OpenRequest)
 	assert.Empty(t, d.Ref)
 
@@ -131,6 +130,25 @@ func TestAbandonCountsADeflection(t *testing.T) {
 	counts, err := e.store.DeflectionCounts(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, map[string]int{"fiche-a": 1, "fiche-b": 1}, counts)
+}
+
+func TestConfirmDraft(t *testing.T) {
+	e := newTestStore(t)
+	ctx := context.Background()
+	_, token := e.screen2(t)
+	ref, err := e.store.ConfirmDraft(ctx, token)
+	require.NoError(t, err)
+	again, err := e.store.ConfirmDraft(ctx, token)
+	require.NoError(t, err)
+	assert.Equal(t, ref, again, "a double tap shows the same confirmation")
+	assert.Len(t, e.mails(t), 2)
+	_, err = e.store.ConfirmDraft(ctx, "unknown-token")
+	require.ErrorIs(t, err, ErrDraftGone)
+
+	_, stale := e.screen2(t)
+	e.clock.advance(24 * time.Hour)
+	_, err = e.store.ConfirmDraft(ctx, stale)
+	require.ErrorIs(t, err, ErrDraftGone, "the token dies with the draft")
 }
 
 func TestAbandonKeepsAFiledRequest(t *testing.T) {

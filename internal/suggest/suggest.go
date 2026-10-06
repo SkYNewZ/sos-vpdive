@@ -43,25 +43,26 @@ var (
 	ErrInvalid = errors.New("invalid_output")
 )
 
-// Fiche is what the model reads of a fiche.
+// Fiche is what the model reads of a fiche. The JSON names are those of
+// the prompt document.
 type Fiche struct {
-	ID     string
-	Title  string
-	Answer string
+	ID     string `json:"id"`
+	Title  string `json:"titre"`
+	Answer string `json:"reponse"`
 }
 
 // Field is a dedicated field of the request, as the form labels it.
 type Field struct {
-	Label string
-	Value string
+	Label string `json:"champ"`
+	Value string `json:"valeur"`
 }
 
 // Request is what the model reads of a member's request: never their name,
 // email or captures (spec §5.2).
 type Request struct {
-	Category    string // label
-	Fields      []Field
-	Description string
+	Category    string  `json:"categorie"` // label
+	Fields      []Field `json:"champs"`
+	Description string  `json:"description"`
 }
 
 // Result is the checked answer: known fiche ids, three at most, and a plain
@@ -158,32 +159,16 @@ type apiResponse struct {
 // body builds the Messages request: the instructions in the system message,
 // the fiches and the request as one JSON document in the user message.
 func (c *Client) body(req Request, fiches []Fiche) ([]byte, error) {
-	type promptFiche struct {
-		ID      string `json:"id"`
-		Titre   string `json:"titre"`
-		Reponse string `json:"reponse"`
+	if req.Fields == nil {
+		req.Fields = []Field{} // the prompt shows an empty list, not null
 	}
-	type promptField struct {
-		Champ  string `json:"champ"`
-		Valeur string `json:"valeur"`
+	if fiches == nil {
+		fiches = []Fiche{}
 	}
-	doc := struct {
-		Fiches  []promptFiche `json:"fiches"`
-		Demande struct {
-			Categorie   string        `json:"categorie"`
-			Champs      []promptField `json:"champs"`
-			Description string        `json:"description"`
-		} `json:"demande"`
-	}{Fiches: make([]promptFiche, 0, len(fiches))}
-	for _, f := range fiches {
-		doc.Fiches = append(doc.Fiches, promptFiche{ID: f.ID, Titre: f.Title, Reponse: f.Answer})
-	}
-	doc.Demande.Categorie, doc.Demande.Description = req.Category, req.Description
-	doc.Demande.Champs = make([]promptField, 0, len(req.Fields))
-	for _, f := range req.Fields {
-		doc.Demande.Champs = append(doc.Demande.Champs, promptField{Champ: f.Label, Valeur: f.Value})
-	}
-	user, err := json.Marshal(doc)
+	user, err := json.Marshal(struct {
+		Fiches  []Fiche `json:"fiches"`
+		Demande Request `json:"demande"`
+	}{fiches, req})
 	if err != nil {
 		return nil, fmt.Errorf("encode prompt: %w", err)
 	}

@@ -7,7 +7,7 @@
 {{range .Data}}
 <article class="mt-10 border-t border-base-300 pt-6" id="{{.ID}}" aria-labelledby="titre-{{.ID}}">
 <h2 class="text-xl font-semibold" id="titre-{{.ID}}">{{.Title}}</h2>
-<p class="mt-2 text-sm">{{range $i, $c := .CategoryLabels}}{{if $i}} · {{end}}{{$c}}{{end}}</p>
+<p class="mt-2 text-sm">{{range $i, $c := .Categories}}{{if $i}} · {{end}}{{categoryLabel $c}}{{end}}</p>
 <p class="mt-1 text-sm">Demandes évitées où elle était proposée : {{.Deflections}}</p>
 <h3 class="mt-4 font-semibold">Réponse affichée à l'adhérent</h3>
 <div class="mt-2 flex flex-col gap-2">{{template "blocks" .Answer}}</div>

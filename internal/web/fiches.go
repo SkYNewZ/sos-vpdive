@@ -7,24 +7,12 @@ import (
 	"github.com/SkYNewZ/sos-vpdive/internal/kb"
 )
 
-// ficheView is a fiche as the committee pages show it (spec §5.3).
+// ficheView is a fiche as /fiches shows it (spec §5.3).
 type ficheView struct {
 	kb.Fiche
 
-	CategoryLabels []string
-	Buttons        []vpdiveLink
-	Deflections    int // avoided requests that showed it on screen 2
-}
-
-func (s *Server) ficheView(f kb.Fiche) ficheView {
-	v := ficheView{Fiche: f}
-	for _, c := range f.Categories {
-		v.CategoryLabels = append(v.CategoryLabels, s.tickets.Catalog.CategoryLabel(c))
-	}
-	for _, key := range f.Links {
-		v.Buttons = append(v.Buttons, s.vpdive[key])
-	}
-	return v
+	Buttons     []vpdiveLink
+	Deflections int // avoided requests that showed it on screen 2
 }
 
 // fichesPage lists the whole knowledge base for the committee, with how many
@@ -37,8 +25,10 @@ func (s *Server) fichesPage(w http.ResponseWriter, r *http.Request) {
 	}
 	views := make([]ficheView, 0, len(s.kb.Fiches))
 	for _, f := range s.kb.Fiches {
-		v := s.ficheView(f)
-		v.Deflections = counts[f.ID]
+		v := ficheView{Fiche: f, Deflections: counts[f.ID]}
+		for _, key := range f.Links {
+			v.Buttons = append(v.Buttons, s.vpdive[key])
+		}
 		views = append(views, v)
 	}
 	p, err := s.adminPage(r, "Fiches")
@@ -52,10 +42,10 @@ func (s *Server) fichesPage(w http.ResponseWriter, r *http.Request) {
 
 // suggestedFiches returns the fiches chosen at submission, and the ids of
 // those removed from kb/ since (spec §9.7).
-func (s *Server) suggestedFiches(ids []string) (found []ficheView, removed []string) {
+func (s *Server) suggestedFiches(ids []string) (found []kb.Fiche, removed []string) {
 	for _, id := range ids {
 		if f, ok := s.kb.Get(id); ok {
-			found = append(found, s.ficheView(f))
+			found = append(found, f)
 		} else {
 			removed = append(removed, id)
 		}
@@ -65,16 +55,12 @@ func (s *Server) suggestedFiches(ids []string) (found []ficheView, removed []str
 
 // ticketButtons orders the VPDive buttons of a request: the links its fiches
 // declare first (spec §7), then the usual ones, without duplicates.
-func ticketButtons(fiches []ficheView) []string {
-	var keys []string
+func ticketButtons(fiches []kb.Fiche) []string {
+	var all, keys []string
 	for _, f := range fiches {
-		for _, k := range f.Links {
-			if !slices.Contains(keys, k) {
-				keys = append(keys, k)
-			}
-		}
+		all = append(all, f.Links...)
 	}
-	for _, k := range ticketLinks {
+	for _, k := range append(all, ticketLinks...) {
 		if !slices.Contains(keys, k) {
 			keys = append(keys, k)
 		}

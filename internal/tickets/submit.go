@@ -72,7 +72,7 @@ func (s *Store) Resubmitted(ctx context.Context, formKey string) (Outcome, bool,
 	if err != nil {
 		return Outcome{}, false, fmt.Errorf("find form key: %w", err)
 	}
-	if status == StatusDraft && draftToken != nil && s.Now().Add(-draftTTL).Unix() < created {
+	if status == StatusDraft && draftToken != nil && !s.draftExpired(created) {
 		token, err := s.newDraftToken(ctx, s.DB, id)
 		if err != nil || token != "" {
 			return Outcome{Token: token}, true, err

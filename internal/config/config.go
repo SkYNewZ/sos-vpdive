@@ -258,13 +258,19 @@ func (p *parser) address(name string) *mail.Address {
 	return a
 }
 
+// absolute parses an absolute http(s) URL without query, fragment or user.
+func absolute(raw string) (*url.URL, bool) {
+	u, err := url.Parse(raw)
+	return u, err == nil && (u.Scheme == schemeHTTP || u.Scheme == schemeHTTPS) && u.Host != "" &&
+		u.RawQuery == "" && u.Fragment == "" && u.User == nil
+}
+
 func (p *parser) url(name, raw string) *url.URL {
 	if raw == "" {
 		return nil
 	}
-	u, err := url.Parse(raw)
-	if err != nil || (u.Scheme != schemeHTTP && u.Scheme != schemeHTTPS) || u.Host == "" ||
-		(u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.User != nil {
+	u, ok := absolute(raw)
+	if !ok || (u.Path != "" && u.Path != "/") {
 		p.fail(name, errors.New("must be an absolute http(s) URL without path"))
 		return nil
 	}
@@ -279,9 +285,8 @@ func (p *parser) url(name, raw string) *url.URL {
 // endpoint reads an absolute http(s) URL that may carry a path: a provider
 // can serve the Messages API under a prefix, such as /anthropic.
 func (p *parser) endpoint(name, raw string) *url.URL {
-	u, err := url.Parse(raw)
-	if err != nil || (u.Scheme != schemeHTTP && u.Scheme != schemeHTTPS) || u.Host == "" ||
-		u.RawQuery != "" || u.Fragment != "" || u.User != nil {
+	u, ok := absolute(raw)
+	if !ok {
 		p.fail(name, errors.New("must be an absolute http(s) URL without query"))
 		return nil
 	}

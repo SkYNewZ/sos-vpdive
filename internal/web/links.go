@@ -14,7 +14,18 @@ const (
 	recoverIPLimit    = 5
 	recoverEmailLimit = 3
 	linksSentText     = "Si cette adresse a des demandes, tu vas recevoir un mail avec leurs liens de suivi. Regarde aussi dans les indésirables."
+	tooManyLinksText  = "Trop de demandes de liens. Réessaie plus tard."
 )
+
+// The lost-link limits (spec §11.3) also bound the link resend of screen 2:
+// both count on the same keys, so they share these rules.
+func (s *Server) recoverIPRule(r *http.Request) rule {
+	return rule{"recover-ip:" + s.clientIP(r).String(), recoverIPLimit, time.Hour}
+}
+
+func recoverEmailRule(email string) rule {
+	return rule{"recover-email:" + email, recoverEmailLimit, 24 * time.Hour}
+}
 
 type linksData struct {
 	SiteKey string
@@ -63,12 +74,11 @@ func (s *Server) requestLinks(w http.ResponseWriter, r *http.Request) {
 		case err != nil:
 			s.serverError(w, r, err)
 		case !ok:
-			s.renderLinks(w, r, http.StatusTooManyRequests, d,
-				&notice{Kind: noticeError, Text: "Trop de demandes de liens. Réessaie plus tard."})
+			s.renderLinks(w, r, http.StatusTooManyRequests, d, &notice{Kind: noticeError, Text: tooManyLinksText})
 		}
 		return err != nil || !ok
 	}
-	if refused(rule{"recover-ip:" + s.clientIP(r).String(), recoverIPLimit, time.Hour}) {
+	if refused(s.recoverIPRule(r)) {
 		return
 	}
 	email, err := secure.NormalizeEmail(d.Email)
@@ -77,7 +87,7 @@ func (s *Server) requestLinks(w http.ResponseWriter, r *http.Request) {
 		s.renderLinks(w, r, http.StatusUnprocessableEntity, d, nil)
 		return
 	}
-	if refused(rule{"recover-email:" + email, recoverEmailLimit, 24 * time.Hour}) {
+	if refused(recoverEmailRule(email)) {
 		return
 	}
 	if err := s.tickets.SendLinks(ctx, email); err != nil {
