@@ -123,3 +123,24 @@ func TestBlocksShowWhoCheckedALine(t *testing.T) {
 	assert.Equal(t, &Dismissal{By: "bob", At: f.clock.t}, block.ToSettle[0].Dismissal)
 	assert.Nil(t, block.ToSettle[1].Dismissal, "a line due in full is no line to check")
 }
+
+// Spec §7.5: a payment is the lines of one person at one minute, seconds
+// apart or not.
+func TestMollieBlockGroupsByTheMinute(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	memberstest.Import(t, f.members, "members_valid.xlsx")
+	exp, err := parseMollieSheet(t,
+		collected("Bernard", "Hugo", "Calendrier", 40.0, "12/08/2026 14:05:05"),
+		collected("Bernard", "Hugo", "Supplément distance", 5.0, "12/08/2026 14:05:40"),
+		collected("Bernard", "Hugo", "Adhésion", 70.0, 46246.5868055556), // 12/08/2026 14:05:00 as a native date
+	)
+	require.NoError(t, err)
+	f.importMollie(t, exp)
+
+	b, err := f.mollie.Block(ctx, f.nameHash("Bernard", "Hugo"))
+	require.NoError(t, err)
+	require.Len(t, b.Payments, 1)
+	assert.Equal(t, Amount(11500), b.Payments[0].Total)
+	assert.True(t, time.Date(2026, 8, 12, 14, 5, 0, 0, paris(t)).Equal(b.Payments[0].PaidAt))
+}

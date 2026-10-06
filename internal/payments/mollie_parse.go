@@ -148,6 +148,9 @@ func readMollieLine(row xlsx.Row, c mollieColumns, loc *time.Location) (l Mollie
 	}
 	l.Amount, amountOK = amountAt(row, c.amount)
 	l.PaidAt, paidAtOK = dateAt(row, c.paidAt, loc, "02/01/2006 15:04", "02/01/2006 15:04:05")
+	// A payment is the lines of one person at one minute (spec §7.5): seconds,
+	// when a date has some, would split it.
+	l.PaidAt = l.PaidAt.Truncate(time.Minute)
 	l.Starts, _ = dateAt(row, c.starts, loc, "02/01/2006", "02/01/2006 15:04")
 	return l, amountOK, paidAtOK
 }
