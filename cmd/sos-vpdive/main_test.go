@@ -188,6 +188,7 @@ func TestBackupRefusesMissingDatabase(t *testing.T) {
 
 func TestServeAnswersHealthcheckAndStops(t *testing.T) {
 	env := devEnv(t, freePort(t))
+	env["UMAMI_SCRIPT_URL"] = "analytics.example.org/script.js" // invalid: Umami off, server up
 	ctx, cancel := context.WithCancel(context.Background())
 	logs := &lockedBuffer{}
 	done := make(chan error, 1)
@@ -210,6 +211,7 @@ func TestServeAnswersHealthcheckAndStops(t *testing.T) {
 		t.Fatal("serve did not stop")
 	}
 	assert.Contains(t, logs.String(), `"msg":"listening"`)
+	assert.Contains(t, logs.String(), `"level":"WARN","msg":"configuration ignored","error":"UMAMI_SCRIPT_URL: `)
 	assert.NotContains(t, logs.String(), env["SECRET_KEY"])
 }
 

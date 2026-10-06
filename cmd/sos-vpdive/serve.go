@@ -195,6 +195,9 @@ func serve(ctx context.Context, getenv func(string) string, stdout io.Writer) (e
 		return err
 	}
 	logger := telemetry.NewLogger(stdout, cfg.LogLevel)
+	for _, w := range cfg.Warnings {
+		logger.WarnContext(ctx, "configuration ignored", "error", w)
+	}
 	shutdownTraces, err := telemetry.Setup(ctx, logger)
 	if err != nil {
 		return err
