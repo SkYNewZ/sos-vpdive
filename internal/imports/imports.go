@@ -1,9 +1,11 @@
-// Package imports holds what the members and payments imports share (spec
-// §7.2): the imports journal, unconfirmed previews kept in memory, the
-// replacement transaction, and the « ambiguë » mark of payment lines (§7.3).
+// Package imports holds what the members, payments and Mollie imports share
+// (spec §7.2, §7.6): the imports journal, unconfirmed previews kept in
+// memory, the replacement transaction with the guards of a pushed import, and
+// the « ambiguë » mark of payment lines (§7.3).
 package imports
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
@@ -21,6 +23,8 @@ var (
 	ErrPreviewNotFound       = errors.New("import preview not found, already used or expired")
 	ErrStale                 = errors.New("another import happened since the preview")
 	ErrSecondConfirmRequired = errors.New("second confirmation required")
+	ErrUnchanged             = errors.New("same file as the latest import of its kind")
+	ErrTooFew                = errors.New("file holds less than half of the data in place")
 )
 
 // Kind is the kind column of the imports journal.
@@ -30,7 +34,19 @@ type Kind string
 const (
 	Members  Kind = "members"
 	Payments Kind = "payments"
+	Mollie   Kind = "vpaydive" // the VPayDive export, Mollie collections (spec §7.5)
 )
+
+// ScriptAuthor is the journal author of a pushed import (spec §7.6).
+const ScriptAuthor = "script"
+
+// inPlace counts the data a pushed import replaces: accounts for members,
+// lines otherwise.
+var inPlace = map[Kind]string{
+	Members:  `SELECT COUNT(*) FROM members`,
+	Payments: `SELECT COUNT(*) FROM payment_lines`,
+	Mollie:   `SELECT COUNT(*) FROM online_payment_lines`,
+}
 
 // Limits are the workbook limits applied to every upload (spec §7.2): 50 MiB
 // decompressed, 20 000 rows.
@@ -51,6 +67,7 @@ type Entry struct {
 	ImportedBy string
 	Rows       int
 	Skipped    int
+	FileHash   []byte // HMAC of the file; nil for imports made before lot 7
 }
 
 // Info is a journal row read back.
@@ -68,9 +85,9 @@ func Last(ctx context.Context, q store.Querier, kind Kind) (Info, bool, error) {
 		imported           int64
 	)
 	err := q.QueryRowContext(ctx,
-		`SELECT id, exported_at, period_from, period_to, imported_at, imported_by, row_count, skipped_count
+		`SELECT id, exported_at, period_from, period_to, imported_at, imported_by, row_count, skipped_count, file_hash
 		 FROM imports WHERE kind = ? ORDER BY id DESC LIMIT 1`, string(kind)).
-		Scan(&info.ID, &exported, &from, &to, &imported, &info.ImportedBy, &info.Rows, &info.Skipped)
+		Scan(&info.ID, &exported, &from, &to, &imported, &info.ImportedBy, &info.Rows, &info.Skipped, &info.FileHash)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Info{}, false, nil
 	}
@@ -97,33 +114,84 @@ func Replace(ctx context.Context, db *sql.DB, span string, m *Meta, e Entry,
 		if latest.ID != m.Base {
 			return ErrStale
 		}
-		res, err := tx.ExecContext(ctx,
-			`INSERT INTO imports (kind, exported_at, period_from, period_to, imported_at, imported_by, row_count, skipped_count)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-			string(e.Kind), store.UnixOrNull(e.ExportedAt), store.UnixOrNull(e.PeriodFrom), store.UnixOrNull(e.PeriodTo),
-			e.ImportedAt.Unix(), e.ImportedBy, e.Rows, e.Skipped)
-		if err != nil {
-			return fmt.Errorf("journal import: %w", err)
-		}
-		id, err := res.LastInsertId()
-		if err != nil {
-			return fmt.Errorf("journal import: %w", err)
-		}
-		if err := fn(ctx, tx, id); err != nil {
-			return err
-		}
-		return MarkAmbiguous(ctx, tx)
+		return replace(ctx, tx, e, fn)
 	})
 }
 
-// MarkAmbiguous marks the payment lines whose name belongs to several
-// members. The mark is never cleared: only a new payments import starts
-// afresh (spec §7.3).
+// Push is Replace for a file pushed without preview (spec §7.6). Nobody saw
+// the counts, so it refuses a file under half of the data in place with
+// ErrTooFew; a file with the bytes of the latest import of its kind changes
+// nothing and returns ErrUnchanged.
+func Push(ctx context.Context, db *sql.DB, span string, e Entry,
+	fn func(ctx context.Context, tx *sql.Tx, importID int64) error,
+) error {
+	return store.Tx(ctx, db, span, func(ctx context.Context, tx *sql.Tx) error {
+		latest, ok, err := Last(ctx, tx, e.Kind)
+		if err != nil {
+			return err
+		}
+		if ok && len(e.FileHash) > 0 && bytes.Equal(latest.FileHash, e.FileHash) {
+			return ErrUnchanged
+		}
+		current, err := countInPlace(ctx, tx, e.Kind)
+		if err != nil {
+			return err
+		}
+		if UnderHalf(e.Rows, current) {
+			return ErrTooFew
+		}
+		return replace(ctx, tx, e, fn)
+	})
+}
+
+// UnderHalf reports a file of n rows replacing less than half of current:
+// a preview asks for a second confirmation, a push is refused (spec §7.2,
+// §7.6).
+func UnderHalf(n, current int) bool { return n*2 < current }
+
+// countInPlace counts the data an import of kind replaces.
+func countInPlace(ctx context.Context, q store.Querier, kind Kind) (int, error) {
+	var n int
+	if err := q.QueryRowContext(ctx, inPlace[kind]).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count %s in place: %w", kind, err)
+	}
+	return n, nil
+}
+
+// replace journals e, lets fn replace the data and marks the lines of
+// homonyms, inside tx.
+func replace(ctx context.Context, tx *sql.Tx, e Entry, fn func(ctx context.Context, tx *sql.Tx, importID int64) error) error {
+	res, err := tx.ExecContext(ctx,
+		`INSERT INTO imports (kind, exported_at, period_from, period_to, imported_at, imported_by, row_count, skipped_count, file_hash)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		string(e.Kind), store.UnixOrNull(e.ExportedAt), store.UnixOrNull(e.PeriodFrom), store.UnixOrNull(e.PeriodTo),
+		e.ImportedAt.Unix(), e.ImportedBy, e.Rows, e.Skipped, e.FileHash)
+	if err != nil {
+		return fmt.Errorf("journal import: %w", err)
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("journal import: %w", err)
+	}
+	if err := fn(ctx, tx, id); err != nil {
+		return err
+	}
+	return MarkAmbiguous(ctx, tx)
+}
+
+// MarkAmbiguous marks the payment and Mollie lines whose name belongs to
+// several members. The mark is never cleared: only a new import of the lines
+// starts afresh (spec §7.3, §7.5).
 func MarkAmbiguous(ctx context.Context, tx *sql.Tx) error {
-	if _, err := tx.ExecContext(ctx,
+	for _, q := range []string{
 		`UPDATE payment_lines SET ambiguous = 1
-		 WHERE ambiguous = 0 AND name_hash IN (SELECT name_hash FROM members GROUP BY name_hash HAVING COUNT(*) > 1)`); err != nil {
-		return fmt.Errorf("mark ambiguous payment lines: %w", err)
+		 WHERE ambiguous = 0 AND name_hash IN (SELECT name_hash FROM members GROUP BY name_hash HAVING COUNT(*) > 1)`,
+		`UPDATE online_payment_lines SET ambiguous = 1
+		 WHERE ambiguous = 0 AND name_hash IN (SELECT name_hash FROM members GROUP BY name_hash HAVING COUNT(*) > 1)`,
+	} {
+		if _, err := tx.ExecContext(ctx, q); err != nil {
+			return fmt.Errorf("mark ambiguous lines: %w", err)
+		}
 	}
 	return nil
 }
@@ -133,9 +201,25 @@ type Meta struct {
 	ID                 string // set by Put
 	Username           string // the uploader, the only one who may confirm
 	NeedsSecondConfirm bool
-	Base               int64 // id of the latest import of the kind when the preview was made, 0 when none
+	Base               int64  // id of the latest import of the kind when the preview was made, 0 when none
+	FileHash           []byte // HMAC of the previewed file, journaled at confirmation
 
 	created time.Time
+}
+
+// NewMeta starts the preview of a file holding n rows for username: it binds
+// it to the latest import of kind and asks for the second confirmation when
+// the file holds less than half of the data in place, whose count it returns.
+func NewMeta(ctx context.Context, q store.Querier, kind Kind, username string, n int, fileHash []byte) (Meta, int, error) {
+	last, _, err := Last(ctx, q, kind)
+	if err != nil {
+		return Meta{}, 0, err
+	}
+	current, err := countInPlace(ctx, q, kind)
+	if err != nil {
+		return Meta{}, 0, err
+	}
+	return Meta{Username: username, NeedsSecondConfirm: UnderHalf(n, current), Base: last.ID, FileHash: fileHash}, current, nil
 }
 
 // PreviewMeta gives Previews access to the embedded Meta.

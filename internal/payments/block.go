@@ -2,14 +2,10 @@ package payments
 
 import (
 	"context"
-	"database/sql"
-	"encoding/json"
-	"fmt"
 	"slices"
 	"strings"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/imports"
-	"github.com/SkYNewZ/sos-vpdive/internal/store"
 )
 
 // latestCount is how many of the requester's lines the block lists (spec §7.3).
@@ -34,9 +30,17 @@ type Block struct {
 	State     BlockState
 	Import    imports.Info // the payments import in place
 	Balances  []Line       // newest first, as every list
-	ToSettle  []Line
+	ToSettle  []ToSettleLine
 	Cancelled []Line
 	Latest    []Line
+}
+
+// ToSettleLine is a line still to pay; a partial payment is a line to check
+// (spec §7.7), with the dismissal of the resolver who checked it.
+type ToSettleLine struct {
+	Line
+
+	Dismissal *Dismissal
 }
 
 // Balance reports the remaining credit of a carnet or a training: due,
@@ -78,81 +82,38 @@ func (l Line) ProbableRefund() bool {
 // members list.
 func (s *Store) Block(ctx context.Context, nameHash []byte) (Block, error) {
 	var b Block
-	inPlace, err := s.HasLines(ctx)
-	if err != nil {
-		return Block{}, err
-	}
-	var imported bool
-	if b.Import, imported, err = s.LastImport(ctx); err != nil {
-		return Block{}, err
-	}
-	switch {
-	case !imported:
-		b.State = BlockNoLines
-		return b, nil
-	case !inPlace && s.Expired(b.Import):
-		b.State = BlockPurged
-		return b, nil
-	case nameHash == nil:
-		b.State = BlockNoMember
-		return b, nil
-	}
-	var members int
-	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM members WHERE name_hash = ?`, nameHash).Scan(&members); err != nil {
-		return Block{}, fmt.Errorf("members of a name: %w", err)
-	}
-	rows, err := s.db.QueryContext(ctx, `SELECT ambiguous, data FROM payment_lines WHERE name_hash = ? ORDER BY id DESC`, nameHash)
-	type row struct {
-		ambiguous bool
-		data      []byte
-	}
-	found, err := store.Collect(rows, err, func(rows *sql.Rows) (r row, err error) {
-		err = rows.Scan(&r.ambiguous, &r.data)
-		return r, err
-	})
-	if err != nil {
-		return Block{}, fmt.Errorf("payment lines of a name: %w", err)
-	}
-	switch {
-	case members > 1 || slices.ContainsFunc(found, func(r row) bool { return r.ambiguous }):
-		b.State = BlockAmbiguous
-		return b, nil
-	case len(found) == 0:
-		b.State = BlockEmpty
-		return b, nil
+	state, info, found, err := s.nameLines(ctx, nameHash)
+	b.State, b.Import = state, info
+	if err != nil || state != BlockLines {
+		return b, err
 	}
 	lines := make([]Line, len(found))
 	for i, r := range found {
-		if lines[i], err = s.open(r.data); err != nil {
+		if lines[i], err = openLine[Line](s.keys, r.data); err != nil {
 			return Block{}, err
 		}
 	}
-	// Newest first; read in reverse id order, so ties keep the file's order reversed.
+	dismissed, err := dismissals(ctx, s.db)
+	if err != nil {
+		return Block{}, err
+	}
+	// Newest first; ties keep the file's order reversed, the later row first.
+	slices.Reverse(lines)
 	slices.SortStableFunc(lines, func(a, b Line) int { return b.Created.Compare(a.Created) })
-	b.State = BlockLines
 	b.Latest = lines[:min(latestCount, len(lines))]
 	for _, l := range lines {
 		switch {
 		case l.Balance():
 			b.Balances = append(b.Balances, l)
 		case l.ToSettle():
-			b.ToSettle = append(b.ToSettle, l)
+			t := ToSettleLine{Line: l}
+			if l.Partial() {
+				t.Dismissal = dismissal(dismissed, l.fingerprint(s.keys, nameHash))
+			}
+			b.ToSettle = append(b.ToSettle, t)
 		case l.CancelledOuting():
 			b.Cancelled = append(b.Cancelled, l)
 		}
 	}
 	return b, nil
-}
-
-// open decrypts and decodes one stored line.
-func (s *Store) open(sealed []byte) (Line, error) {
-	plain, err := s.keys.Open(sealed)
-	if err != nil {
-		return Line{}, fmt.Errorf("decrypt payment line: %w", err)
-	}
-	var l Line
-	if err := json.Unmarshal(plain, &l); err != nil {
-		return Line{}, fmt.Errorf("decode payment line: %w", err)
-	}
-	return l, nil
 }

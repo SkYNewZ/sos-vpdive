@@ -2,6 +2,7 @@ package payments
 
 import (
 	"flag"
+	"maps"
 	"os"
 	"testing"
 	"time"
@@ -149,7 +150,8 @@ func validLines() []line {
 
 func fixtures(tb testing.TB) map[string][]byte {
 	tb.Helper()
-	return map[string][]byte{
+	all := mollieFixtures(tb)
+	maps.Copy(all, map[string][]byte{
 		"payments_valid.xlsx": xlsxtest.BuildCreated(tb, fixtureCreated, sheet(validLines()...)),
 		"payments_missing_column.xlsx": func() []byte {
 			s := sheet(paid("Bernard", "Hugo", 30, "vpaydive", "Baptême", "05/01/2026 10:12:00"))
@@ -158,7 +160,8 @@ func fixtures(tb testing.TB) map[string][]byte {
 			s[0] = header
 			return xlsxtest.Build(tb, s)
 		}(),
-	}
+	})
+	return all
 }
 
 // TestFixturesAreUpToDate keeps testdata/fixtures in sync with the definitions.

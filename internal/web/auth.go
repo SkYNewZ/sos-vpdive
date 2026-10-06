@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/admins"
+	"github.com/SkYNewZ/sos-vpdive/internal/imports"
 )
 
 const (
@@ -151,8 +152,8 @@ func (s *Server) adminPage(r *http.Request, title string) (page, error) {
 }
 
 // adminNotices are the committee banners: accounts file, members list
-// (spec §3.6, §7.2), payments import (§7.3), failed mails (§6) and open
-// requests idle for a year (§8.3).
+// (spec §3.6, §7.2), payments and VPayDive imports (§7.3, §7.5), failed
+// mails (§6) and open requests idle for a year (§8.3).
 func (s *Server) adminNotices(ctx context.Context) ([]notice, error) {
 	var out []notice
 	if err := s.admins.Err(); err != nil {
@@ -163,27 +164,20 @@ func (s *Server) adminNotices(ctx context.Context) ([]notice, error) {
 	if err != nil {
 		return nil, err
 	}
-	last, imported, err := s.members.LastImport(ctx)
-	if err != nil {
-		return nil, err
-	}
-	switch {
-	case !has:
+	if !has {
 		out = append(out, notice{Kind: noticeWarning, Text: "Le formulaire est fermé : aucune liste des membres n'est importée.",
 			Link: "/imports", LinkText: "Importer la liste"})
-	case imported && s.now().Sub(last.ImportedAt) > s.cfg.MembersMaxAge:
-		out = append(out, notice{Kind: noticeWarning,
-			Text: fmt.Sprintf("La liste des membres date du %s. Pense à refaire l'import.", s.formatDate(last.ImportedAt)),
-			Link: "/imports", LinkText: "Refaire l'import"})
 	}
-	paid, paidOK, err := s.payments.LastImport(ctx)
+	stale, err := s.staleImports(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if paidOK && s.now().Sub(paid.ImportedAt) > s.cfg.PaymentsMaxAge {
-		out = append(out, notice{Kind: noticeWarning,
-			Text: fmt.Sprintf("Les paiements datent du %s. Pense à refaire l'import.", s.formatDate(paid.ImportedAt)),
-			Link: "/imports#paiements-titre", LinkText: "Refaire l'import"})
+	for _, st := range stale {
+		if st.kind == imports.Members && !has { // the closed form says more
+			continue
+		}
+		out = append(out, notice{Kind: noticeWarning, Text: fmt.Sprintf(st.banner, s.formatDate(st.last.ImportedAt)),
+			Link: st.link, LinkText: "Refaire l'import"})
 	}
 	failed, err := s.outbox.FailedCount(ctx)
 	if err != nil {

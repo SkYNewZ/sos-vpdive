@@ -29,15 +29,38 @@ func Import(tb testing.TB, s *payments.Store, name string) {
 // Dates are read in Paris time.
 func ImportBytes(tb testing.TB, s *payments.Store, data []byte) {
 	tb.Helper()
-	rows, err := xlsx.ReadFirstSheet(data, imports.Limits())
-	require.NoError(tb, err)
-	created, _ := xlsx.Created(data, imports.Limits())
-	paris, err := time.LoadLocation("Europe/Paris")
-	require.NoError(tb, err)
+	rows, created, paris := read(tb, data)
 	exp, err := payments.Parse(rows, created, paris)
 	require.NoError(tb, err)
 	ctx := context.Background()
 	p, err := s.NewPreview(ctx, "alice", exp)
 	require.NoError(tb, err)
 	require.NoError(tb, s.Confirm(ctx, p.ID, "alice", true))
+}
+
+// ImportMollie reads testdata/fixtures/<name> and replaces the Mollie lines
+// with it, as alice. Dates are read in Paris time.
+func ImportMollie(tb testing.TB, s *payments.MollieStore, name string) {
+	tb.Helper()
+	data, err := os.ReadFile(memberstest.FixturePath(name))
+	require.NoError(tb, err)
+	rows, created, paris := read(tb, data)
+	exp, err := payments.ParseMollie(rows, created, paris)
+	require.NoError(tb, err)
+	ctx := context.Background()
+	p, err := s.NewPreview(ctx, "alice", exp)
+	require.NoError(tb, err)
+	require.NoError(tb, s.Confirm(ctx, p.ID, "alice", true))
+}
+
+// read opens a workbook as the import does: its rows, its creation date,
+// and the Paris time zone dates are read in.
+func read(tb testing.TB, data []byte) ([]xlsx.Row, time.Time, *time.Location) {
+	tb.Helper()
+	rows, err := xlsx.ReadFirstSheet(data, imports.Limits())
+	require.NoError(tb, err)
+	created, _ := xlsx.Created(data, imports.Limits())
+	paris, err := time.LoadLocation("Europe/Paris")
+	require.NoError(tb, err)
+	return rows, created, paris
 }

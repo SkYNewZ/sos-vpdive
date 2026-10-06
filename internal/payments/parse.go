@@ -78,7 +78,23 @@ type Export struct {
 	MissingColumns []string
 	PeriodFrom     time.Time // earliest and latest « Créé le »
 	PeriodTo       time.Time
+	FileHash       []byte // HMAC of the file, set by the caller (spec §7.6)
 }
+
+// ToCheck counts the lines of the « Paiements à vérifier » page (spec §7.7).
+func (e *Export) ToCheck() int {
+	n := 0
+	for _, l := range e.Lines {
+		if l.Partial() {
+			n++
+		}
+	}
+	return n
+}
+
+// Partial reports a line partly paid: part of the payment is missing (spec
+// §7.7).
+func (l Line) Partial() bool { return l.State == StatePartial }
 
 // ProblemKind classifies a refused export.
 type ProblemKind string
@@ -92,7 +108,9 @@ const (
 	ProblemEmptyProduct  ProblemKind = "empty_product"
 )
 
-// ParseError explains why an export is refused. Rows are file row numbers.
+// ParseError explains why a payments or VPayDive export is refused. Column
+// names the missing column, or the one whose header was looked for; Rows are
+// file row numbers.
 type ParseError struct {
 	Kind   ProblemKind
 	Column string
@@ -102,7 +120,7 @@ type ParseError struct {
 func (e *ParseError) Error() string {
 	switch e.Kind {
 	case ProblemNoHeader:
-		return fmt.Sprintf("payments export: no %q column in the first %d rows", columnCreated, headerSearchRows)
+		return fmt.Sprintf("payments export: no %q column in the first %d rows", e.Column, headerSearchRows)
 	case ProblemMissingColumn:
 		return fmt.Sprintf("payments export: missing column %q", e.Column)
 	case ProblemInvalidNumber, ProblemInvalidDate:
@@ -128,7 +146,7 @@ type columns struct {
 func Parse(rows []xlsx.Row, created time.Time, loc *time.Location) (*Export, error) {
 	hi, header, ok := xlsx.FindHeader(rows, columnCreated, headerSearchRows)
 	if !ok {
-		return nil, &ParseError{Kind: ProblemNoHeader}
+		return nil, &ParseError{Kind: ProblemNoHeader, Column: columnCreated}
 	}
 	cols, err := findColumns(header)
 	if err != nil {
@@ -186,10 +204,9 @@ func findColumns(h xlsx.Header) (columns, error) {
 	}
 	var c columns
 	optional := func(name string, n int) int {
-		col, ok := h.Col(name, n)
-		if !ok {
+		col := optionalCol(h, name, n)
+		if col < 0 {
 			c.missing = append(c.missing, name)
-			return -1
 		}
 		return col
 	}
@@ -211,6 +228,16 @@ func findColumns(h xlsx.Header) (columns, error) {
 	c.starts, c.paidAt = optional("Du", 0), optional("Date paiement", 0)
 	c.rental = optional("Materiel", 1) // the second « Materiel » is the rental amount; the first lists equipment
 	return c, nil
+}
+
+// optionalCol is the n-th (0-based) column named name, -1 when there is none:
+// an absent optional column reads as empty cells.
+func optionalCol(h xlsx.Header, name string, n int) int {
+	col, ok := h.Col(name, n)
+	if !ok {
+		return -1
+	}
+	return col
 }
 
 // readLine reads one row; numbersOK and createdOK report whether its

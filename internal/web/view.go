@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/admins"
+	"github.com/SkYNewZ/sos-vpdive/internal/payments"
 	"github.com/SkYNewZ/sos-vpdive/internal/tickets"
 )
 
@@ -87,4 +88,13 @@ func isoDate(v string) string {
 		return v
 	}
 	return d.Format(dateFormat)
+}
+
+// methodLabel names a payment method of the payments export: « vpaydive » is
+// Mollie, seen through VPayDive (owner decision, lot 7).
+func methodLabel(method string) string {
+	if method == payments.MethodVPayDive {
+		return "Mollie (VPayDive)"
+	}
+	return method
 }

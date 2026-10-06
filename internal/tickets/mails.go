@@ -66,9 +66,9 @@ func subject(ev mail.Event, ref string) string {
 		return "Tes liens de suivi"
 	case mail.EventReleased:
 		return "Demande " + ref + " remise à traiter"
-	default:
-		return "Demande " + ref
+	case mail.EventImportRefused, mail.EventImportStale: // imports mails, written by the web layer
 	}
+	return "Demande " + ref
 }
 
 // memberMail queues a mail to the requester, with the tracking link.

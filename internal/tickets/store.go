@@ -160,6 +160,7 @@ type Deps struct {
 	Catalog       *Catalog
 	Members       *members.Store
 	Payments      *payments.Store
+	Mollie        *payments.MollieStore
 	Outbox        *mail.Outbox
 	Blobs         blobs.Store
 	Account       func(username string) (admins.Account, bool)

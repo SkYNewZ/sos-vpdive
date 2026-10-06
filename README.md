@@ -5,12 +5,14 @@ VPDive platform. Members file requests through a public form; a few committee
 members handle them. One Go binary serves two host names: the members site
 and the committee site. Simplicity and robustness beat features.
 
-Status: lot 5 (VPDive payments): request form with screenshots, fiches
-suggested before sending, tracking page and lost link, committee board with
-live updates and summaries, assignment, internal notes, journal, deletions and
-mails, both sites installable on a phone, committee alerts by Web Push and
-Pushover, imports of the VPDive members and payments exports, with the
-requester's payments on each request and a list of cancelled outings.
+Status: lot 7 (Mollie collections and pushed imports): request form with
+screenshots, fiches suggested before sending, tracking page and lost link,
+committee board with live updates and summaries, assignment, internal notes,
+journal, deletions and mails, both sites installable on a phone, committee
+alerts by Web Push and Pushover, imports of the VPDive members, payments and
+VPayDive exports, by hand or pushed by a script, with the requester's payments
+and Mollie collections on each request, a list of cancelled outings and a list
+of payments to check.
 
 ## Run it locally
 
@@ -65,7 +67,8 @@ picked up by the hot reload).
   the proxy connects from.
 - Do not log request paths of the members site: tracking links carry a secret.
 - You may restrict the committee host name (by address, for instance) without
-  touching the members site.
+  touching the members site. A script pushing the exports must then come from
+  an allowed address, and the proxy must pass its `Authorization` header.
 - The example compose file publishes the port on 127.0.0.1 only, so the proxy
   must run on the same host; with a remote proxy, change the binding and
   firewall the port so only the proxy reaches it.
@@ -102,9 +105,10 @@ reclassification leads to it. Both files are checked at startup.
 
 ## VPDive exports
 
-The committee imports two VPDive exports by hand on the Imports page; the
-service never connects to VPDive. Each upload shows a preview, kept 15
-minutes, and the confirmation replaces everything the previous import stored.
+The committee imports three VPDive exports on the Imports page, or a script
+pushes them (next section); the service never connects to VPDive. Each upload
+shows a preview, kept 15 minutes, and the confirmation replaces everything the
+previous import stored.
 
 - The members list (« Liste des membres » page, « Télécharger » button) is the
   whitelist of the form. The service keeps names, email, seasons and licence
@@ -124,9 +128,58 @@ minutes, and the confirmation replaces everything the previous import stored.
   title contains « annul », in any case, that still hold paid lines: the club
   renames a cancelled outing, refunds real-money payments, then deletes it in
   VPDive, which credits the carnets back.
-- `MEMBERS_MAX_AGE` and `PAYMENTS_MAX_AGE` set when the committee is reminded
-  to import again. Payment lines are deleted after 90 days without a payments
-  import, the members list after 12 months.
+- The VPayDive export (VPayDive page, « Exporter (Excel) » button, over the
+  « Du » and « Au » dates) lists the payments Mollie collected, one line per
+  cart item, and whether VPDive settled them. The service keeps the product,
+  the outing and its date, the amount, « Payé », the payment date and the
+  method. It never reads the commission, net amount, transfer, billing or API
+  status columns. On a request page, « Encaissements Mollie » shows the
+  requester's payments, newest first: the lines of one person at one minute
+  make one payment. Every payment is made online, so the pages call the two
+  exports « Paiements VPDive » and « Encaissements Mollie ».
+- « À vérifier » lists the lines where the money received and the state in
+  VPDive disagree: Mollie lines that VPDive did not settle (« Payé : Non »)
+  and partial payments. The service fixes nothing. A resolver masks a line
+  once checked; the line has no identifier, so the mask is keyed on a hash of
+  the person, the date, the product and the amount, and survives later imports.
+- `MEMBERS_MAX_AGE`, `PAYMENTS_MAX_AGE` and `VPAYDIVE_MAX_AGE` set when the
+  committee is reminded to import again. Payment and Mollie lines are deleted
+  after 90 days without an import of their export, the members list after 12
+  months.
+
+## Pushed imports
+
+A script can push the three exports instead of a resolver, on a schedule for
+instance. The script lives outside this repository: it signs in to VPDive, the
+service never does. Set `IMPORT_TOKEN` to turn the route on (32 characters at
+least, `openssl rand -base64 32`); without it, the route answers 404.
+
+```sh
+curl --fail-with-body -X POST -H "Authorization: Bearer $IMPORT_TOKEN" \
+  --data-binary @export.xlsx https://comite.example.org/api/imports/payments
+```
+
+- `{type}` is `members`, `payments` or `vpaydive`. The body is the `.xlsx`
+  file as VPDive produced it, 5 MB at most.
+- The file goes through the same checks as an upload, without the preview: a
+  valid file replaces the data in place in one transaction, and the journal
+  names « script » as its author. A file with less than half of the data in
+  place (accounts, or lines) is refused: upload it by hand if it is right.
+- The answer is JSON: `{"result": "imported", "read": 120, "kept": 118,
+  "skipped": 2, "to_check": 3}`, with `unchanged` when the file has the bytes
+  of the latest import of its kind. A refusal answers `{"error": "<code>",
+  "message": "…"}`: `unauthorized` (401), `rate_limited` (429),
+  `unknown_type` (404), `too_large` (413), and 422 for a refused file with
+  `invalid_workbook`, `too_many_rows`, `no_header`, `missing_column`,
+  `invalid_number`, `invalid_date`, `empty_product`, `duplicate_email`,
+  `invalid_email` or `too_few`.
+- Every refused file mails the club inbox. The route takes 10 calls an hour
+  per address and logs refused tokens, never the token itself.
+- When an import outlives its maximum age, the club inbox gets one mail on top
+  of the banner: with a script, an ageing import means the script is down.
+- What the script does: download the members without filter, the payments and
+  VPayDive over the last 24 months, push each file unchanged and keep none;
+  when a download fails, push nothing.
 
 ## Knowledge base and suggestions
 
@@ -324,8 +377,9 @@ line shows it too.
   fields and the description of each request, nothing else. The summary it
   writes is encrypted like the rest.
 - Erasing a person deletes their requests, their members row and every
-  payment line carrying their name hash, a homonym's included. The next
-  imports bring back what VPDive still holds.
+  payment and Mollie line carrying their name hash, a homonym's included. The
+  next imports bring back what VPDive still holds.
+- A masked line to check is stored as an HMAC of the line, without a name.
 - Logs and traces never contain a token, an email address, a name or a
   request body; spans are named after route patterns. Sentry, when
   configured, receives these logs and traces and nothing more (see Usage and

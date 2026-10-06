@@ -101,7 +101,7 @@ func TestReplaceJournalsAndRefusesStalePreviews(t *testing.T) {
 	exported := time.Date(2026, 9, 1, 8, 15, 0, 0, time.UTC)
 	imported := time.Date(2026, 9, 2, 10, 0, 0, 0, time.UTC)
 	var seen int64
-	entry := Entry{Kind: Members, ExportedAt: exported, ImportedAt: imported, ImportedBy: "alice", Rows: 6, Skipped: 1}
+	entry := Entry{Kind: Members, ExportedAt: exported, ImportedAt: imported, ImportedBy: "alice", Rows: 6, Skipped: 1, FileHash: []byte("hash")}
 	require.NoError(t, Replace(ctx, db, "test.replace", &Meta{Base: base}, entry,
 		func(_ context.Context, _ *sql.Tx, importID int64) error {
 			seen = importID
@@ -111,7 +111,7 @@ func TestReplaceJournalsAndRefusesStalePreviews(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 	assert.Equal(t, seen, last.ID, "fn gets the journal row id")
-	assert.Equal(t, Entry{Kind: Members, ExportedAt: exported, ImportedAt: imported, ImportedBy: "alice", Rows: 6, Skipped: 1}, last.Entry)
+	assert.Equal(t, Entry{Kind: Members, ExportedAt: exported, ImportedAt: imported, ImportedBy: "alice", Rows: 6, Skipped: 1, FileHash: []byte("hash")}, last.Entry)
 
 	called := false
 	err = Replace(ctx, db, "test.replace", &Meta{Base: base}, entry, func(context.Context, *sql.Tx, int64) error {
@@ -159,25 +159,98 @@ func TestMarkAmbiguousNeverClears(t *testing.T) {
 			[]byte(email), []byte(name))
 	}
 	exec(`INSERT INTO imports (id, kind, imported_at, imported_by, row_count, skipped_count) VALUES (1, 'payments', 0, 'alice', 3, 0)`)
+	exec(`INSERT INTO imports (id, kind, imported_at, imported_by, row_count, skipped_count) VALUES (2, 'vpaydive', 0, 'alice', 2, 0)`)
 	for _, name := range []string{"homonym", "homonym", "single"} {
 		exec(`INSERT INTO payment_lines (import_id, name_hash, data) VALUES (1, ?, x'00')`, []byte(name))
+	}
+	for _, name := range []string{"homonym", "single"} {
+		exec(`INSERT INTO online_payment_lines (import_id, name_hash, data) VALUES (2, ?, x'00')`, []byte(name))
 	}
 	member("a", "homonym")
 	member("b", "homonym")
 	member("c", "single")
 
-	ambiguous := func(name string) bool {
+	ambiguous := func(name string) (payments, mollie bool) {
 		t.Helper()
-		var a bool
-		require.NoError(t, db.QueryRowContext(ctx, `SELECT MIN(ambiguous) FROM payment_lines WHERE name_hash = ?`, []byte(name)).Scan(&a))
-		return a
+		require.NoError(t, db.QueryRowContext(ctx,
+			`SELECT (SELECT MIN(ambiguous) FROM payment_lines WHERE name_hash = ?1),
+			        (SELECT MIN(ambiguous) FROM online_payment_lines WHERE name_hash = ?1)`, []byte(name)).Scan(&payments, &mollie))
+		return payments, mollie
 	}
 	require.NoError(t, store.Tx(ctx, db, "test.mark", MarkAmbiguous))
-	assert.True(t, ambiguous("homonym"), "every line of the name")
-	assert.False(t, ambiguous("single"))
+	payments, mollie := ambiguous("homonym")
+	assert.True(t, payments, "every payment line of the name")
+	assert.True(t, mollie, "and every Mollie line")
+	payments, mollie = ambiguous("single")
+	assert.False(t, payments)
+	assert.False(t, mollie)
 
 	exec(`DELETE FROM members WHERE email_hash = ?`, []byte("b"))
 	require.NoError(t, store.Tx(ctx, db, "test.mark", MarkAmbiguous))
-	assert.True(t, ambiguous("homonym"), "a reimport keeping one homonym does not clear the mark")
-	assert.False(t, ambiguous("single"))
+	payments, mollie = ambiguous("homonym")
+	assert.True(t, payments, "a reimport keeping one homonym does not clear the mark")
+	assert.True(t, mollie)
+	payments, mollie = ambiguous("single")
+	assert.False(t, payments)
+	assert.False(t, mollie)
+}
+
+func TestPushSkipsUnchangedFilesAndRefusesHalfOfWhatIsInPlace(t *testing.T) {
+	db := openDB(t)
+	ctx := context.Background()
+	imported := time.Date(2026, 9, 2, 10, 0, 0, 0, time.UTC)
+	members := func(n int) func(context.Context, *sql.Tx, int64) error {
+		return func(ctx context.Context, tx *sql.Tx, _ int64) error {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM members`); err != nil {
+				return err
+			}
+			for i := range n {
+				if _, err := tx.ExecContext(ctx, `INSERT INTO members (email_hash, name_hash, first_name, last_name, email)
+					VALUES (?, x'01', x'02', x'03', x'04')`, []byte{byte(i)}); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}
+	count := func(q string) int {
+		t.Helper()
+		var n int
+		require.NoError(t, db.QueryRowContext(ctx, q).Scan(&n))
+		return n
+	}
+	push := func(kind Kind, rows int, hash string, fn func(context.Context, *sql.Tx, int64) error) error {
+		return Push(ctx, db, "test.push", Entry{Kind: kind, ImportedAt: imported, ImportedBy: ScriptAuthor, Rows: rows, FileHash: []byte(hash)}, fn)
+	}
+
+	require.NoError(t, push(Members, 4, "a", members(4)))
+	last, ok, err := Last(ctx, db, Members)
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, "script", last.ImportedBy)
+
+	called := false
+	err = push(Members, 4, "a", func(context.Context, *sql.Tx, int64) error { called = true; return nil })
+	require.ErrorIs(t, err, ErrUnchanged)
+	assert.False(t, called)
+	assert.Equal(t, 1, count(`SELECT COUNT(*) FROM imports`), "an unchanged file leaves the journal alone")
+	require.NoError(t, push(Payments, 0, "a", func(context.Context, *sql.Tx, int64) error { return nil }), "the same bytes as another kind's import are no repeat")
+
+	err = push(Members, 1, "b", members(1))
+	require.ErrorIs(t, err, ErrTooFew)
+	assert.Equal(t, 4, count(`SELECT COUNT(*) FROM members`), "the list in place stays")
+	require.NoError(t, push(Members, 2, "b", members(2)), "exactly half passes")
+	assert.Equal(t, 2, count(`SELECT COUNT(*) FROM members`))
+
+	require.NoError(t, push(Mollie, 2, "c", func(ctx context.Context, tx *sql.Tx, id int64) error {
+		_, err := tx.ExecContext(ctx, `INSERT INTO online_payment_lines (import_id, name_hash, data) VALUES (?1, x'01', x'02'), (?1, x'03', x'04')`, id)
+		return err
+	}))
+	require.ErrorIs(t, push(Mollie, 0, "d", func(context.Context, *sql.Tx, int64) error { return nil }), ErrTooFew, "Mollie lines are counted too")
+
+	latest, _, err := Last(ctx, db, Members)
+	require.NoError(t, err)
+	require.NoError(t, Replace(ctx, db, "test.replace", &Meta{Base: latest.ID}, Entry{Kind: Members, ImportedAt: imported, ImportedBy: "alice", FileHash: []byte("b")}, members(0)),
+		"a confirmed preview passes both guards: the resolver saw the counts")
+	assert.Zero(t, count(`SELECT COUNT(*) FROM members`))
 }

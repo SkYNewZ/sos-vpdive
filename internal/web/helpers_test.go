@@ -178,6 +178,7 @@ func newTestEnv(t *testing.T, opts ...func(*Deps)) *testEnv {
 		NotifyEmail:    &netmail.Address{Address: clubEmail},
 		MembersMaxAge:  336 * time.Hour,
 		PaymentsMaxAge: 168 * time.Hour,
+		VPayDiveMaxAge: 168 * time.Hour,
 		TrustedProxies: []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")},
 		AgeWarnAfter:   48 * time.Hour,
 		AgeAlertAfter:  168 * time.Hour,
@@ -192,16 +193,17 @@ func newTestEnv(t *testing.T, opts ...func(*Deps)) *testEnv {
 	require.NoError(t, err)
 	memberStore := members.NewStore(db, keys, clock.now)
 	paymentStore := payments.NewStore(db, keys, clock.now)
+	mollieStore := payments.NewMollieStore(db, keys, clock.now)
 	outbox := mail.NewOutbox(db, keys, clock.now)
 	broker := NewBroker()
 	ticketStore := tickets.NewStore(tickets.Deps{
-		DB: db, Keys: keys, Catalog: catalog, Members: memberStore, Payments: paymentStore,
+		DB: db, Keys: keys, Catalog: catalog, Members: memberStore, Payments: paymentStore, Mollie: mollieStore,
 		Outbox: outbox, Blobs: blobStore,
 		Account: registry.Get, BaseURL: cfg.BaseURL, AdminBaseURL: cfg.AdminBaseURL, ClubEmail: clubEmail,
 		RetentionDays: cfg.RetentionDays, Now: clock.now, Logger: logger, OnChange: broker.Publish,
 	})
 	deps := Deps{
-		Config: cfg, DB: db, Keys: keys, Members: memberStore, Payments: paymentStore, Admins: registry,
+		Config: cfg, DB: db, Keys: keys, Members: memberStore, Payments: paymentStore, Mollie: mollieStore, Admins: registry,
 		Tickets: ticketStore, Outbox: outbox, Push: push.NewStore(db, keys, clock.now), Broker: broker, KB: base,
 		Content: sosvpdive.Content, Logger: logger, Now: clock.now,
 	}
@@ -313,6 +315,12 @@ func (e *testEnv) importMembers(t *testing.T, fixture string) {
 func (e *testEnv) importPayments(t *testing.T) {
 	t.Helper()
 	paymentstest.Import(t, e.deps.Payments, "payments_valid.xlsx")
+}
+
+// importMollie imports vpaydive_valid.xlsx directly through the Mollie store.
+func (e *testEnv) importMollie(t *testing.T) {
+	t.Helper()
+	paymentstest.ImportMollie(t, e.deps.Mollie, "vpaydive_valid.xlsx")
 }
 
 // count counts the rows of a table.

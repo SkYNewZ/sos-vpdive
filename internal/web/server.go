@@ -36,6 +36,7 @@ type Deps struct {
 	Keys     *secure.Keys
 	Members  *members.Store
 	Payments *payments.Store
+	Mollie   *payments.MollieStore
 	Admins   *admins.Registry
 	Tickets  *tickets.Store
 	Outbox   *mail.Outbox
@@ -56,6 +57,8 @@ type Server struct {
 	keys      *secure.Keys
 	members   *members.Store
 	payments  *payments.Store
+	mollie    *payments.MollieStore
+	checks    *payments.CheckStore
 	admins    *admins.Registry
 	tickets   *tickets.Store
 	outbox    *mail.Outbox
@@ -106,7 +109,8 @@ func New(d Deps) (*Server, error) {
 		return nil, fmt.Errorf("time zone: %w", err)
 	}
 	s := &Server{
-		cfg: d.Config, db: d.DB, keys: d.Keys, members: d.Members, payments: d.Payments, admins: d.Admins,
+		cfg: d.Config, db: d.DB, keys: d.Keys, members: d.Members, payments: d.Payments, mollie: d.Mollie,
+		checks: payments.NewCheckStore(d.DB, d.Keys, d.Members, d.Now), admins: d.Admins,
 		tickets: d.Tickets, outbox: d.Outbox, push: d.Push, broker: d.Broker, kb: d.KB, suggest: suggest.New(d.Config.LLM),
 		keepAlive: keepAliveInterval,
 		logger:    d.Logger, now: d.Now, paris: paris, tracer: otel.Tracer(tracerName),
@@ -127,13 +131,13 @@ func New(d Deps) (*Server, error) {
 		"static": s.assets.URL, "formatTime": s.formatTime, "formatDate": s.formatDate, "shortPeriod": payments.ShortPeriod, "author": s.tickets.AccountName,
 		"age": s.age, "accountOf": s.accountOf, "actor": s.actorName, "isoDate": isoDate,
 		"fieldName": tickets.FieldName, "categoryLabel": func(id string) string { return s.tickets.Catalog.CategoryLabel(id) }, "describe": s.tickets.Describe,
-		"formField": newFormField, "themeColor": func() string { return themeColor },
+		"formField": newFormField, "themeColor": func() string { return themeColor }, "methodLabel": methodLabel,
 	}
 	if s.pages, err = parsePages(funcs); err != nil {
 		return nil, err
 	}
 	s.public = s.requireOrigin(d.Config.BaseURL, s.publicRoutes())
-	s.admin = s.requireOrigin(d.Config.AdminBaseURL, s.adminRoutes())
+	s.admin = s.apiRoutes(s.requireOrigin(d.Config.AdminBaseURL, s.adminRoutes()))
 	csp := contentSecurityPolicy(d.Config.Umami)
 	s.handler = s.recoverPanics(securityHeaders(csp, s.refuseAIRobots(http.HandlerFunc(s.route))))
 	return s, nil
@@ -198,6 +202,8 @@ func (s *Server) adminRoutes() *http.ServeMux {
 	s.handle(mux, "POST /effacement", s.signedIn(s.erase))
 	s.handle(mux, "GET /fiches", s.signedIn(s.fichesPage))
 	s.handle(mux, "GET /annulations", s.signedIn(s.cancellationsPage))
+	s.handle(mux, "GET /anomalies", s.signedIn(s.checksPage))
+	s.handle(mux, "POST /anomalies/masquer", s.signedIn(s.dismissCheck))
 	s.handle(mux, "GET /envois", s.signedIn(s.failedMails))
 	s.handle(mux, "GET /notifications", s.signedIn(s.notificationsPage))
 	if s.cfg.VAPID != nil {
@@ -208,6 +214,20 @@ func (s *Server) adminRoutes() *http.ServeMux {
 	// The event stream is neither traced nor logged (spec §9.9).
 	mux.HandleFunc("GET /evenements", s.events)
 	s.handle(mux, "GET /{$}", s.signedIn(s.board))
+	return mux
+}
+
+// apiRoutes puts the pushed import before the committee site: it escapes the
+// session and the Origin check, a script sends neither and its token protects
+// it (spec §11.2). Without IMPORT_TOKEN the route answers 404 (spec §7.6).
+func (s *Server) apiRoutes(site http.Handler) *http.ServeMux {
+	mux := http.NewServeMux()
+	if s.cfg.ImportToken != "" {
+		s.handle(mux, "POST /api/imports/{type}", s.apiImport)
+	} else {
+		s.handle(mux, "/api/imports/", s.notFound)
+	}
+	mux.Handle("/", site)
 	return mux
 }
 

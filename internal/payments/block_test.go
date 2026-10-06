@@ -67,7 +67,11 @@ func TestBlockLists(t *testing.T) {
 	assert.Equal(t, []string{carnetTitle, "Formation N2", carnetTitle}, products(b.Balances),
 		"two balances of one title stay two lines")
 	assert.Equal(t, []Amount{-3000, -6000, -18000}, []Amount{b.Balances[0].UnitPrice, b.Balances[1].UnitPrice, b.Balances[2].UnitPrice})
-	assert.Equal(t, []string{"Formation RIFAP", "Plongée Porquerolles"}, products(b.ToSettle))
+	toSettle := make([]Line, len(b.ToSettle))
+	for i, l := range b.ToSettle {
+		toSettle[i] = l.Line
+	}
+	assert.Equal(t, []string{"Formation RIFAP", "Plongée Porquerolles"}, products(toSettle))
 	assert.Equal(t, []string{cancelledLower, cancelledCaps}, products(b.Cancelled))
 	require.Len(t, b.Latest, 10)
 	assert.Equal(t, "Sortie Sec de la Croix", b.Latest[0].Product)

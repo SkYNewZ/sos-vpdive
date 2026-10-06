@@ -1,6 +1,9 @@
 package web
 
 import (
+	"net/http"
+	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -29,6 +32,7 @@ func TestRequestPagePaymentsBlock(t *testing.T) {
 		"le carnet sera recrédité à la suppression de la sortie",
 		"payé en argent réel : remboursement par le trésorier",
 		"remboursement probable",
+		"Mollie (VPayDive)", "Paiement partiel : à vérifier.",
 	} {
 		assert.Contains(t, page, want)
 	}
@@ -41,4 +45,47 @@ func TestRequestPagePaymentsBlock(t *testing.T) {
 	_, tracking := e.tracking(t, hugo.Token)
 	assert.NotContains(t, tracking, "Paiements VPDive")
 	assert.NotContains(t, tracking, "180,00")
+}
+
+// Spec §7.5, §7.7 and §13: the « Encaissements Mollie » block of a request
+// page, its payments newest first, and never on the member's tracking page.
+func TestRequestPageMollieBlock(t *testing.T) {
+	e := newTestEnv(t)
+	e.importMembers(t, "members_valid.xlsx")
+	cookie := e.login(t)
+	hugo := e.submitTicket(t, "hugo.bernard@example.org")
+	lea := e.submitTicket(t, "lea.martin@example.org")
+
+	assert.Contains(t, e.openTicket(t, cookie, hugo.ID).body, "Aucun encaissement Mollie importé.")
+
+	e.importMollie(t)
+	page := e.openTicket(t, cookie, hugo.ID).body
+	for _, want := range []string{
+		"Encaissements Mollie",
+		"Export du fichier créé le 01/09/2026 (indicatif), importé le 02/09/2026 par Alice",
+		"Ce que Mollie a encaissé, vu par VPayDive, et si VPDive l'a soldé.",
+		"12/08/2026 à 14:05", "Carte de crédit", "total 53,00 €", "Sortie Porquerolles",
+		"Soldé dans VPDive.", "remboursement ou remise", "Pay by Bank",
+		"Encaissé par Mollie, non soldé dans VPDive : à vérifier.",
+		"Une tentative échouée ou expirée n'apparaît pas ici : elle se voit dans VPDive.",
+		"/f/mollie/index",
+	} {
+		assert.Contains(t, page, want)
+	}
+	assert.Less(t, strings.Index(page, "12/08/2026 à 14:05"), strings.Index(page, "03/07/2026 à 18:30"), "newest first")
+	assert.Contains(t, e.openTicket(t, cookie, lea.ID).body, "Plusieurs membres portent ce nom : aucun encaissement n'est affiché.")
+
+	checks := e.do(t, http.MethodGet, adminHost, "/anomalies", nil, withCookie(cookie)).Body.String()
+	csrf := csrfPattern.FindStringSubmatch(checks)[1]
+	for _, m := range fingerprintPattern.FindAllStringSubmatch(checks, -1) {
+		v := url.Values{"csrf": {csrf}, "empreinte": {m[1]}}
+		e.do(t, http.MethodPost, adminHost, "/anomalies/masquer", formBody(v), formType, withCookie(cookie))
+	}
+	page = e.openTicket(t, cookie, hugo.ID).body
+	assert.NotContains(t, page, "Encaissé par Mollie, non soldé dans VPDive : à vérifier.")
+	assert.Contains(t, page, "Vérifié par Alice (Présidente) le 02/09/2026.")
+
+	_, tracking := e.tracking(t, hugo.Token)
+	assert.NotContains(t, tracking, "Encaissements Mollie")
+	assert.NotContains(t, tracking, "53,00")
 }

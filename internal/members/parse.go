@@ -47,7 +47,8 @@ type Member struct {
 type Export struct {
 	ExportedAt time.Time // zero when row 2 holds no readable export date
 	Members    []Member
-	Skipped    int // rows without an email
+	Skipped    int    // rows without an email
+	FileHash   []byte // HMAC of the file, set by the caller (spec §7.6)
 }
 
 // ProblemKind classifies a refused export.
