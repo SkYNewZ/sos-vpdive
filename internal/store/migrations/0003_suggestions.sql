@@ -15,5 +15,6 @@ CREATE TABLE deflections (
 );
 
 -- Reads for the committee and the member go through this view: a draft is
--- never shown (spec §3.2).
+-- never shown (spec §3.2). SQLite expands * at schema load, so later ADD
+-- COLUMNs show up; a DROP or RENAME COLUMN on tickets must drop and recreate it.
 CREATE VIEW submitted_tickets AS SELECT * FROM tickets WHERE status != 'draft';

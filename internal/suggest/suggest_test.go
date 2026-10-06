@@ -3,6 +3,7 @@ package suggest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -197,6 +198,7 @@ func TestChooseReadsTheAnswer(t *testing.T) {
 		{"one long word cut at 200 runes", `{"fiches": [], "resume": "` + long + `"}`, Result{Summary: strings.Repeat("é", 199) + "…"}},
 		{"words cut at the last that fits", `{"fiches": [], "resume": "` + words + `"}`,
 			Result{Summary: strings.TrimSpace(strings.Repeat("mot ", 49)) + "…"}},
+		{"link written as a tag", `{"fiches": [], "resume": "Voir <a href=\"https://x.y\">ici</a> fin"}`, Result{Summary: "Voir ici fin"}},
 		{"only tags and addresses", `{"fiches": [], "resume": "<b></b> https://x.example"}`, Result{}},
 		{"200 runes kept whole", `{"fiches": [], "resume": "` + strings.Repeat("a", 200) + `"}`, Result{Summary: strings.Repeat("a", 200)}},
 	}
@@ -262,6 +264,45 @@ func TestChooseKeepsAwkwardTextAndPaths(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal([]byte(body.Messages[0].Content), &doc))
 	assert.Equal(t, awkward.Description, doc.Demande.Description, "quotes, backslashes, tags and emoji reach the model intact, as data")
+}
+
+func TestChooseDoesNotFollowRedirects(t *testing.T) {
+	elsewhere := &stub{status: http.StatusOK, text: `{"fiches": ["caci-redemande"], "resume": "x"}`}
+	target := httptest.NewServer(elsewhere)
+	t.Cleanup(target.Close)
+	moved := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL+"/v1/messages", http.StatusTemporaryRedirect)
+	}))
+	t.Cleanup(moved.Close)
+	base, err := url.Parse(moved.URL)
+	require.NoError(t, err)
+	c := New(&config.LLM{BaseURL: base, APIKey: "sk-test", Model: "m", Timeout: time.Second})
+	res, err := c.Choose(context.Background(), request, fiches)
+	require.ErrorIs(t, err, ErrHTTP, "a redirect means a misconfigured LLM_BASE_URL")
+	assert.Equal(t, Result{}, res)
+	elsewhere.mu.Lock()
+	defer elsewhere.mu.Unlock()
+	assert.Nil(t, elsewhere.req, "the request and its key never reach another host")
+}
+
+// closeFails is a response body whose Close fails.
+type closeFails struct{ io.Reader }
+
+func (closeFails) Close() error { return errors.New("close failed") }
+
+type closeFailsTransport struct{ body string }
+
+func (c closeFailsTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	return &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: closeFails{strings.NewReader(c.body)}, Request: r}, nil
+}
+
+func TestChooseReportsABodyThatFailsToClose(t *testing.T) {
+	base, err := url.Parse("https://llm.example")
+	require.NoError(t, err)
+	c := New(&config.LLM{BaseURL: base, APIKey: "k", Model: "m", Timeout: time.Second})
+	c.http.Transport = closeFailsTransport{body: `{"content": [{"type": "text", "text": "{\"fiches\": [], \"resume\": \"x\"}"}]}`}
+	_, err = c.Choose(context.Background(), request, fiches)
+	require.ErrorIs(t, err, ErrHTTP, "an error is never ignored")
 }
 
 func TestChooseUnreachableProvider(t *testing.T) {

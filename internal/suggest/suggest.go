@@ -77,7 +77,7 @@ type Client struct {
 	key      string
 	model    string
 	timeout  time.Duration
-	http     *http.Client // plain: no trace header leaves (spec §9.9)
+	http     *http.Client // plain: no trace header leaves (spec §9.9), no redirect followed
 }
 
 // New returns a client, nil when no key is configured.
@@ -88,7 +88,9 @@ func New(cfg *config.LLM) *Client {
 	return &Client{
 		endpoint: cfg.BaseURL.JoinPath("v1", "messages").String(),
 		key:      cfg.APIKey, model: cfg.Model, timeout: cfg.Timeout,
-		http: &http.Client{},
+		// The Messages API never redirects: a redirect is a wrong LLM_BASE_URL,
+		// and following it would hand the key to another host.
+		http: &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
 	}
 }
 
@@ -192,7 +194,7 @@ func (c *Client) body(req Request, fiches []Fiche) ([]byte, error) {
 }
 
 // post sends the request and returns the first text block of the answer.
-func (c *Client) post(ctx context.Context, body []byte) (string, error) {
+func (c *Client) post(ctx context.Context, body []byte) (text string, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(body))
 	if err != nil {
 		return "", fmt.Errorf("%w: %w", ErrHTTP, err)
@@ -204,7 +206,11 @@ func (c *Client) post(ctx context.Context, body []byte) (string, error) {
 	if err != nil {
 		return "", transportError(ctx, err)
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil && err == nil {
+			text, err = "", fmt.Errorf("%w: %w", ErrHTTP, cerr)
+		}
+	}()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, bodyLimit+1))
 	if err != nil {
 		return "", transportError(ctx, err)
@@ -265,14 +271,14 @@ func parse(text string, known []string) (Result, error) {
 	return res, nil
 }
 
-// cleanSummary keeps plain text: Markdown links become their text, web
-// addresses and tags go, spaces collapse. A longer text is cut at its last
+// cleanSummary keeps plain text: Markdown links become their text, tags
+// and web addresses go, spaces collapse. A longer text is cut at its last
 // word that fits, an ellipsis included in the 200 runes: the model often
 // writes a little more than asked.
 func cleanSummary(s string) string {
 	s = markdownLink.ReplaceAllString(s, "$1")
+	s = htmlTag.ReplaceAllString(s, " ") // before addresses: a tag may hold one
 	s = webAddress.ReplaceAllString(s, "")
-	s = htmlTag.ReplaceAllString(s, " ")
 	s = strings.Join(strings.Fields(s), " ")
 	if utf8.RuneCountInString(s) <= summaryMax {
 		return s
