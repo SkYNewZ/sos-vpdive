@@ -182,16 +182,17 @@ func newTestEnv(t *testing.T, opts ...func(*Deps)) *testEnv {
 	blobStore, err := blobs.NewDir(filepath.Join(dir, "captures"))
 	require.NoError(t, err)
 	memberStore := members.NewStore(db, keys, clock.now)
+	paymentStore := payments.NewStore(db, keys, clock.now)
 	outbox := mail.NewOutbox(db, keys, clock.now)
 	broker := NewBroker()
 	ticketStore := tickets.NewStore(tickets.Deps{
-		DB: db, Keys: keys, Catalog: catalog, Members: memberStore, Payments: payments.NewStore(db, keys, clock.now),
+		DB: db, Keys: keys, Catalog: catalog, Members: memberStore, Payments: paymentStore,
 		Outbox: outbox, Blobs: blobStore,
 		Account: registry.Get, BaseURL: cfg.BaseURL, AdminBaseURL: cfg.AdminBaseURL, ClubEmail: clubEmail,
 		RetentionDays: cfg.RetentionDays, Now: clock.now, Logger: logger, OnChange: broker.Publish,
 	})
 	deps := Deps{
-		Config: cfg, DB: db, Keys: keys, Members: memberStore, Admins: registry,
+		Config: cfg, DB: db, Keys: keys, Members: memberStore, Payments: paymentStore, Admins: registry,
 		Tickets: ticketStore, Outbox: outbox, Push: push.NewStore(db, keys, clock.now), Broker: broker, KB: base,
 		Content: sosvpdive.Content, Logger: logger, Now: clock.now,
 	}
@@ -278,7 +279,7 @@ func (e *testEnv) importMembers(t *testing.T, fixture string) {
 // importPayments imports payments_valid.xlsx directly through the payments store.
 func (e *testEnv) importPayments(t *testing.T) {
 	t.Helper()
-	paymentstest.Import(t, e.deps.Tickets.Payments, "payments_valid.xlsx")
+	paymentstest.Import(t, e.deps.Payments, "payments_valid.xlsx")
 }
 
 // count counts the rows of a table.

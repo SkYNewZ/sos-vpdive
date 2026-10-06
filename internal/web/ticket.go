@@ -12,6 +12,7 @@ import (
 	"github.com/SkYNewZ/sos-vpdive/internal/admins"
 	"github.com/SkYNewZ/sos-vpdive/internal/kb"
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
+	"github.com/SkYNewZ/sos-vpdive/internal/payments"
 	"github.com/SkYNewZ/sos-vpdive/internal/tickets"
 )
 
@@ -47,6 +48,7 @@ type ticketData struct {
 	Removed    []string   // ids of chosen fiches no longer in kb/
 	Links      []vpdiveLink
 	Filter     paymentsFilter
+	Payments   payments.Block
 }
 
 // profileView is the requester as the last members import knows them.
@@ -144,6 +146,11 @@ func (s *Server) ticketView(ctx context.Context, t *tickets.Detail) (ticketData,
 	if found {
 		d.Profile = newProfileView(profile)
 		name = profile.FirstName + " " + profile.LastName
+	}
+	// Payments are found through the members list only, never through the
+	// typed name (spec §7.3): profile.NameHash is nil when not found.
+	if d.Payments, err = s.payments.Block(ctx, profile.NameHash); err != nil {
+		return ticketData{}, err
 	}
 	today := s.now().In(s.paris)
 	d.Filter = paymentsFilter{

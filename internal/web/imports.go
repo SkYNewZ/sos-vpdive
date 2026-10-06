@@ -239,5 +239,8 @@ func (s *Server) formatTime(t time.Time) string {
 }
 
 func (s *Server) formatDate(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
 	return t.In(s.paris).Format(dateFormat)
 }

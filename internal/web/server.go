@@ -22,6 +22,7 @@ import (
 	"github.com/SkYNewZ/sos-vpdive/internal/kb"
 	"github.com/SkYNewZ/sos-vpdive/internal/mail"
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
+	"github.com/SkYNewZ/sos-vpdive/internal/payments"
 	"github.com/SkYNewZ/sos-vpdive/internal/push"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 	"github.com/SkYNewZ/sos-vpdive/internal/suggest"
@@ -30,19 +31,20 @@ import (
 
 // Deps are the server's collaborators.
 type Deps struct {
-	Config  *config.Config
-	DB      *sql.DB
-	Keys    *secure.Keys
-	Members *members.Store
-	Admins  *admins.Registry
-	Tickets *tickets.Store
-	Outbox  *mail.Outbox
-	Push    *push.Store // committee devices subscribed to Web Push
-	Broker  *Broker     // shared with tickets.Deps.OnChange
-	KB      *kb.Base
-	Content fs.FS
-	Logger  *slog.Logger
-	Now     func() time.Time
+	Config   *config.Config
+	DB       *sql.DB
+	Keys     *secure.Keys
+	Members  *members.Store
+	Payments *payments.Store
+	Admins   *admins.Registry
+	Tickets  *tickets.Store
+	Outbox   *mail.Outbox
+	Push     *push.Store // committee devices subscribed to Web Push
+	Broker   *Broker     // shared with tickets.Deps.OnChange
+	KB       *kb.Base
+	Content  fs.FS
+	Logger   *slog.Logger
+	Now      func() time.Time
 
 	Turnstile *Turnstile // nil in development without keys
 }
@@ -53,6 +55,7 @@ type Server struct {
 	db        *sql.DB
 	keys      *secure.Keys
 	members   *members.Store
+	payments  *payments.Store
 	admins    *admins.Registry
 	tickets   *tickets.Store
 	outbox    *mail.Outbox
@@ -103,7 +106,7 @@ func New(d Deps) (*Server, error) {
 		return nil, fmt.Errorf("time zone: %w", err)
 	}
 	s := &Server{
-		cfg: d.Config, db: d.DB, keys: d.Keys, members: d.Members, admins: d.Admins,
+		cfg: d.Config, db: d.DB, keys: d.Keys, members: d.Members, payments: d.Payments, admins: d.Admins,
 		tickets: d.Tickets, outbox: d.Outbox, push: d.Push, broker: d.Broker, kb: d.KB, suggest: suggest.New(d.Config.LLM),
 		keepAlive: keepAliveInterval,
 		logger:    d.Logger, now: d.Now, paris: paris, tracer: otel.Tracer(tracerName),
