@@ -5,6 +5,10 @@ go 1.27.1
 require (
 	github.com/dicebear/dicebear-go/v10 v10.7.0
 	github.com/dicebear/styles/v10 v10.6.0
+	github.com/getsentry/sentry-go v0.49.0
+	github.com/getsentry/sentry-go/otel v0.49.0
+	github.com/getsentry/sentry-go/otel/otlp v0.49.0
+	github.com/getsentry/sentry-go/slog v0.49.0
 	github.com/minio/minio-go/v7 v7.3.0
 	github.com/stretchr/testify v1.12.1
 	go.opentelemetry.io/otel v1.47.0

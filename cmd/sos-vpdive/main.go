@@ -22,6 +22,10 @@ commands:
   vapid-keys       print a new key pair for the committee's push notifications
 `
 
+// version names the build in logs and Sentry events. The Makefile and the
+// Dockerfile set it with -ldflags "-X main.version=…".
+var version = "dev"
+
 // usageError reports a wrong command line.
 type usageError struct{ msg string }
 

@@ -211,6 +211,7 @@ func TestServeAnswersHealthcheckAndStops(t *testing.T) {
 		t.Fatal("serve did not stop")
 	}
 	assert.Contains(t, logs.String(), `"msg":"listening"`)
+	assert.Contains(t, logs.String(), `"version":"dev"`)
 	assert.Contains(t, logs.String(), `"level":"WARN","msg":"configuration ignored","error":"UMAMI_SCRIPT_URL: `)
 	assert.NotContains(t, logs.String(), env["SECRET_KEY"])
 }
