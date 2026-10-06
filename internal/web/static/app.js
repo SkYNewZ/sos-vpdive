@@ -253,3 +253,54 @@ if ("serviceWorker" in navigator) {
 for (const button of document.querySelectorAll("[data-reload]")) {
   button.addEventListener("click", () => location.reload());
 }
+
+// Committee notifications page (spec §9.6): push on or off for this device.
+// pushManager.subscribe comes first in the tap handler: Safari asks for the
+// permission only from a direct tap.
+const pushBox = document.querySelector("[data-push]");
+if (pushBox) {
+  const show = (state) => {
+    for (const el of pushBox.querySelectorAll("[data-push-state]")) el.hidden = el.dataset.pushState !== state;
+  };
+  const failed = (on) => {
+    pushBox.querySelector("[data-push-error]").hidden = !on;
+  };
+  const csrf = document.querySelector('input[name="csrf"]')?.value ?? "";
+  const post = async (path, fields) => {
+    const response = await fetch(path, { method: "POST", body: new URLSearchParams({ csrf, ...fields }) });
+    if (!response.ok) throw new Error(`${path}: ${response.status}`);
+  };
+  const base64 = pushBox.dataset.vapidKey.replaceAll("-", "+").replaceAll("_", "/");
+  const serverKey = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+  if (!("serviceWorker" in navigator && "PushManager" in window && "Notification" in window)) {
+    show(navigator.standalone === false ? "install" : "unsupported");
+  } else if (Notification.permission === "denied") {
+    show("denied");
+  } else {
+    show(pushBox.dataset.subscribed === "true" ? "on" : "off");
+    navigator.serviceWorker.ready.then((registration) => {
+      pushBox.querySelector("[data-push-on]").addEventListener("click", async () => {
+        failed(false);
+        try {
+          const subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: serverKey });
+          const { p256dh, auth } = subscription.toJSON().keys;
+          await post("/push/abonnement", { endpoint: subscription.endpoint, p256dh, auth });
+          show("on");
+        } catch {
+          if (Notification.permission === "denied") show("denied");
+          else failed(true);
+        }
+      });
+      pushBox.querySelector("[data-push-off]").addEventListener("click", async () => {
+        failed(false);
+        try {
+          await post("/push/desabonnement", {});
+          await (await registration.pushManager.getSubscription())?.unsubscribe();
+          show("off");
+        } catch {
+          failed(true);
+        }
+      });
+    });
+  }
+}

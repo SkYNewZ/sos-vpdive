@@ -22,6 +22,7 @@ import (
 	"github.com/SkYNewZ/sos-vpdive/internal/kb"
 	"github.com/SkYNewZ/sos-vpdive/internal/mail"
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
+	"github.com/SkYNewZ/sos-vpdive/internal/push"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 	"github.com/SkYNewZ/sos-vpdive/internal/suggest"
 	"github.com/SkYNewZ/sos-vpdive/internal/tickets"
@@ -36,7 +37,8 @@ type Deps struct {
 	Admins  *admins.Registry
 	Tickets *tickets.Store
 	Outbox  *mail.Outbox
-	Broker  *Broker // shared with tickets.Deps.OnChange
+	Push    *push.Store // committee devices subscribed to Web Push
+	Broker  *Broker     // shared with tickets.Deps.OnChange
 	KB      *kb.Base
 	Content fs.FS
 	Logger  *slog.Logger
@@ -54,6 +56,7 @@ type Server struct {
 	admins    *admins.Registry
 	tickets   *tickets.Store
 	outbox    *mail.Outbox
+	push      *push.Store
 	broker    *Broker
 	kb        *kb.Base
 	suggest   *suggest.Client // nil without LLM_API_KEY: no screen 2
@@ -101,7 +104,7 @@ func New(d Deps) (*Server, error) {
 	}
 	s := &Server{
 		cfg: d.Config, db: d.DB, keys: d.Keys, members: d.Members, admins: d.Admins,
-		tickets: d.Tickets, outbox: d.Outbox, broker: d.Broker, kb: d.KB, suggest: suggest.New(d.Config.LLM),
+		tickets: d.Tickets, outbox: d.Outbox, push: d.Push, broker: d.Broker, kb: d.KB, suggest: suggest.New(d.Config.LLM),
 		keepAlive: keepAliveInterval,
 		logger:    d.Logger, now: d.Now, paris: paris, tracer: otel.Tracer(tracerName),
 		turnstile: d.Turnstile,
@@ -191,6 +194,9 @@ func (s *Server) adminRoutes() *http.ServeMux {
 	s.handle(mux, "POST /effacement", s.signedIn(s.erase))
 	s.handle(mux, "GET /fiches", s.signedIn(s.fichesPage))
 	s.handle(mux, "GET /envois", s.signedIn(s.failedMails))
+	s.handle(mux, "GET /notifications", s.signedIn(s.notificationsPage))
+	s.handle(mux, "POST /push/abonnement", s.signedIn(s.subscribePush))
+	s.handle(mux, "POST /push/desabonnement", s.signedIn(s.unsubscribePush))
 	s.handle(mux, "POST /envois/{id}/relancer", s.signedIn(s.retryMail))
 	// The event stream is neither traced nor logged (spec §9.9).
 	mux.HandleFunc("GET /evenements", s.events)

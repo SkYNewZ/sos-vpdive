@@ -1,0 +1,32 @@
+{{define "main"}}
+{{$d := .Data}}
+<h1 class="text-2xl font-bold text-primary">Notifications</h1>
+<p class="mt-4">Les mails à la boîte du club arrivent dans tous les cas. Ici, tu choisis ce qui arrive en plus sur ton téléphone : une alerte pour chaque nouvelle demande et chaque réponse d'adhérent.</p>
+{{if $d.WebPush}}
+<section class="mt-8" aria-labelledby="appareil">
+<h2 id="appareil" class="text-xl font-semibold">Sur cet appareil</h2>
+<div class="mt-3" data-push data-vapid-key="{{$d.VAPIDKey}}" data-subscribed="{{$d.Subscribed}}">
+<p data-push-state="install" hidden>Sur iPhone, ajoute d'abord SOS CPP Comité à l'écran d'accueil (bouton Partager, puis « Sur l'écran d'accueil »). Ouvre l'appli ainsi installée et reviens sur cette page.</p>
+<p data-push-state="unsupported" hidden>Ce navigateur ne gère pas les notifications.</p>
+<p data-push-state="denied" hidden>Les notifications sont bloquées pour SOS CPP Comité. Autorise-les dans les réglages du téléphone, puis recharge cette page.</p>
+<div data-push-state="on" hidden>
+<p>Activées sur cet appareil.</p>
+<button class="btn btn-outline mt-3 min-h-11" type="button" data-push-off>Désactiver sur cet appareil</button>
+</div>
+<div data-push-state="off" hidden>
+<p>Pas encore activées sur cet appareil.</p>
+<button class="btn btn-primary mt-3 min-h-11" type="button" data-push-on>Activer sur cet appareil</button>
+</div>
+<p class="mt-3 font-semibold text-error" data-push-error hidden>Ça n'a pas marché. Réessaie dans un instant.</p>
+<noscript><p>Il faut JavaScript pour activer les notifications sur cet appareil.</p></noscript>
+</div>
+</section>
+{{end}}
+{{if $d.Pushover}}
+<section class="mt-8" aria-labelledby="pushover">
+<h2 id="pushover" class="text-xl font-semibold">Pushover</h2>
+<p class="mt-3">{{if $d.PushoverOn}}Actif pour ton compte : chaque alerte arrive aussi dans ton application Pushover.{{else}}Pas configuré pour ton compte : ta clé Pushover se règle dans le fichier des comptes.{{end}}</p>
+</section>
+{{end}}
+{{if not (or $d.WebPush $d.Pushover)}}<p class="mt-6">Aucune notification sur téléphone n'est configurée sur ce serveur.</p>{{end}}
+{{end}}
