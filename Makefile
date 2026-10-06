@@ -14,7 +14,7 @@ css:
 
 # Regenerate the synthetic workbooks in testdata/fixtures/.
 fixtures:
-	go test ./internal/members -run TestFixturesAreUpToDate -update
+	go test ./internal/members ./internal/payments -run TestFixturesAreUpToDate -update
 
 build: css
 	CGO_ENABLED=0 go build -trimpath -o bin/sos-vpdive ./cmd/sos-vpdive
