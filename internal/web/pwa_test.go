@@ -147,3 +147,18 @@ func TestEveryMemberPageLinksBackToTheForm(t *testing.T) {
 	_, body := e.tracking(t, tt.Token)
 	assert.Contains(t, body, `href="/"`, "the tracking page, opened from a mail, leads to the form")
 }
+
+func TestPagesMarkTheLocalDraftSteps(t *testing.T) {
+	e, _ := modelEnv(t, 200)
+	form := e.do(t, http.MethodGet, publicHost, "/", nil).Body.String()
+	assert.Contains(t, form, `enctype="multipart/form-data" class="mt-6 flex flex-col gap-5" data-draft>`, "app.js keeps this form's text")
+	assert.Contains(t, form, `data-draft-note hidden`, "the note shows only when storage works")
+	assert.Contains(t, form, `data-draft-clear`)
+
+	page, _ := e.screen2(t, validRequest(e.formKey(t)))
+	assert.Contains(t, page, "data-draft-key-used", "screen 2: the key reached the server")
+	for _, path := range []string{"/demandes/envoyee?ref=CPP-0001", "/demandes/abandonnee"} {
+		assert.Contains(t, e.do(t, http.MethodGet, publicHost, path, nil).Body.String(), "data-draft-done", path)
+	}
+	assert.NotContains(t, form, "data-draft-done")
+}

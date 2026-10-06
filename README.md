@@ -186,6 +186,9 @@ site est disponible » and reload only when asked.
   names in `internal/web/pwa.go` and `templates/layout.html`.
 - Browsers older than Chrome 111, Safari 16.4 or Firefox 128 get a short
   notice with the club's address instead of the page.
+- The request form keeps what a member types in the browser's storage until
+  the request leaves, 7 days at most, so a lost connection or a closed tab
+  loses nothing. Screenshots and tokens are never kept there.
 
 ## Committee alerts
 

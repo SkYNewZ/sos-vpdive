@@ -11,7 +11,7 @@
 <p class="mt-2">En attendant, écris au club : <a class="link link-primary break-words" href="mailto:{{.ClubEmail}}">{{.ClubEmail}}</a>.</p>
 </div>
 {{else}}
-<form method="post" action="/demandes" enctype="multipart/form-data" class="mt-6 flex flex-col gap-5">
+<form method="post" action="/demandes" enctype="multipart/form-data" class="mt-6 flex flex-col gap-5" data-draft>
 <input type="hidden" name="cle" value="{{$d.FormKey}}" autocomplete="off">
 <div class="hidden" aria-hidden="true">
 <label for="site_web">Laisse ce champ vide</label>
@@ -75,6 +75,10 @@
 <noscript><p class="font-semibold">L'envoi demande JavaScript, pour le contrôle anti-robot. Active-le, ou écris au club : {{.ClubEmail}}.</p></noscript>{{end}}
 <button class="btn btn-primary min-h-11 w-full sm:w-auto sm:self-start" type="submit">Envoyer ma demande</button>
 </form>
+<div class="mt-3 flex flex-wrap items-center gap-x-3 text-sm" data-draft-note hidden>
+<p>Ta saisie est gardée sur cet appareil jusqu'à l'envoi.</p>
+<button class="btn btn-ghost btn-sm min-h-11" type="button" data-draft-clear>Effacer ma saisie</button>
+</div>
 <p class="mt-6 text-sm">Tu as perdu le lien de suivi d'une demande ? <a class="link link-primary" href="/retrouver">Reçois-le de nouveau</a>.</p>
 {{end}}
 {{end}}

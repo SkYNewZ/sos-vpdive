@@ -19,6 +19,76 @@
   sync();
 })();
 
+// Member form: the text being typed stays on this device until the request
+// leaves (spec §9.6), with the form key of §3.2, so that sending again after
+// a lost answer finds the same request. Never the screenshots, the
+// anti-robot token or the screen 2 token. Seven days at most.
+const DRAFT = "sos-vpdive-brouillon";
+const DRAFT_MAX_AGE = 7 * 24 * 3600 * 1000;
+const NOT_KEPT = new Set(["captures", "site_web", "cf-turnstile-response"]);
+
+const readDraft = () => {
+  try {
+    const draft = JSON.parse(localStorage.getItem(DRAFT) || "null");
+    if (draft && Date.now() - draft.savedAt < DRAFT_MAX_AGE) return draft;
+    localStorage.removeItem(DRAFT);
+  } catch {
+    // Storage unavailable or unreadable: no draft.
+  }
+  return null;
+};
+
+// writeDraft stores draft, or removes it when null; false when storage fails.
+const writeDraft = (draft) => {
+  try {
+    if (draft) localStorage.setItem(DRAFT, JSON.stringify(draft));
+    else localStorage.removeItem(DRAFT);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+// After sending, or after « Ça règle mon problème », nothing is kept.
+if (document.querySelector("[data-draft-done]")) writeDraft(null);
+
+// Screen 2: the server holds the form key now. The text stays, the key goes,
+// so text edited later never brings back this stored draft.
+if (document.querySelector("[data-draft-key-used]")) {
+  const draft = readDraft();
+  if (draft) {
+    delete draft.fields.cle;
+    writeDraft(draft);
+  }
+}
+
+const draftForm = document.querySelector("form[data-draft]");
+const draftNote = document.querySelector("[data-draft-note]");
+// Writing the draft back as it is tells whether storage works at all.
+if (draftForm && draftNote && writeDraft(readDraft())) {
+  const serverKey = draftForm.elements.cle.value;
+  const kept = () =>
+    [...draftForm.elements].filter((el) => el.name && !NOT_KEPT.has(el.name) && !["file", "submit", "button"].includes(el.type));
+  const showCategory = () => draftForm.querySelector("[data-category-select]")?.dispatchEvent(new Event("change"));
+  const draft = readDraft();
+  if (draft) {
+    // A page sent back with remarks keeps what the server filled in.
+    for (const el of kept()) {
+      if (el.name in draft.fields && (el.name === "cle" || el.value === "")) el.value = draft.fields[el.name];
+    }
+    showCategory();
+  }
+  const save = () => writeDraft({ savedAt: Date.now(), fields: Object.fromEntries(kept().map((el) => [el.name, el.value])) });
+  draftForm.addEventListener("input", save);
+  draftForm.addEventListener("change", save);
+  draftNote.hidden = false;
+  draftNote.querySelector("[data-draft-clear]").addEventListener("click", () => {
+    writeDraft(null);
+    for (const el of kept()) el.value = el.name === "cle" ? serverKey : "";
+    showCategory();
+  });
+}
+
 // Every POST form goes out once: a second tap or click would reuse a
 // single-use anti-robot token (member form) or hit a stale page (committee).
 // The submit button stays enabled: a disabled submitter drops its name=action.
