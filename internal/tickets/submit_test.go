@@ -72,17 +72,17 @@ func TestSubmitTwiceWithTheSameFormKey(t *testing.T) {
 	e := newTestStore(t)
 	ctx := context.Background()
 	sub := submission(t)
-	first, err := e.store.Submit(ctx, sub)
+	first, err := e.store.Submit(ctx, sub, nil)
 	require.NoError(t, err)
-	second, err := e.store.Submit(ctx, sub)
+	second, err := e.store.Submit(ctx, sub, nil)
 	require.NoError(t, err)
 	assert.Equal(t, first, second)
 	assert.Equal(t, 1, e.count(t, `SELECT COUNT(*) FROM tickets`))
 
-	ref, found, err := e.store.Resubmitted(ctx, sub.FormKey)
+	out, found, err := e.store.Resubmitted(ctx, sub.FormKey)
 	require.NoError(t, err)
 	assert.True(t, found)
-	assert.Equal(t, first, ref)
+	assert.Equal(t, first, out)
 	_, found, err = e.store.Resubmitted(ctx, "another key")
 	require.NoError(t, err)
 	assert.False(t, found)
@@ -93,19 +93,19 @@ func TestResubmittedConfirmsALeftoverDraft(t *testing.T) {
 	e := newTestStore(t)
 	ctx := context.Background()
 	sub := submission(t)
-	first, err := e.store.Submit(ctx, sub)
+	first, err := e.store.Submit(ctx, sub, nil)
 	require.NoError(t, err)
-	id := e.idOf(t, first)
+	id := e.idOf(t, first.Ref)
 	// Simulate a crash between the draft and its confirmation.
 	_, err = e.db.ExecContext(context.Background(), `UPDATE tickets SET status = 'draft', ref = NULL, submitted_at = NULL WHERE id = ?`, id)
 	require.NoError(t, err)
 	_, err = e.db.ExecContext(context.Background(), `DELETE FROM outbox`)
 	require.NoError(t, err)
 
-	ref, found, err := e.store.Resubmitted(ctx, sub.FormKey)
+	out, found, err := e.store.Resubmitted(ctx, sub.FormKey)
 	require.NoError(t, err)
 	assert.True(t, found)
-	assert.Equal(t, "CPP-0002", ref, "a confirmation draws a new reference")
+	assert.Equal(t, Outcome{Ref: "CPP-0002"}, out, "a confirmation draws a new reference")
 	status, _ := e.status(t, id)
 	assert.Equal(t, StatusTodo, status)
 	assert.Len(t, e.mails(t), 2)
@@ -114,11 +114,11 @@ func TestResubmittedConfirmsALeftoverDraft(t *testing.T) {
 func TestConcurrentSubmitsWithOneFormKeyCreateOneTicket(t *testing.T) {
 	e := newTestStore(t)
 	sub := submission(t)
-	refs := make([]string, 5)
+	refs := make([]Outcome, 5)
 	errs := make([]error, 5)
 	var wg sync.WaitGroup
 	for i := range refs {
-		wg.Go(func() { refs[i], errs[i] = e.store.Submit(context.Background(), sub) })
+		wg.Go(func() { refs[i], errs[i] = e.store.Submit(context.Background(), sub, nil) })
 	}
 	wg.Wait()
 	for i := range refs {
@@ -185,7 +185,7 @@ func TestStorageFailureStoresNothing(t *testing.T) {
 	})
 	sub := submission(t)
 	sub.Captures = []Upload{png(), png()}
-	_, err := e.store.Submit(context.Background(), sub)
+	_, err := e.store.Submit(context.Background(), sub, nil)
 	require.ErrorIs(t, err, ErrStorage)
 	assert.Equal(t, 0, e.count(t, `SELECT COUNT(*) FROM tickets`))
 	assert.Empty(t, e.objects(t), "the first upload was removed")
@@ -196,11 +196,11 @@ func TestSubmitRefusesInvalidInput(t *testing.T) {
 	e := newTestStore(t)
 	sub := submission(t)
 	sub.FormKey = ""
-	_, err := e.store.Submit(context.Background(), sub)
+	_, err := e.store.Submit(context.Background(), sub, nil)
 	require.ErrorIs(t, err, ErrInvalid)
 	sub = submission(t)
 	sub.Captures = []Upload{png(), png(), png(), png()}
-	_, err = e.store.Submit(context.Background(), sub)
+	_, err = e.store.Submit(context.Background(), sub, nil)
 	require.ErrorIs(t, err, ErrInvalid)
 }
 

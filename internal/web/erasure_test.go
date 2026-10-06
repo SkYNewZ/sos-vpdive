@@ -73,8 +73,9 @@ func TestErasureOfAPerson(t *testing.T) {
 func TestFailedMailsBannerListAndRetry(t *testing.T) {
 	e := newTestEnv(t)
 	ctx := context.Background()
-	ref, err := e.deps.Tickets.Submit(ctx, newSubmission(t, "lea.martin@example.org"))
+	out, err := e.deps.Tickets.Submit(ctx, newSubmission(t, "lea.martin@example.org"), nil)
 	require.NoError(t, err)
+	ref := out.Ref
 	e.sender.fail(fmt.Errorf("550 mailbox unavailable: %w", mail.ErrPermanent))
 	sent, err := e.deps.Outbox.SendDue(ctx, e.sender)
 	require.NoError(t, err)

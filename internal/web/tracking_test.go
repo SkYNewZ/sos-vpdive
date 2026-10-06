@@ -59,8 +59,9 @@ func (e *testEnv) submitTicket(t *testing.T, email string, opts ...func(*tickets
 	for _, opt := range opts {
 		opt(&sub)
 	}
-	ref, err := e.deps.Tickets.Submit(ctx, sub)
+	out, err := e.deps.Tickets.Submit(ctx, sub, nil)
 	require.NoError(t, err)
+	ref := out.Ref
 	tt := testTicket{Ref: ref}
 	require.NoError(t, e.db.QueryRowContext(ctx, `SELECT id FROM tickets WHERE ref = ?`, ref).Scan(&tt.ID))
 	for _, m := range e.mails(t) {

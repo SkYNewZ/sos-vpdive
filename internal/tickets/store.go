@@ -254,6 +254,15 @@ func (s *Store) openAll(dst []*string, sealed ...[]byte) error {
 	return nil
 }
 
+// openOptional decrypts a sealed column that may be NULL, such as the
+// summary, into dst; NULL leaves dst empty.
+func (s *Store) openOptional(dst *string, sealed []byte) error {
+	if sealed == nil {
+		return nil
+	}
+	return s.openAll([]*string{dst}, sealed)
+}
+
 // addEvent journals an event. data never holds personal data.
 func (s *Store) addEvent(ctx context.Context, tx *sql.Tx, ticketID int64, typ eventType, actor string, data map[string]string) error {
 	raw := []byte("{}")

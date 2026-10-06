@@ -121,13 +121,13 @@ func (s *Server) submit(w http.ResponseWriter, r *http.Request) {
 	}
 	// A resend of the same form (lost response, double tap) finds the request
 	// already filed, whatever its new anti-robot token.
-	ref, found, err := s.tickets.Resubmitted(ctx, d.FormKey)
+	out, found, err := s.tickets.Resubmitted(ctx, d.FormKey)
 	if err != nil {
 		s.serverError(w, r, err)
 		return
 	}
 	if found {
-		redirectSent(w, r, ref)
+		redirectSent(w, r, out.Ref)
 		return
 	}
 	sub := s.readSubmission(&d)
@@ -139,8 +139,8 @@ func (s *Server) submit(w http.ResponseWriter, r *http.Request) {
 	if !allowed {
 		// A duplicate POST can land while the first is still being filed and
 		// count against the limit: the request exists, so confirm it.
-		if ref, found, err := s.tickets.Resubmitted(ctx, d.FormKey); err == nil && found {
-			redirectSent(w, r, ref)
+		if out, found, err := s.tickets.Resubmitted(ctx, d.FormKey); err == nil && found {
+			redirectSent(w, r, out.Ref)
 			return
 		}
 		s.renderForm(w, r, http.StatusTooManyRequests, d, &notice{Kind: noticeError,
@@ -163,7 +163,7 @@ func (s *Server) submit(w http.ResponseWriter, r *http.Request) {
 		s.renderForm(w, r, http.StatusUnprocessableEntity, d, nil)
 		return
 	}
-	ref, err = s.tickets.Submit(ctx, sub)
+	out, err = s.tickets.Submit(ctx, sub, nil)
 	switch {
 	case errors.Is(err, tickets.ErrStorage):
 		s.renderForm(w, r, http.StatusServiceUnavailable, d, &notice{Kind: noticeError,
@@ -171,7 +171,7 @@ func (s *Server) submit(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		s.serverError(w, r, err)
 	default:
-		redirectSent(w, r, ref)
+		redirectSent(w, r, out.Ref)
 	}
 }
 

@@ -246,7 +246,7 @@ func TestSetupReleasesRequestsOfAccountsRemovedWhileStopped(t *testing.T) {
 		Email:       "lea.martin@example.org",
 		Fields:      tickets.Fields{Category: "autre", Values: map[string]string{}},
 		Description: "Je ne retrouve pas mon inscription à la sortie de samedi.",
-	})
+	}, nil)
 	require.NoError(t, err)
 	rows, err := a.tickets.Board(ctx, tickets.Filter{})
 	require.NoError(t, err)

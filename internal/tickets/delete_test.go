@@ -109,7 +109,7 @@ func TestErase(t *testing.T) {
 	require.NoError(t, e.apply(t, first, Command{Action: ActionClose}))
 	other := submission(t)
 	other.Email = "hugo.bernard@example.org"
-	_, err := e.store.Submit(ctx, other)
+	_, err := e.store.Submit(ctx, other, nil)
 	require.NoError(t, err)
 	require.NoError(t, e.store.SendLinks(ctx, memberAddress))
 
