@@ -17,6 +17,9 @@ import (
 // the shared strings table.
 type Inline string
 
+// Error is an error value such as #N/A (t="e"), as a broken formula leaves.
+type Error string
+
 // Sheet lists rows; a nil row leaves a gap in the row numbers. In a row, a nil
 // cell leaves its column empty. Cells are string, Inline, int, float64 or
 // bool; any other value is written as its fmt.Sprint string.
@@ -69,6 +72,8 @@ func BuildCreated(tb testing.TB, created time.Time, sheets ...Sheet) []byte {
 				}
 				ref := colName(c) + strconv.Itoa(r+1)
 				switch v := v.(type) {
+				case Error:
+					fmt.Fprintf(&b, `<c r="%s" t="e"><v>%s</v></c>`, ref, html.EscapeString(string(v)))
 				case Inline:
 					fmt.Fprintf(&b, `<c r="%s" t="inlineStr"><is><t xml:space="preserve">%s</t></is></c>`, ref, html.EscapeString(string(v)))
 				case int:

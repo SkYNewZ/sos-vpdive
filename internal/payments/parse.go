@@ -257,7 +257,7 @@ func amount(c xlsx.Cell) (Amount, bool) {
 		if !numberText.MatchString(text) {
 			return 0, false
 		}
-	case xlsx.KindBool:
+	case xlsx.KindBool, xlsx.KindError:
 		return 0, false
 	}
 	r, ok := new(big.Rat).SetString(text)

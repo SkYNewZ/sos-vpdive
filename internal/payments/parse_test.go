@@ -108,11 +108,13 @@ func TestParseRefusesUnreadableAmountsWithTheirRows(t *testing.T) {
 	twoDots["Montant réduc."] = "12.5.1"
 	fraction := paid("Bernard", "Hugo", 30, "vpaydive", "Baptême", "05/01/2026 10:12:00")
 	fraction["Quantité"] = "1/2"
+	excelError := paid("Bernard", "Hugo", 30, "vpaydive", "Baptême", "05/01/2026 10:12:00")
+	excelError["Montant paiement"] = xlsxtest.Error("#N/A")
 
-	_, err := parseSheet(t, ok, words, twoDots, fraction)
+	_, err := parseSheet(t, ok, words, twoDots, fraction, excelError)
 	pe := parseError(t, err)
 	assert.Equal(t, ProblemInvalidNumber, pe.Kind)
-	assert.Equal(t, []int{3, 4, 5}, pe.Rows)
+	assert.Equal(t, []int{3, 4, 5, 6}, pe.Rows, "an Excel error is unreadable, not zero")
 }
 
 func TestParseRefusesUnreadableCreationDates(t *testing.T) {

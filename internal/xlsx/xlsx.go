@@ -36,6 +36,7 @@ const (
 	KindString Kind = iota + 1
 	KindNumber
 	KindBool
+	KindError // an error value such as #N/A, with no text: it reads as empty
 )
 
 // tagPhonetic is the phonetic-run element, whose text is never read.
@@ -512,8 +513,8 @@ func makeCell(col int, typ, raw string, shared []string) (Cell, bool, error) {
 	case "b":
 		raw = strings.TrimSpace(raw)
 		return Cell{Col: col, Kind: KindBool, Text: raw}, raw != "", nil
-	case "e": // error values such as #N/A read as empty
-		return Cell{}, false, nil
+	case "e":
+		return Cell{Col: col, Kind: KindError}, true, nil
 	case "", "n":
 		raw = strings.TrimSpace(raw)
 		if raw == "" {

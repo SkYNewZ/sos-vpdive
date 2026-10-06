@@ -39,7 +39,8 @@ func TestReadCellKindsAndGaps(t *testing.T) {
 		{Col: 1, Kind: KindBool, Text: "1"},
 		{Col: 2, Kind: KindString, Text: "en ligne"},
 		{Col: 3, Kind: KindString, Text: "formule"},
-	}}, rows[1])
+		{Col: 4, Kind: KindError},
+	}}, rows[1], "an error value is kept, so a reader can refuse it, but holds no text")
 	n, ok := rows[1].Cells[0].Number()
 	assert.True(t, ok)
 	assert.InDelta(t, 2026.0, n, 0)
