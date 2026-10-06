@@ -223,6 +223,16 @@ func TestAdversarialModelOutputStaysPlain(t *testing.T) {
 	assert.Equal(t, []string{}, d.KBIDs)
 }
 
+func TestExpiredDraftCannotBeAbandoned(t *testing.T) {
+	e, _ := modelEnv(t, 200)
+	_, token := e.screen2(t, validRequest(e.formKey(t)))
+	e.clock.advance(24 * time.Hour)
+	rec := e.draftAction(t, "/demandes/abandonner", token)
+	assert.Equal(t, http.StatusGone, rec.Code)
+	assert.Contains(t, html.UnescapeString(rec.Body.String()), "Cette demande n'est plus disponible")
+	assert.Equal(t, 0, e.count(t, "deflections"))
+}
+
 func TestLostResponseShowsScreen2Again(t *testing.T) {
 	e, m := modelEnv(t, 200)
 	v := validRequest(e.formKey(t))

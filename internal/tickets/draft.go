@@ -29,7 +29,9 @@ type Draft struct {
 
 // suggested stores the model's answer. Fiches on a draft lead to screen 2;
 // otherwise, or when the draft was confirmed meanwhile, the request is
-// confirmed. The answer is kept either way for the committee (spec §5.3).
+// confirmed. The answer is kept either way for the committee (spec §5.3);
+// a request confirmed meanwhile is already on the live board, which is told
+// to refresh it.
 func (s *Store) suggested(ctx context.Context, id int64, sg Suggestion) (Outcome, error) {
 	ids := sg.KBIDs
 	if ids == nil {
@@ -39,17 +41,28 @@ func (s *Store) suggested(ctx context.Context, id int64, sg Suggestion) (Outcome
 	if err != nil {
 		return Outcome{}, fmt.Errorf("encode fiches: %w", err)
 	}
-	var token string
+	var (
+		token string
+		late  bool // stored on a request confirmed while the model answered
+	)
 	err = s.tx(ctx, "suggested", func(ctx context.Context, tx *sql.Tx) error {
 		var summary []byte
 		if sg.Summary != "" {
 			summary = s.Keys.SealString(sg.Summary)
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE tickets SET kb_ids = ?, summary = ? WHERE id = ? AND kb_ids IS NULL`,
-			string(raw), summary, id); err != nil {
+		var status Status
+		err := tx.QueryRowContext(ctx,
+			`UPDATE tickets SET kb_ids = ?, summary = ? WHERE id = ? AND kb_ids IS NULL RETURNING status`,
+			string(raw), summary, id).Scan(&status)
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			return nil
+		case err != nil:
 			return fmt.Errorf("store suggestion: %w", err)
-		}
-		if len(ids) == 0 {
+		case status != StatusDraft:
+			late = true
+			return nil
+		case len(ids) == 0:
 			return nil
 		}
 		token, err = s.newDraftToken(ctx, tx, id)
@@ -57,6 +70,9 @@ func (s *Store) suggested(ctx context.Context, id int64, sg Suggestion) (Outcome
 	})
 	if err != nil || token != "" {
 		return Outcome{Token: token}, err
+	}
+	if late {
+		s.changed(ChangeUpdated, id)
 	}
 	ref, err := s.Confirm(ctx, id)
 	return Outcome{Ref: ref}, err
@@ -164,7 +180,8 @@ func decodeKBIDs(raw sql.NullString) ([]string, error) {
 // Abandon is « Ça règle mon problème »: it deletes the draft and its
 // captures and counts an avoided request, without personal data. A request
 // already confirmed is kept and its ref returned; an unknown token (a
-// double tap) does nothing.
+// double tap) does nothing; a draft past 24 hours is ErrDraftGone, left to
+// the daily purge.
 func (s *Store) Abandon(ctx context.Context, token string) (string, error) {
 	var (
 		ref  string
@@ -172,12 +189,14 @@ func (s *Store) Abandon(ctx context.Context, token string) (string, error) {
 	)
 	err := s.tx(ctx, "abandon", func(ctx context.Context, tx *sql.Tx) error {
 		var (
-			t      ticketRow
-			stored sql.NullString
-			kbIDs  sql.NullString
+			t       ticketRow
+			stored  sql.NullString
+			kbIDs   sql.NullString
+			created int64
 		)
-		err := tx.QueryRowContext(ctx, `SELECT id, status, ref, category, kb_ids FROM tickets WHERE draft_token_hash = ?`,
-			secure.TokenHash(token)).Scan(&t.id, &t.status, &stored, &t.category, &kbIDs)
+		err := tx.QueryRowContext(ctx,
+			`SELECT id, status, ref, category, kb_ids, created_at FROM tickets WHERE draft_token_hash = ?`,
+			secure.TokenHash(token)).Scan(&t.id, &t.status, &stored, &t.category, &kbIDs, &created)
 		switch {
 		case errors.Is(err, sql.ErrNoRows):
 			return nil
@@ -186,6 +205,8 @@ func (s *Store) Abandon(ctx context.Context, token string) (string, error) {
 		case t.status != StatusDraft:
 			ref = stored.String
 			return nil
+		case s.draftExpired(created):
+			return ErrDraftGone
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO deflections (category, kb_ids, created_at) VALUES (?, ?, ?)`,
 			t.category, kbIDs.String, s.Now().Unix()); err != nil {

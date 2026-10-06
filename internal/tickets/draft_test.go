@@ -151,6 +151,17 @@ func TestConfirmDraft(t *testing.T) {
 	require.ErrorIs(t, err, ErrDraftGone, "the token dies with the draft")
 }
 
+func TestAbandonRefusesAnExpiredDraft(t *testing.T) {
+	e := newTestStore(t)
+	ctx := context.Background()
+	_, token := e.screen2(t)
+	e.clock.advance(24 * time.Hour)
+	_, err := e.store.Abandon(ctx, token)
+	require.ErrorIs(t, err, ErrDraftGone, "the token dies with the draft (spec §3.2)")
+	assert.Equal(t, 0, e.count(t, `SELECT COUNT(*) FROM deflections`), "an expired screen counts nothing")
+	assert.Equal(t, 1, e.count(t, `SELECT COUNT(*) FROM tickets`), "the daily purge removes it")
+}
+
 func TestAbandonKeepsAFiledRequest(t *testing.T) {
 	e := newTestStore(t)
 	ctx := context.Background()
@@ -225,6 +236,9 @@ func TestAnswerAfterAConcurrentConfirmIsKept(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Résumé tardif.", detail.Summary)
 	assert.Equal(t, []string{"fiche-a"}, detail.KBIDs)
+	id := e.idOf(t, out.Ref)
+	assert.Equal(t, []Change{{Type: ChangeCreated, TicketID: id}, {Type: ChangeUpdated, TicketID: id}}, e.recorded(),
+		"the board that showed the request without its summary is told to refresh it")
 }
 
 func TestDraftKnowsAnOpenRequestOfItsAddress(t *testing.T) {

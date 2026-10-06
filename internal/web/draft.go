@@ -142,6 +142,8 @@ func (s *Server) abandonDraft(w http.ResponseWriter, r *http.Request) {
 	}
 	ref, err := s.tickets.Abandon(r.Context(), token)
 	switch {
+	case errors.Is(err, tickets.ErrDraftGone):
+		s.draftGone(w, r)
 	case err != nil:
 		s.serverError(w, r, err)
 	case ref != "":
