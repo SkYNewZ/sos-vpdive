@@ -82,3 +82,23 @@ func TestPagesAfterThePaymentsPurge(t *testing.T) {
 	rec := e.do(t, http.MethodGet, adminHost, "/annulations", nil, withCookie(cookie))
 	assert.Contains(t, html.UnescapeString(rec.Body.String()), want)
 }
+
+// Codex review: an export with no row is a recent import, not a purge.
+func TestEmptyPaymentsImportIsNotAPurge(t *testing.T) {
+	e := newTestEnv(t)
+	e.importMembers(t, "members_valid.xlsx")
+	cookie := e.login(t)
+	hugo := e.submitTicket(t, "hugo.bernard@example.org")
+	paymentstest.ImportBytes(t, e.deps.Payments, paymentsSheet(t, 0))
+
+	ticket := e.openTicket(t, cookie, hugo.ID).body
+	assert.Contains(t, ticket, "Aucune ligne pour ce membre dans l'export.")
+	for _, path := range []string{"/annulations", "/imports"} {
+		rec := e.do(t, http.MethodGet, adminHost, path, nil, withCookie(cookie))
+		require.Equal(t, http.StatusOK, rec.Code)
+		assert.NotContains(t, html.UnescapeString(rec.Body.String()), "Plus de 90 jours", path)
+	}
+	assert.NotContains(t, ticket, "Plus de 90 jours")
+	rec := e.do(t, http.MethodGet, adminHost, "/annulations", nil, withCookie(cookie))
+	assert.Contains(t, html.UnescapeString(rec.Body.String()), "Aucune sortie annulée en attente de suppression.")
+}

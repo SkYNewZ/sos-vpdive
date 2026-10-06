@@ -124,7 +124,7 @@ func (s *Server) importsView(ctx context.Context, d *importsData) error {
 	if err != nil {
 		return err
 	}
-	d.Payments.Purged = !inPlace
+	d.Payments.Purged = !inPlace && s.payments.Expired(paid)
 	d.Payments.Report, err = s.payments.Report(ctx)
 	return err
 }

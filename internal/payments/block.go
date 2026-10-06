@@ -86,14 +86,14 @@ func (s *Store) Block(ctx context.Context, nameHash []byte) (Block, error) {
 	if b.Import, imported, err = s.LastImport(ctx); err != nil {
 		return Block{}, err
 	}
-	if !inPlace {
+	switch {
+	case !imported:
 		b.State = BlockNoLines
-		if imported {
-			b.State = BlockPurged
-		}
 		return b, nil
-	}
-	if nameHash == nil {
+	case !inPlace && s.Expired(b.Import):
+		b.State = BlockPurged
+		return b, nil
+	case nameHash == nil:
 		b.State = BlockNoMember
 		return b, nil
 	}

@@ -2,8 +2,8 @@
 {{$d := .Data}}
 <h1 class="text-2xl font-bold text-primary">Sorties annulées</h1>
 <p class="mt-4">Cette page liste les sorties dont le titre contient « annul » et qui ont encore des inscriptions payées. Le trésorier rembourse les paiements en argent réel, puis supprime la sortie dans VPDive : la suppression recrédite les carnets.</p>
-{{if not $d.InPlace}}
-{{template "noPayments" (ne $d.Import.ID 0)}}
+{{if not $d.Imported}}
+{{template "noPayments" $d.Purged}}
 {{else}}
 {{template "paymentsImport" $d.Import}}
 {{with $d.Rows}}

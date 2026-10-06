@@ -167,6 +167,13 @@ func (s *Store) Purge(ctx context.Context) error {
 	})
 }
 
+// Expired reports an import older than the 90-day retention: once the daily
+// purge has run, its lines are gone (spec §8.3). A recent import may hold no
+// line at all, when the VPDive filters matched nothing.
+func (s *Store) Expired(info imports.Info) bool {
+	return s.now().Sub(info.ImportedAt) > retention
+}
+
 // HasLines reports whether payment lines are in place: none when nothing was
 // imported or after the 90-day purge.
 func (s *Store) HasLines(ctx context.Context) (bool, error) {

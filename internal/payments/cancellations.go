@@ -25,11 +25,12 @@ type Outing struct {
 
 // Cancellations is the treasurer's work list of cancelled outings.
 type Cancellations struct {
-	InPlace bool         // false when no payment line is in place
-	Import  imports.Info // the latest payments import, its lines purged when !InPlace
-	Outings []Outing     // oldest first, unknown dates last
-	Lines   int
-	Persons int // inscriptions: distinct payers per outing, summed
+	Imported bool         // an import is in place, possibly with no line
+	Purged   bool         // its lines were deleted after 90 days without an import
+	Import   imports.Info // the latest payments import
+	Outings  []Outing     // oldest first, unknown dates last
+	Lines    int
+	Persons  int // inscriptions: distinct payers per outing, summed
 }
 
 // Cancellations lists the cancelled outings still holding paid lines,
@@ -47,10 +48,15 @@ func (s *Store) Cancellations(ctx context.Context) (Cancellations, error) {
 	if err != nil {
 		return Cancellations{}, fmt.Errorf("payment lines: %w", err)
 	}
-	c := Cancellations{InPlace: len(found) > 0}
-	if c.Import, _, err = s.LastImport(ctx); err != nil || !c.InPlace {
-		return c, err
+	var (
+		c        Cancellations
+		imported bool
+	)
+	if c.Import, imported, err = s.LastImport(ctx); err != nil {
+		return Cancellations{}, err
 	}
+	c.Purged = imported && len(found) == 0 && s.Expired(c.Import)
+	c.Imported = imported && !c.Purged
 	type key struct {
 		title  string
 		starts int64
