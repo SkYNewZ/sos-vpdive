@@ -384,22 +384,13 @@ func (s *Store) SendLinks(ctx context.Context, email string) error {
 	if err != nil {
 		return nil //nolint:nilerr // an unusable address has no request: same answer as an unknown one
 	}
-	queued := false
-	err = s.tx(ctx, "lost_links", func(ctx context.Context, tx *sql.Tx) error {
+	return s.tx(ctx, "lost_links", func(ctx context.Context, tx *sql.Tx) error {
 		links, err := s.linksOf(ctx, tx, s.Keys.Hash(normalized))
 		if err != nil || len(links) == 0 {
 			return err
 		}
-		queued = true
 		return s.queue(ctx, tx, mail.Mail{Event: mail.EventLostLink, To: normalized}, mailData{Links: links})
 	})
-	if err != nil {
-		return err
-	}
-	if queued {
-		s.Outbox.Wake()
-	}
-	return nil
 }
 
 // linksOf returns the tracking links of every confirmed request of an address.
