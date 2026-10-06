@@ -104,14 +104,21 @@ func (s *CheckStore) List(ctx context.Context) (open, masked []Check, err error)
 	return open, masked, nil
 }
 
-// Count counts the lines to check in place, masked ones included, by signal:
-// the report of each import gives them (spec §7.7).
+// Count counts the lines in place still to check, by signal: the report of
+// each import gives them (spec §7.7). A masked line is checked.
 func (s *CheckStore) Count(ctx context.Context) (unsettled, partial int, err error) {
 	checks, err := s.checks(ctx)
 	if err != nil {
 		return 0, 0, err
 	}
+	dismissed, err := dismissals(ctx, s.db)
+	if err != nil {
+		return 0, 0, err
+	}
 	for _, c := range checks {
+		if _, masked := dismissed[c.Fingerprint]; masked {
+			continue
+		}
 		if c.Signal == SignalUnsettled {
 			unsettled++
 		} else {

@@ -14,6 +14,8 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace/noop"
+
+	"github.com/SkYNewZ/sos-vpdive/internal/payments"
 )
 
 // fileHash reads the file hash journaled by the latest import of kind.
@@ -162,4 +164,24 @@ func TestMollieImportLeaksNothingToLogsOrSpans(t *testing.T) {
 		assert.NotContains(t, e.logs.String(), secret)
 		assert.NotContains(t, dump.String(), secret)
 	}
+}
+
+// Spec §7.7: once a resolver masks a line, it is checked: the imports page
+// counts the lines still to check, not the masked ones.
+func TestImportsPageCountsTheLinesStillToCheck(t *testing.T) {
+	e := newTestEnv(t)
+	e.importMembers(t, "members_valid.xlsx")
+	e.importMollie(t)
+	cookie := e.login(t)
+	page := func() string {
+		t.Helper()
+		return html.UnescapeString(e.do(t, http.MethodGet, adminHost, "/imports", nil, withCookie(cookie)).Body.String())
+	}
+	assert.Contains(t, page(), "Lignes à vérifier</dt><dd class=\"mb-2 sm:mb-0\">3 (")
+
+	checks := payments.NewCheckStore(e.db, e.deps.Keys, e.clock.now)
+	open, _, err := checks.List(context.Background())
+	require.NoError(t, err)
+	require.NoError(t, checks.Dismiss(context.Background(), open[0].Fingerprint, "alice"))
+	assert.Contains(t, page(), "Lignes à vérifier</dt><dd class=\"mb-2 sm:mb-0\">2 (", "the masked line is checked")
 }
