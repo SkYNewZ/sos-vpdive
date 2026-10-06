@@ -539,9 +539,9 @@ func TestRunSendsMailsWhileAnAlertHangs(t *testing.T) {
 	}()
 	t.Cleanup(func() { answer(); cancel(); <-done })
 
-	require.Eventually(t, func() bool { return len(mails.messages()) == 1 }, 2*time.Second, 10*time.Millisecond,
+	require.Eventually(t, func() bool { return o.row(t, mailID).status == "sent" }, 2*time.Second, 10*time.Millisecond,
 		"the mail does not wait for the alert")
-	assert.Equal(t, "sent", o.row(t, mailID).status)
+	assert.Len(t, mails.messages(), 1)
 	answer()
 	require.Eventually(t, func() bool { return o.row(t, alertID).status == "sent" }, 2*time.Second, 10*time.Millisecond)
 }
