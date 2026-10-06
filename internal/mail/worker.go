@@ -171,7 +171,7 @@ func (o *Outbox) deliver(ctx context.Context, s Sender, logger *slog.Logger, q q
 	switch {
 	case sendErr == nil:
 		return true, o.finish(ctx, q.id, statusSent, attempts)
-	case permanent || q.channel != ChannelEmail:
+	case permanent || q.channel != ChannelEmail || now.Unix() >= q.giveUpAt:
 		code := "delivery_failed"
 		if errors.Is(sendErr, errChannelOff) {
 			code = "channel_disabled"
@@ -188,8 +188,7 @@ func (o *Outbox) deliver(ctx context.Context, s Sender, logger *slog.Logger, q q
 		return false, o.finish(ctx, q.id, statusFailed, attempts)
 	default:
 		telemetry.Fail(span, "delivery_postponed")
-		// The wait never outlasts the window: a mail due at give_up_at fails as
-		// expired, in this pass when the send itself outlasted the window.
+		// The wait never outlasts the window: the mail then fails on time.
 		next := time.Unix(min(now.Add(retryDelay(attempts)).Unix(), q.giveUpAt), 0)
 		logger.WarnContext(ctx, "mail delivery postponed", "outbox_id", q.id, "event", string(q.event),
 			"attempts", attempts, "next_attempt", next, "stage", stageOf(sendErr))
