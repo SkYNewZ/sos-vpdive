@@ -20,7 +20,8 @@ validated: it wins over this file, over existing code, and over preference.
 - `Referrer-Policy: same-origin` on every response, tracking pages included:
   `no-referrer` (§11.1) makes browsers send `Origin: null` on form posts, which
   the §11.2 Origin check refuses.
-- No container image publication: CI builds the image only (§9.4).
+- CI publishes the image to Docker Hub (private `skynewz/sos-vpdive`) once the
+  checks pass: develop as `:latest`, a tag `vX.Y.Z` as `:X.Y.Z` (§9.4).
 - `sessions.credential_hash` (§8.2): a session is valid only while it matches
   the account's current password hash.
 - `.env.example` lists only the variables the binary reads; each lot adds its own.

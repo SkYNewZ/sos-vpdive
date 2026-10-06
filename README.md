@@ -415,7 +415,10 @@ or write them to a mounted host directory instead.
 Every push to main or develop and every pull request runs gofmt, `go vet`, golangci-lint, the tests
 with the race detector, `validate-kb` on the fiches, a guard against committed spreadsheets, CSV files,
 databases or `.env` files (only synthetic workbooks in `testdata/fixtures/`
-are allowed), and an image build. No image is published.
+are allowed), and an image build. Once those pass, a push to develop publishes
+`skynewz/sos-vpdive:latest` and a tag `vX.Y.Z` publishes `skynewz/sos-vpdive:X.Y.Z`
+on Docker Hub, with the `DOCKERHUB_TOKEN` secret. A fork changes `IMAGE` and
+the login username in `.github/workflows/ci.yml` and sets its own secret.
 
 ## Dependencies
 
