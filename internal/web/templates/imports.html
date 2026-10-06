@@ -80,7 +80,9 @@
 <dt class="font-semibold">Rattachées à un membre</dt><dd class="mb-2 sm:mb-0">{{template "lineCount" .Attached}}</dd>
 <dt class="font-semibold">Ambiguës (homonymes)</dt><dd class="mb-2 sm:mb-0">{{template "lineCount" .Ambiguous}}</dd>
 <dt class="font-semibold">Sans membre correspondant</dt><dd class="mb-2 sm:mb-0">{{template "lineCount" .Unmatched}}</dd>
-{{end}}</dl>
+{{end}}
+<dt class="font-semibold">Lignes à vérifier</dt><dd class="mb-2 sm:mb-0">{{$.Data.Payments.ToCheck}}{{if $.Data.Payments.ToCheck}} (paiements partiels, <a class="link link-primary" href="/anomalies">voir</a>){{end}}</dd>
+</dl>
 <p class="mt-2 text-sm">Le rattachement se recalcule à chaque affichage avec la liste des membres en place. Quand plusieurs membres portent le même nom, leurs lignes ne s'affichent jamais.</p>
 {{end}}
 {{else}}
@@ -96,6 +98,7 @@
 <dt class="font-semibold">Lignes dans le fichier</dt><dd class="mb-2 sm:mb-0">{{.Lines}}</dd>
 <dt class="font-semibold">Lignes sans nom écartées</dt><dd class="mb-2 sm:mb-0">{{.Skipped}}</dd>
 <dt class="font-semibold">Lignes en place</dt><dd class="mb-2 sm:mb-0">{{.Current}}</dd>
+<dt class="font-semibold">Lignes à vérifier</dt><dd class="mb-2 sm:mb-0">{{.ToCheck}}</dd>
 {{with .UnknownStates}}<dt class="font-semibold">États inconnus</dt><dd class="mb-2 sm:mb-0">{{range $state, $n := .}}<span class="block">{{if $state}}« {{$state}} »{{else}}état vide{{end}} : {{$n}} ligne{{if gt $n 1}}s{{end}}</span>{{end}}</dd>{{end}}
 </dl>
 {{if .UnknownStates}}<p class="mt-2 text-sm">Ces lignes sont gardées et s'affichent telles quelles.</p>{{end}}
@@ -140,8 +143,82 @@
 <button class="btn {{if .Data.Payments.Preview}}btn-outline{{else}}btn-primary{{end}} min-h-11 self-start" type="submit">Voir l'aperçu</button>
 </form>
 </section>
+
+<section class="mt-10" aria-labelledby="encaissements-titre">
+<h2 id="encaissements-titre" class="text-xl font-semibold">Encaissements Mollie (export VPayDive)</h2>
+<p class="mt-2">VPayDive montre dans VPDive les paiements encaissés par Mollie, et si VPDive les a soldés. Son export alimente le bloc « Encaissements Mollie » des demandes et la page des paiements à vérifier. Chaque import remplace toutes les lignes.</p>
+
+{{with .Data.Mollie.Last}}
+<dl class="mt-4 grid grid-cols-1 gap-x-4 gap-y-0 sm:grid-cols-[auto_1fr] sm:gap-y-1">
+<dt class="font-semibold">Fichier créé le</dt><dd class="mb-2 sm:mb-0">{{with formatTime .ExportedAt}}{{.}} (indicatif){{else}}date inconnue{{end}}</dd>
+<dt class="font-semibold">Importé le</dt><dd class="mb-2 sm:mb-0">{{formatTime .ImportedAt}}</dd>
+<dt class="font-semibold">Par</dt><dd class="mb-2 sm:mb-0">{{author .ImportedBy}}</dd>
+<dt class="font-semibold">Période couverte</dt><dd class="mb-2 sm:mb-0">{{template "dates" .}}</dd>
+<dt class="font-semibold">Lignes importées</dt><dd class="mb-2 sm:mb-0">{{.Rows}}</dd>
+<dt class="font-semibold">Lignes sans nom écartées</dt><dd class="mb-2 sm:mb-0">{{.Skipped}}</dd>
+{{if $.Data.Mollie.Purged}}</dl>
+<p class="mt-2">Plus de 90 jours sans import : les encaissements Mollie ont été effacés.</p>
+{{else}}{{with $.Data.Mollie.Report}}
+<dt class="font-semibold">Rattachées à un membre</dt><dd class="mb-2 sm:mb-0">{{template "lineCount" .Attached}}</dd>
+<dt class="font-semibold">Ambiguës (homonymes)</dt><dd class="mb-2 sm:mb-0">{{template "lineCount" .Ambiguous}}</dd>
+<dt class="font-semibold">Sans membre correspondant</dt><dd class="mb-2 sm:mb-0">{{template "lineCount" .Unmatched}}</dd>
+{{end}}
+<dt class="font-semibold">Lignes à vérifier</dt><dd class="mb-2 sm:mb-0">{{$.Data.Mollie.ToCheck}}{{if $.Data.Mollie.ToCheck}} (encaissées par Mollie, non soldées dans VPDive, <a class="link link-primary" href="/anomalies">voir</a>){{end}}</dd>
+</dl>
+{{end}}
+{{else}}
+<p class="mt-4">Aucun export VPayDive importé pour l'instant.</p>
 {{end}}
 
-{{define "period"}}{{with formatDate .PeriodFrom}}du {{.}} au {{formatDate $.PeriodTo}}{{if shortPeriod $.PeriodFrom $.PeriodTo}}<span class="block font-semibold">Moins de 12 mois : élargis le filtre de dates de VPDive avant le prochain export.</span>{{end}}{{else}}inconnue{{end}}{{end}}
+{{with .Data.Mollie.Preview}}
+<div class="mt-6 border border-primary p-4">
+<h3 class="text-lg font-semibold">Aperçu avant remplacement</h3>
+<dl class="mt-2 grid grid-cols-1 gap-x-4 gap-y-0 sm:grid-cols-[auto_1fr] sm:gap-y-1">
+<dt class="font-semibold">Fichier créé le</dt><dd class="mb-2 sm:mb-0">{{with formatTime .Created}}{{.}} (indicatif){{else}}date inconnue{{end}}</dd>
+<dt class="font-semibold">Période couverte</dt><dd class="mb-2 sm:mb-0">{{template "dates" .}}</dd>
+<dt class="font-semibold">Lignes dans le fichier</dt><dd class="mb-2 sm:mb-0">{{.Lines}}</dd>
+<dt class="font-semibold">Lignes sans nom écartées</dt><dd class="mb-2 sm:mb-0">{{.Skipped}}</dd>
+<dt class="font-semibold">Lignes en place</dt><dd class="mb-2 sm:mb-0">{{.Current}}</dd>
+<dt class="font-semibold">Lignes à vérifier</dt><dd class="mb-2 sm:mb-0">{{.ToCheck}}</dd>
+{{with .UnknownSettled}}<dt class="font-semibold">Valeurs de « Payé » inconnues</dt><dd class="mb-2 sm:mb-0">{{range $value, $n := .}}<span class="block">{{if $value}}« {{$value}} »{{else}}valeur vide{{end}} : {{$n}} ligne{{if gt $n 1}}s{{end}}</span>{{end}}</dd>{{end}}
+</dl>
+{{if .UnknownSettled}}<p class="mt-2 text-sm">Ces lignes sont gardées et s'affichent telles quelles.</p>{{end}}
+<form method="post" action="/imports/confirmer" class="mt-4 flex flex-col gap-3">
+<input type="hidden" name="csrf" value="{{$.CSRF}}">
+<input type="hidden" name="type" value="mollie">
+<input type="hidden" name="apercu" value="{{.ID}}">
+{{if .NeedsSecondConfirm}}
+{{with $.Data.Mollie.Confirm}}<p role="alert" class="text-error font-semibold">{{.}}</p>{{end}}
+<label class="flex min-h-11 items-start gap-3">
+<input class="checkbox mt-1" type="checkbox" name="confirmer_moitie" value="oui" required>
+<span>Ce fichier contient moins de la moitié des {{.Current}} lignes en place. Je confirme le remplacement.</span>
+</label>
+{{end}}
+<button class="btn btn-primary min-h-11 self-start" type="submit">Remplacer les encaissements</button>
+</form>
+<p class="mt-2 text-sm">Cet aperçu reste valable 15 minutes.</p>
+</div>
+{{end}}
+
+<form method="post" action="/imports" enctype="multipart/form-data" class="mt-6 flex flex-col gap-3">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<input type="hidden" name="type" value="mollie">
+<div class="border border-base-300 p-4">
+<p class="font-semibold">Où trouver l'export</p>
+<p class="mt-1">Dans VPDive, page <a class="link link-primary" href="{{.Data.Mollie.Link.URL}}" target="_blank" rel="noopener">VPayDive</a>, bouton « Exporter (Excel) », en haut à droite. Le fichier couvre la période des champs « Du » et « Au » : règle-les sur les 24 derniers mois avant d'exporter.</p>
+</div>
+<div class="flex flex-col gap-1">
+<label class="font-semibold" for="file-mollie">Fichier exporté (.xlsx, 5 Mo au plus)</label>
+<input class="file-input w-full" id="file-mollie" name="file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
+</div>
+{{with .Data.Mollie.Upload}}<p role="alert" class="text-error font-semibold">{{.}}</p>{{end}}
+<button class="btn {{if .Data.Mollie.Preview}}btn-outline{{else}}btn-primary{{end}} min-h-11 self-start" type="submit">Voir l'aperçu</button>
+</form>
+</section>
+{{end}}
+
+{{define "period"}}{{template "dates" .}}{{if and (not .PeriodFrom.IsZero) (shortPeriod .PeriodFrom .PeriodTo)}}<span class="block font-semibold">Moins de 12 mois : élargis le filtre de dates de VPDive avant le prochain export.</span>{{end}}{{end}}
+
+{{define "dates"}}{{with formatDate .PeriodFrom}}du {{.}} au {{formatDate $.PeriodTo}}{{else}}inconnue{{end}}{{end}}
 
 {{define "lineCount"}}{{.Lines}} ligne{{if gt .Lines 1}}s{{end}}, {{.Payers}} payeur{{if gt .Payers 1}}s{{end}}{{end}}

@@ -73,6 +73,7 @@ func TestLoadValidProductionAppliesDefaults(t *testing.T) {
 	assert.Equal(t, "club@example.org", c.NotifyEmail.Address)
 	assert.Equal(t, 336*time.Hour, c.MembersMaxAge)
 	assert.Equal(t, 168*time.Hour, c.PaymentsMaxAge)
+	assert.Equal(t, 168*time.Hour, c.VPayDiveMaxAge)
 	assert.Equal(t, 48*time.Hour, c.AgeWarnAfter)
 	assert.Equal(t, 168*time.Hour, c.AgeAlertAfter)
 	assert.Equal(t, 365, c.RetentionDays)
@@ -143,6 +144,7 @@ func TestLoadProductionRules(t *testing.T) {
 		{"bad mail from", func(m map[string]string) { m["MAIL_FROM"] = "not an address" }, "MAIL_FROM"},
 		{"bad duration", func(m map[string]string) { m["MEMBERS_MAX_AGE"] = "two weeks" }, "MEMBERS_MAX_AGE"},
 		{"bad payments age", func(m map[string]string) { m["PAYMENTS_MAX_AGE"] = "a week" }, "PAYMENTS_MAX_AGE"},
+		{"bad VPayDive age", func(m map[string]string) { m["VPAYDIVE_MAX_AGE"] = "a week" }, "VPAYDIVE_MAX_AGE"},
 		{"bad log level", func(m map[string]string) { m["LOG_LEVEL"] = "loud" }, "LOG_LEVEL"},
 		{"bad proxy", func(m map[string]string) { m["TRUSTED_PROXIES"] = "10.0.0.0/8, nope" }, "TRUSTED_PROXIES"},
 		{"alert before warn", func(m map[string]string) { m["AGE_WARN_AFTER"] = "72h"; m["AGE_ALERT_AFTER"] = "48h" }, "AGE_ALERT_AFTER"},

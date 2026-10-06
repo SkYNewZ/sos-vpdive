@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -30,13 +31,21 @@ const (
 const (
 	kindMembers  = "membres"
 	kindPayments = "paiements"
+	kindMollie   = "mollie"
 )
+
+// formKinds maps the type field of the import forms to the journal kind.
+var formKinds = map[string]imports.Kind{kindMembers: imports.Members, kindPayments: imports.Payments, kindMollie: imports.Mollie}
+
+// errUnreadable wraps the errors of reading a workbook: the file is refused.
+var errUnreadable = errors.New("unreadable workbook")
 
 // importsData is the imports page: one section per export, each with the
 // errors of its own forms beside their action (spec §12.1).
 type importsData struct {
 	Members  membersSection
 	Payments paymentsSection
+	Mollie   mollieSection
 }
 
 // importErrors are shown beside the upload and the confirmation of a section.
@@ -52,20 +61,37 @@ type membersSection struct {
 	Preview *members.Preview
 }
 
-type paymentsSection struct {
+// linesSection is what the payments and Mollie sections share: lines
+// attributed at display time, purged after 90 days, some of them to check.
+type linesSection struct {
 	importErrors
 
 	Link    vpdiveLink
 	Last    *imports.Info
 	Purged  bool // lines removed after 90 days without an import
 	Report  payments.Report
+	ToCheck int // lines of « Paiements à vérifier » in place (spec §7.7)
+}
+
+type paymentsSection struct {
+	linesSection
+
 	Preview *payments.Preview
+}
+
+type mollieSection struct {
+	linesSection
+
+	Preview *payments.MolliePreview
 }
 
 // errs returns the error slots of the section of kind.
 func (d *importsData) errs(kind string) *importErrors {
-	if kind == kindPayments {
+	switch kind {
+	case kindPayments:
 		return &d.Payments.importErrors
+	case kindMollie:
+		return &d.Mollie.importErrors
 	}
 	return &d.Members.importErrors
 }
@@ -84,6 +110,8 @@ func (s *Server) importsPage(w http.ResponseWriter, r *http.Request) {
 		done = &notice{Kind: noticeSuccess, Text: "Liste des membres importée."}
 	case kindPayments:
 		done = &notice{Kind: noticeSuccess, Text: "Paiements importés."}
+	case kindMollie:
+		done = &notice{Kind: noticeSuccess, Text: "Encaissements Mollie importés."}
 	}
 	s.renderImports(w, r, http.StatusOK, done, importsData{})
 }
@@ -107,7 +135,7 @@ func (s *Server) renderImports(w http.ResponseWriter, r *http.Request, status in
 }
 
 func (s *Server) importsView(ctx context.Context, d *importsData) error {
-	d.Members.Link, d.Payments.Link = s.vpdive["membres"], s.vpdive["paiements"]
+	d.Members.Link, d.Payments.Link, d.Mollie.Link = s.vpdive["membres"], s.vpdive["paiements"], s.vpdive["vpaydive"]
 	last, ok, err := s.members.LastImport(ctx)
 	if err != nil {
 		return err
@@ -115,17 +143,37 @@ func (s *Server) importsView(ctx context.Context, d *importsData) error {
 	if ok {
 		d.Members.Last = &last
 	}
-	paid, ok, err := s.payments.LastImport(ctx)
+	if err := fillLines(ctx, &d.Payments.linesSection, s.payments); err != nil {
+		return err
+	}
+	if err := fillLines(ctx, &d.Mollie.linesSection, s.mollie); err != nil {
+		return err
+	}
+	d.Mollie.ToCheck, d.Payments.ToCheck, err = s.checks.Count(ctx)
+	return err
+}
+
+// lineStore is what the imports page reads of the payments and Mollie stores.
+type lineStore interface {
+	LastImport(ctx context.Context) (imports.Info, bool, error)
+	HasLines(ctx context.Context) (bool, error)
+	Report(ctx context.Context) (payments.Report, error)
+}
+
+// fillLines fills the latest import of a lines section and the attribution
+// of the lines in place.
+func fillLines(ctx context.Context, sec *linesSection, store lineStore) error {
+	last, ok, err := store.LastImport(ctx)
 	if err != nil || !ok {
 		return err
 	}
-	d.Payments.Last = &paid
-	inPlace, err := s.payments.HasLines(ctx)
+	sec.Last = &last
+	inPlace, err := store.HasLines(ctx)
 	if err != nil {
 		return err
 	}
-	d.Payments.Purged = !inPlace
-	d.Payments.Report, err = s.payments.Report(ctx)
+	sec.Purged = !inPlace
+	sec.Report, err = store.Report(ctx)
 	return err
 }
 
@@ -138,60 +186,86 @@ func (s *Server) uploadImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
+	exp, err := s.readExport(ctx, formKinds[kind], data)
+	if err != nil {
+		if _, msg, refused := refusal(formKinds[kind], err); refused {
+			s.renderImports(w, r, http.StatusUnprocessableEntity, nil, failed(kind, msg))
+			return
+		}
+		s.serverError(w, r, err)
+		return
+	}
+	sess, _ := sessionFrom(ctx)
+	d, err := s.preview(ctx, sess.account.Username, exp)
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	s.renderImports(w, r, http.StatusOK, nil, d)
+}
+
+// export is a parsed export: the field of its kind is set.
+type export struct {
+	members  *members.Export
+	payments *payments.Export
+	mollie   *payments.MollieExport
+}
+
+// readExport reads and validates an export of kind, whatever its source:
+// the upload form and the pushed route share it (spec §7.6). The export
+// carries the hash of the file, which the journal keeps.
+func (s *Server) readExport(ctx context.Context, kind imports.Kind, data []byte) (export, error) {
 	var (
 		rows    []xlsx.Row
-		created time.Time // payments only: the members export dates itself in row 2
+		created time.Time // the members export dates itself in row 2
 	)
 	if err := telemetry.Trace(ctx, s.tracer, "import.read", func(context.Context) error {
 		var err error
 		rows, err = xlsx.ReadFirstSheet(data, imports.Limits())
-		if err == nil && kind == kindPayments {
+		if err == nil && kind != imports.Members {
 			created, _ = xlsx.Created(data, imports.Limits())
 		}
 		return err
 	}); err != nil {
-		s.renderImports(w, r, http.StatusUnprocessableEntity, nil, failed(kind, workbookMessage(kind, err)))
-		return
+		return export{}, fmt.Errorf("%w: %w", errUnreadable, err)
 	}
-	sess, _ := sessionFrom(ctx)
-	var d importsData
-	err := telemetry.Trace(ctx, s.tracer, "import.validate", func(ctx context.Context) error {
+	hash := s.keys.Hash(string(data))
+	var exp export
+	err := telemetry.Trace(ctx, s.tracer, "import.validate", func(context.Context) error {
 		var err error
-		d, err = s.preview(ctx, kind, sess.account.Username, rows, created)
+		switch kind {
+		case imports.Members:
+			if exp.members, err = members.Parse(rows, s.paris); err == nil {
+				exp.members.FileHash = hash
+			}
+		case imports.Payments:
+			if exp.payments, err = payments.Parse(rows, created, s.paris); err == nil {
+				exp.payments.FileHash = hash
+			}
+		case imports.Mollie:
+			if exp.mollie, err = payments.ParseMollie(rows, created, s.paris); err == nil {
+				exp.mollie.FileHash = hash
+			}
+		}
 		return err
 	})
-	var (
-		membersErr  *members.ParseError
-		paymentsErr *payments.ParseError
-	)
-	switch {
-	case errors.As(err, &membersErr):
-		s.renderImports(w, r, http.StatusUnprocessableEntity, nil, failed(kind, membersMessage(membersErr)))
-	case errors.As(err, &paymentsErr):
-		s.renderImports(w, r, http.StatusUnprocessableEntity, nil, failed(kind, paymentsMessage(paymentsErr)))
-	case err != nil:
-		s.serverError(w, r, err)
-	default:
-		s.renderImports(w, r, http.StatusOK, nil, d)
-	}
+	return exp, err
 }
 
-// preview parses an export of kind and keeps its preview for username.
-func (s *Server) preview(ctx context.Context, kind, username string, rows []xlsx.Row, created time.Time) (importsData, error) {
-	var d importsData
-	if kind == kindPayments {
-		exp, err := payments.Parse(rows, created, s.paris)
-		if err != nil {
-			return d, err
-		}
-		d.Payments.Preview, err = s.payments.NewPreview(ctx, username, exp)
-		return d, err
+// preview keeps the preview of exp for username.
+func (s *Server) preview(ctx context.Context, username string, exp export) (importsData, error) {
+	var (
+		d   importsData
+		err error
+	)
+	switch {
+	case exp.members != nil:
+		d.Members.Preview, err = s.members.NewPreview(ctx, username, exp.members)
+	case exp.payments != nil:
+		d.Payments.Preview, err = s.payments.NewPreview(ctx, username, exp.payments)
+	default:
+		d.Mollie.Preview, err = s.mollie.NewPreview(ctx, username, exp.mollie)
 	}
-	exp, err := members.Parse(rows, s.paris)
-	if err != nil {
-		return d, err
-	}
-	d.Members.Preview, err = s.members.NewPreview(ctx, username, exp)
 	return d, err
 }
 
@@ -220,7 +294,7 @@ func (s *Server) readUpload(w http.ResponseWriter, r *http.Request) (string, []b
 	if err == nil && part.FormName() == "type" {
 		kind, err = io.ReadAll(io.LimitReader(part, maxFieldBytes))
 	}
-	if err != nil || (string(kind) != kindMembers && string(kind) != kindPayments) {
+	if _, known := formKinds[string(kind)]; err != nil || !known {
 		s.writeText(w, r, http.StatusBadRequest, "Requête refusée : type d'import inconnu.\n")
 		return "", nil, false
 	}
@@ -259,6 +333,8 @@ func (s *Server) confirmImport(w http.ResponseWriter, r *http.Request) {
 		confirm = s.members.Confirm
 	case kindPayments:
 		confirm = s.payments.Confirm
+	case kindMollie:
+		confirm = s.mollie.Confirm
 	default:
 		s.writeText(w, r, http.StatusBadRequest, "Requête refusée : type d'import inconnu.\n")
 		return
@@ -293,12 +369,15 @@ func (s *Server) livePreview(kind, id, username string) (importsData, error) {
 		d   importsData
 		err error
 	)
-	what := "des comptes de la liste actuelle"
-	if kind == kindPayments {
+	what := "des lignes en place"
+	switch kind {
+	case kindPayments:
 		d.Payments.Preview, err = s.payments.Preview(id, username)
-		what = "des lignes en place"
-	} else {
+	case kindMollie:
+		d.Mollie.Preview, err = s.mollie.Preview(id, username)
+	default:
 		d.Members.Preview, err = s.members.Preview(id, username)
+		what = "des comptes de la liste actuelle"
 	}
 	d.errs(kind).Confirm = "Coche la seconde confirmation : ce fichier contient moins de la moitié " + what + "."
 	return d, err
@@ -308,17 +387,45 @@ func expiredNotice() *notice {
 	return &notice{Kind: noticeWarning, Text: "Cet aperçu a expiré ou a déjà servi. Dépose de nouveau le fichier si besoin."}
 }
 
-func workbookMessage(kind string, err error) string {
+// fileRefused is the message of a refusal no rule explains.
+const fileRefused = "Fichier refusé."
+
+// refusal explains why an export of kind is refused: a stable code for the
+// pushed route and the message of the imports page. refused is false for an
+// internal error.
+func refusal(kind imports.Kind, err error) (code, message string, refused bool) {
+	var (
+		membersErr  *members.ParseError
+		paymentsErr *payments.ParseError
+	)
 	switch {
 	case errors.Is(err, xlsx.ErrTooLarge):
-		return "Fichier trop volumineux une fois décompressé : 50 Mo au plus."
+		return "too_large", "Fichier trop volumineux une fois décompressé : 50 Mo au plus.", true
 	case errors.Is(err, xlsx.ErrTooManyRows), errors.Is(err, xlsx.ErrTooManyCells):
-		return "Fichier trop long : 20 000 lignes au plus."
-	case kind == kindPayments:
-		return "Ce fichier n'est pas un classeur Excel (.xlsx) lisible. Dépose l'export « Télécharger Excel » de la page des paiements."
-	default:
-		return "Ce fichier n'est pas un classeur Excel (.xlsx) lisible. Dépose l'export « Télécharger » de la liste des membres."
+		return "too_many_rows", "Fichier trop long : 20 000 lignes au plus.", true
+	case errors.Is(err, errUnreadable):
+		return "invalid_workbook", unreadableMessage(kind), true
+	case errors.As(err, &membersErr):
+		return string(membersErr.Kind), membersMessage(membersErr), true
+	case errors.As(err, &paymentsErr) && kind == imports.Mollie:
+		return string(paymentsErr.Kind), mollieMessage(paymentsErr), true
+	case errors.As(err, &paymentsErr):
+		return string(paymentsErr.Kind), paymentsMessage(paymentsErr), true
 	}
+	return "", "", false
+}
+
+func unreadableMessage(kind imports.Kind) string {
+	const unreadable = "Ce fichier n'est pas un classeur Excel (.xlsx) lisible."
+	switch kind {
+	case imports.Members:
+		return unreadable + " Dépose l'export « Télécharger » de la liste des membres."
+	case imports.Payments:
+		return unreadable + " Dépose l'export « Télécharger Excel » de la page des paiements."
+	case imports.Mollie:
+		return unreadable + " Dépose l'export « Exporter (Excel) » de la page VPayDive."
+	}
+	return unreadable
 }
 
 func membersMessage(pe *members.ParseError) string {
@@ -332,7 +439,7 @@ func membersMessage(pe *members.ParseError) string {
 	case members.ProblemInvalidEmail:
 		return "Adresse contenant un espace, " + rowList(pe.Rows) + ". Corrige le compte dans VPDive, puis refais l'export."
 	default:
-		return "Fichier refusé."
+		return fileRefused
 	}
 }
 
@@ -349,8 +456,23 @@ func paymentsMessage(pe *payments.ParseError) string {
 	case payments.ProblemEmptyProduct:
 		return "La colonne « Produit/Événement » est vide sur plus de 5 % des lignes : c'est un bug connu de l'export VPDive. Change les filtres de la page des paiements, puis refais l'export."
 	default:
-		return "Fichier refusé."
+		return fileRefused
 	}
+}
+
+func mollieMessage(pe *payments.ParseError) string {
+	switch pe.Kind {
+	case payments.ProblemNoHeader:
+		return "Colonne « Montant Panier » introuvable dans les dix premières lignes. Vérifie que le fichier est bien l'export VPayDive des encaissements Mollie."
+	case payments.ProblemMissingColumn:
+		return "Colonne obligatoire absente : « " + pe.Column + " »."
+	case payments.ProblemInvalidNumber:
+		return "Montant illisible, " + rowList(pe.Rows) + ". Vérifie ces lignes dans VPDive, puis refais l'export."
+	case payments.ProblemInvalidDate:
+		return "Date de paiement illisible, " + rowList(pe.Rows) + ". Refais l'export sans retoucher le fichier."
+	case payments.ProblemEmptyProduct: // the VPayDive export has no such check
+	}
+	return fileRefused
 }
 
 // rowList formats file row numbers: "ligne 7", "lignes 12, 40", at most 20.
