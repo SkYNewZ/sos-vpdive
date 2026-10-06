@@ -13,7 +13,8 @@ import (
 	"text/template"
 )
 
-// themeColor is the club navy (spec §12.2), in the manifests and the layout.
+// themeColor is the club navy (spec §12.2), in the manifests and the layout
+// (template func themeColor).
 const themeColor = "#0b2e4a"
 
 // installable is one of the two apps (spec §9.6): its manifest and its

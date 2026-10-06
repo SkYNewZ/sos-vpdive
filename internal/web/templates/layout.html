@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow, noai, noimageai">
-<meta name="theme-color" content="#0b2e4a">
+<meta name="theme-color" content="{{themeColor}}">
 <title>{{.Title}} · {{if .Admin}}SOS CPP Comité{{else}}SOS CPP{{end}}</title>
 <link rel="manifest" href="/manifest.webmanifest">
 {{$icons := "icons/membres/"}}{{if .Admin}}{{$icons = "icons/comite/"}}{{end}}<link rel="icon" type="image/png" sizes="32x32" href="{{static (print $icons "favicon-32.png")}}">
