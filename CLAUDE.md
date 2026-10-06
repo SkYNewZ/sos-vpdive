@@ -79,7 +79,7 @@ No i18n framework.
 
 ## Layout and commands
 
-- `cmd/sos-vpdive` (subcommands) + `internal/{config,secure,telemetry,store,xlsx,members,admins,tickets,mail,blobs,images,web}`.
+- `cmd/sos-vpdive` (subcommands) + `internal/{config,secure,telemetry,store,xlsx,members,admins,tickets,mail,blobs,images,kb,suggest,push,web}`.
   Migrations: `internal/store/migrations/NNNN_*.sql`. Content files `config/*.yaml`
   (categories, products, vpdive, robots) are embedded by the root `content.go`.
 - `make test` / `make lint` (golangci-lint v2, `default: all`) / `make css` /
@@ -90,13 +90,19 @@ No i18n framework.
 - `./scripts/check-forbidden-files.sh` is the CI guard on private files.
 - The repo's `.env`, `admins/` and `data/` are the owner's dev files: never delete
   or overwrite them; acceptance runs use a scratch `DATA_DIR` and `ADMINS_FILE`.
+- Acceptance instance: binary built into a scratch dir, port 8091, started with
+  `exec` after saving `$$`, stopped by that PID only (`make run` has the same
+  command line: never `pkill`).
+- `node --check internal/web/static/app.js` catches JS syntax errors (Node is a
+  local convenience, never a build step).
 
 ## Workflow
 
 - Gitflow, `feature/*` from `develop`. Greenfield: no PR, merge `--no-ff` into
   `develop` and push once everything is green; `main` is a release decision.
 - Before merging a lot: `/simplify`, `/ponytail:ponytail-review`, `/codex:review`
-  (only the user can run it), and a browser check (`playwright-cli`) of every page with a form.
+  (only the user can run it), and a browser check of every page with a form
+  (`playwright-cli`, or the desktop app's built-in browser when cheaper).
 - Plans that carry full code: build, lint and test it in a scratch copy of the repo
   before execution.
 - Plans and designs go in `docs/superpowers/` (gitignored, never committed).
@@ -136,3 +142,12 @@ No i18n framework.
   comes first in the handler, and every push must show a notification.
 - The service worker's cache name hashes every embedded file: any deploy that
   changes the site shows the update banner.
+- Playwright's `route()` misses requests a service worker makes: to drop a
+  response, open a context with `serviceWorkers: 'block'`.
+- Headless Chromium cannot subscribe to a real push service: deliver a push with
+  CDP `ServiceWorker.deliverPushMessage` and read `registration.getNotifications()`.
+  `Page.getInstallabilityErrors` needs a persistent profile.
+- The form takes 5 sends an hour per address (20 per IP): repeated browser runs
+  need several of the six `members_valid.xlsx` addresses.
+- Close response bodies through a named error return (`suggest`, `turnstile`,
+  `push`); never `_ =` an error.
