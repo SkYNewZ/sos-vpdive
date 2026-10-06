@@ -195,7 +195,12 @@ func serve(ctx context.Context, getenv func(string) string, stdout io.Writer) (e
 		return err
 	}
 	logger := telemetry.NewLogger(stdout, cfg.LogLevel)
-	shutdownTraces, err := telemetry.Setup(ctx, logger)
+	for _, w := range cfg.Warnings {
+		logger.WarnContext(ctx, "configuration ignored", "error", w)
+	}
+	logger, shutdownTraces, err := telemetry.Setup(ctx, logger, telemetry.SentryOptions{
+		DSN: cfg.SentryDSN, Environment: cfg.SentryEnvironment, Release: version,
+	})
 	if err != nil {
 		return err
 	}
@@ -224,7 +229,7 @@ func serve(ctx context.Context, getenv func(string) string, stdout io.Writer) (e
 	httpServer.RegisterOnShutdown(a.broker.Close)
 	listenErr := make(chan error, 1)
 	go func() { listenErr <- httpServer.ListenAndServe() }()
-	logger.InfoContext(ctx, "listening", "port", cfg.Port, "env", string(cfg.Env))
+	logger.InfoContext(ctx, "listening", "port", cfg.Port, "env", string(cfg.Env), "version", version)
 
 	select {
 	case err := <-listenErr:

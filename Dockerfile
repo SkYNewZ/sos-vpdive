@@ -15,13 +15,15 @@ RUN ./scripts/tailwind.sh
 # Stage 2: static Go binary, cross-compiled for the target platform.
 FROM --platform=$BUILDPLATFORM golang:1.27.1-trixie@sha256:3b77fc618ec235a1ab412de7737f120dd507c57e8d87de4cbb7994fb94275ed5 AS build
 ARG TARGETOS TARGETARCH
+# Build version, shown in logs and Sentry events: docker build --build-arg VERSION=…
+ARG VERSION=dev
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 COPY --from=css /src/internal/web/static/app.css internal/web/static/app.css
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
-    go build -trimpath -ldflags="-s -w" -o /out/sos-vpdive ./cmd/sos-vpdive \
+    go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/sos-vpdive ./cmd/sos-vpdive \
  && mkdir /out/data
 
 # Stage 3: distroless, non-root, no shell. Only /data is written.

@@ -17,6 +17,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/getsentry/sentry-go"
 )
 
 const (
@@ -56,6 +58,8 @@ var (
 	pushoverTokenPattern = regexp.MustCompile(`^[A-Za-z0-9]{30}$`)
 	// hostPattern is a lowercase DNS name, optionally led by a dot.
 	hostPattern = regexp.MustCompile(`^\.?[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$`)
+	// uuidPattern is the shape of an Umami website ID, lowercased.
+	uuidPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 )
 
 // SMTP holds the mail relay settings.
@@ -92,6 +96,19 @@ type VAPID struct {
 	Subject    string // mailto: or https: contact
 }
 
+// Umami selects the page-view counter of spec §9.10. A site whose ID is
+// empty is not measured.
+type Umami struct {
+	ScriptURL      *url.URL
+	WebsiteID      string // members site
+	AdminWebsiteID string // committee site
+}
+
+// Origin is the scheme and host serving the script and receiving page views.
+func (u *Umami) Origin() string {
+	return u.ScriptURL.Scheme + "://" + u.ScriptURL.Host
+}
+
 // Config is the validated deployment configuration.
 type Config struct {
 	Env                Env
@@ -120,6 +137,10 @@ type Config struct {
 	PushoverToken      string        // "" turns Pushover off; user keys live in the accounts file
 	VAPID              *VAPID        // nil turns Web Push off
 	PushAllowedHosts   []string      // push services a subscription may point at
+	SentryDSN          string        // "" turns Sentry off; always "" in development
+	SentryEnvironment  string
+	Umami              *Umami  // nil turns Umami off
+	Warnings           []error // optional tools turned off by an invalid value
 }
 
 // TurnstileEnabled reports whether the anti-bot check is configured.
@@ -172,23 +193,34 @@ func Load(getenv func(string) string) (*Config, error) {
 	c.PushoverToken = p.pushoverToken()
 	c.VAPID = p.vapid()
 	c.PushAllowedHosts = p.hosts("PUSH_ALLOWED_HOSTS", defaultPushHosts)
+	c.SentryEnvironment = p.optional("SENTRY_ENVIRONMENT", string(c.Env))
+	c.Umami = p.umami(c)
 	if c.Env == EnvProduction {
 		p.requireHTTPS("BASE_URL", c.BaseURL)
 		p.requireHTTPS("ADMIN_BASE_URL", c.AdminBaseURL)
+		c.SentryDSN = p.sentryDSN() // Sentry is fully off in development (owner decision)
 	}
 	if err := errors.Join(p.errs...); err != nil {
 		return nil, fmt.Errorf("invalid configuration:\n%w", err)
 	}
+	c.Warnings = p.warnings
 	return c, nil
 }
 
 type parser struct {
-	getenv func(string) string
-	errs   []error
+	getenv   func(string) string
+	errs     []error
+	warnings []error
 }
 
 func (p *parser) fail(name string, err error) {
 	p.errs = append(p.errs, fmt.Errorf("%s: %w", name, err))
+}
+
+// warn records a value that turns an optional tool off without stopping
+// the server.
+func (p *parser) warn(name string, err error) {
+	p.warnings = append(p.warnings, fmt.Errorf("%s: %w", name, err))
 }
 
 func (p *parser) value(name string) string {
@@ -488,4 +520,61 @@ func (p *parser) hosts(name, def string) []string {
 		p.fail(name, errors.New("must name at least one host"))
 	}
 	return out
+}
+
+// umami reads the optional page-view counter. An invalid value turns it off,
+// or leaves one site unmeasured, with a warning: the service runs fine
+// without it (owner decision, 2026-10-06).
+func (p *parser) umami(c *Config) *Umami {
+	raw := p.value("UMAMI_SCRIPT_URL")
+	if raw == "" {
+		return nil
+	}
+	u, ok := absolute(raw)
+	if !ok || u.Path == "" || u.Path == "/" || (c.Env == EnvProduction && u.Scheme != schemeHTTPS) {
+		p.warn("UMAMI_SCRIPT_URL", errors.New("must be the absolute URL of the script, https in production: Umami is off"))
+		return nil
+	}
+	// Referrer-Policy same-origin sends the full address, a tracking token
+	// included, to the site's own origin: Umami must live elsewhere.
+	u.Host = strings.TrimSuffix(strings.ToLower(u.Host), map[string]string{schemeHTTP: ":80", schemeHTTPS: ":443"}[u.Scheme])
+	for _, site := range []*url.URL{c.BaseURL, c.AdminBaseURL} {
+		if site != nil && site.Scheme == u.Scheme && site.Host == u.Host {
+			p.warn("UMAMI_SCRIPT_URL", errors.New("must be on another origin than both sites, which send it their full addresses: Umami is off"))
+			return nil
+		}
+	}
+	m := &Umami{
+		ScriptURL:      u,
+		WebsiteID:      p.websiteID("UMAMI_WEBSITE_ID"),
+		AdminWebsiteID: p.websiteID("UMAMI_ADMIN_WEBSITE_ID"),
+	}
+	if m.WebsiteID == "" && m.AdminWebsiteID == "" {
+		p.warn("UMAMI_SCRIPT_URL", errors.New("set without a valid website ID: Umami is off"))
+		return nil
+	}
+	return m
+}
+
+// sentryDSN reads the optional Sentry DSN. An invalid one turns Sentry off
+// with a warning, like the other optional tools.
+func (p *parser) sentryDSN() string {
+	dsn := p.value("SENTRY_DSN")
+	if dsn == "" {
+		return ""
+	}
+	if _, err := sentry.NewDsn(dsn); err != nil {
+		p.warn("SENTRY_DSN", fmt.Errorf("must be a valid DSN, Sentry is off: %w", err))
+		return ""
+	}
+	return dsn
+}
+
+func (p *parser) websiteID(name string) string {
+	id := strings.ToLower(p.value(name))
+	if id != "" && !uuidPattern.MatchString(id) {
+		p.warn(name, errors.New("must be a UUID: this site is not measured"))
+		return ""
+	}
+	return id
 }

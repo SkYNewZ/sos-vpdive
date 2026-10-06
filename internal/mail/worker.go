@@ -151,7 +151,7 @@ func (o *Outbox) deliver(ctx context.Context, s Sender, logger *slog.Logger, q q
 
 	if o.now().Unix() >= q.giveUpAt {
 		telemetry.Fail(span, "delivery_expired")
-		logger.WarnContext(ctx, "mail expired before sending", "outbox_id", q.id, "event", string(q.event),
+		logger.ErrorContext(ctx, "mail expired before sending", "outbox_id", q.id, "event", string(q.event),
 			"attempts", q.attempts)
 		return false, o.finish(ctx, q.id, statusFailed, q.attempts)
 	}
@@ -183,7 +183,7 @@ func (o *Outbox) deliver(ctx context.Context, s Sender, logger *slog.Logger, q q
 		if q.channel != ChannelEmail {
 			key, cause = "error", sendErr
 		}
-		logger.WarnContext(ctx, "mail failed for good", "outbox_id", q.id, "event", string(q.event),
+		logger.ErrorContext(ctx, "mail failed for good", "outbox_id", q.id, "event", string(q.event),
 			"channel", string(q.channel), "attempts", attempts, "permanent", permanent, key, cause)
 		return false, o.finish(ctx, q.id, statusFailed, attempts)
 	default:

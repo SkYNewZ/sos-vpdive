@@ -124,7 +124,7 @@ func (s *Server) checkBot(r *http.Request, token, host, action string) (int, *no
 	err := s.turnstile.Verify(r.Context(), token, s.clientIP(r), host, action)
 	switch {
 	case errors.Is(err, ErrBotCheckUnavailable):
-		s.logger.WarnContext(r.Context(), "turnstile unavailable", "error", err)
+		s.logger.ErrorContext(r.Context(), "turnstile unavailable", "error", err)
 		return http.StatusServiceUnavailable, &notice{Kind: noticeError,
 			Text: "Le contrôle anti-robot ne répond pas. Réessaie dans un instant, ou écris au club : " + s.cfg.NotifyEmail.Address + "."}
 	case err != nil:

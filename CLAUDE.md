@@ -32,6 +32,14 @@ validated: it wins over this file, over existing code, and over preference.
   other method says it was paid in real money and the treasurer refunds it.
 - Erasing a person (§4.5) deletes every payment line of their name hash, a
   homonym's included.
+- Umami counts page views only (§9.10): no custom event, so neither the event
+  table nor the « demande envoyée » criterion of §13.
+- Sentry is fully off with `APP_ENV=development`, even with `SENTRY_DSN` set.
+- An invalid `SENTRY_DSN` or `UMAMI_*` value turns that tool off with a startup
+  warning instead of refusing to start (§10).
+- Sentry also receives every log line. A record at `Error` or above is a Sentry
+  error event: log levels decide what is reported (§9.10), so expected
+  failures log at `Warn` or below.
 
 ## Private material: `.local/` is gitignored
 
@@ -160,3 +168,10 @@ No i18n framework.
   through the name typed on the form (§7.3).
 - Close response bodies through a named error return (`suggest`, `turnstile`,
   `push`); never `_ =` an error.
+- Umami drops page views from a `HeadlessChrome` user agent (answers « beep
+  boop »): give browser checks that read Umami's API a regular Chrome user agent.
+- sentry-go ≥ 0.47 has no `EnableLogs`: logs flow once `WithSentry` wraps the
+  logger. Its `otel/otlp` exporter inherits `OTEL_EXPORTER_OTLP_*` (an http
+  endpoint downgrades it): `telemetry.sentryExporter` sets the URL with
+  `WithEndpointURL` instead. A Sentry client with a custom `Transport` (tests) skips the telemetry
+  buffer and delivers logs and events to it on `Flush`.
