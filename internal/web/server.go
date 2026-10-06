@@ -19,8 +19,10 @@ import (
 
 	"github.com/SkYNewZ/sos-vpdive/internal/admins"
 	"github.com/SkYNewZ/sos-vpdive/internal/config"
+	"github.com/SkYNewZ/sos-vpdive/internal/mail"
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
+	"github.com/SkYNewZ/sos-vpdive/internal/tickets"
 )
 
 // Deps are the server's collaborators.
@@ -30,6 +32,9 @@ type Deps struct {
 	Keys    *secure.Keys
 	Members *members.Store
 	Admins  *admins.Registry
+	Tickets *tickets.Store
+	Outbox  *mail.Outbox
+	Broker  *Broker // shared with tickets.Deps.OnChange
 	Content fs.FS
 	Logger  *slog.Logger
 	Now     func() time.Time
@@ -39,15 +44,19 @@ type Deps struct {
 
 // Server routes requests to the members or the committee site by host.
 type Server struct {
-	cfg     *config.Config
-	db      *sql.DB
-	keys    *secure.Keys
-	members *members.Store
-	admins  *admins.Registry
-	logger  *slog.Logger
-	now     func() time.Time
-	paris   *time.Location
-	tracer  trace.Tracer
+	cfg       *config.Config
+	db        *sql.DB
+	keys      *secure.Keys
+	members   *members.Store
+	admins    *admins.Registry
+	tickets   *tickets.Store
+	outbox    *mail.Outbox
+	broker    *Broker
+	keepAlive time.Duration // event stream keepalive and session check, shortened by tests
+	logger    *slog.Logger
+	now       func() time.Time
+	paris     *time.Location
+	tracer    trace.Tracer
 
 	turnstile *Turnstile
 	limiter   *limiter
@@ -85,7 +94,9 @@ func New(d Deps) (*Server, error) {
 	}
 	s := &Server{
 		cfg: d.Config, db: d.DB, keys: d.Keys, members: d.Members, admins: d.Admins,
-		logger: d.Logger, now: d.Now, paris: paris, tracer: otel.Tracer(tracerName),
+		tickets: d.Tickets, outbox: d.Outbox, broker: d.Broker,
+		keepAlive: keepAliveInterval,
+		logger:    d.Logger, now: d.Now, paris: paris, tracer: otel.Tracer(tracerName),
 		turnstile: d.Turnstile,
 		limiter:   &limiter{db: d.DB, keys: d.Keys, now: d.Now},
 		robots:    robots, vpdive: links, assets: static,
@@ -93,7 +104,12 @@ func New(d Deps) (*Server, error) {
 	if s.dummyHash, err = dummyHash(); err != nil {
 		return nil, err
 	}
-	funcs := template.FuncMap{"static": s.assets.URL, "formatTime": s.formatTime, "author": s.author}
+	funcs := template.FuncMap{
+		"static": s.assets.URL, "formatTime": s.formatTime, "formatDate": s.formatDate, "author": s.tickets.AccountName,
+		"age": s.age, "accountOf": s.accountOf, "actor": s.actorName, "isoDate": isoDate,
+		"fieldName": tickets.FieldName, "categoryLabel": func(id string) string { return s.tickets.Catalog.CategoryLabel(id) }, "describe": s.tickets.Describe,
+		"formField": newFormField,
+	}
 	if s.pages, err = parsePages(funcs); err != nil {
 		return nil, err
 	}
@@ -129,7 +145,15 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 func (s *Server) publicRoutes() *http.ServeMux {
 	mux := http.NewServeMux()
 	s.commonRoutes(mux)
-	s.handle(mux, "GET /{$}", s.publicHome)
+	s.handle(mux, "GET /{$}", s.formPage)
+	s.handle(mux, "POST /demandes", s.submit)
+	s.handle(mux, "GET /demandes/envoyee", s.sentPage)
+	s.handle(mux, "GET /suivi/{jeton}", s.trackingPage)
+	s.handle(mux, "POST /suivi/{jeton}/reponse", s.memberReply)
+	s.handle(mux, "POST /suivi/{jeton}/cloture", s.memberClose)
+	s.handle(mux, "GET /suivi/{jeton}/captures/{id}", s.memberCapture)
+	s.handle(mux, "GET /retrouver", s.linksPage)
+	s.handle(mux, "POST /retrouver", s.requestLinks)
 	return mux
 }
 
@@ -143,7 +167,16 @@ func (s *Server) adminRoutes() *http.ServeMux {
 	s.handle(mux, "GET /imports", s.signedIn(s.importsPage))
 	s.handle(mux, "POST /imports", s.signedIn(s.uploadImport))
 	s.handle(mux, "POST /imports/confirmer", s.signedIn(s.confirmImport))
-	s.handle(mux, "GET /{$}", s.signedIn(s.home))
+	s.handle(mux, "GET /demandes/{id}", s.signedIn(s.ticketPage))
+	s.handle(mux, "POST /demandes/{id}/actions", s.signedIn(s.ticketAction))
+	s.handle(mux, "GET /demandes/{id}/captures/{cid}", s.signedIn(s.adminCapture))
+	s.handle(mux, "GET /effacement", s.signedIn(s.erasurePage))
+	s.handle(mux, "POST /effacement", s.signedIn(s.erase))
+	s.handle(mux, "GET /envois", s.signedIn(s.failedMails))
+	s.handle(mux, "POST /envois/{id}/relancer", s.signedIn(s.retryMail))
+	// The event stream is neither traced nor logged (spec §9.9).
+	mux.HandleFunc("GET /evenements", s.events)
+	s.handle(mux, "GET /{$}", s.signedIn(s.board))
 	return mux
 }
 
@@ -164,10 +197,6 @@ func (s *Server) handle(mux *http.ServeMux, pattern string, h http.HandlerFunc) 
 		route = "unmatched"
 	}
 	mux.Handle(pattern, s.instrument(route, h))
-}
-
-func (s *Server) publicHome(w http.ResponseWriter, r *http.Request) {
-	s.render(w, r, http.StatusOK, "public_home", s.newPage(r, "Demande d'aide"))
 }
 
 func (s *Server) robotsTxt(w http.ResponseWriter, r *http.Request) {

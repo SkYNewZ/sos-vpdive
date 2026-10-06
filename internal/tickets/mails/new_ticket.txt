@@ -1,0 +1,8 @@
+Nouvelle demande {{.Ref}}
+
+Catégorie : {{.Category}}
+Demandeur : {{.Name}}
+
+Ouvrir la demande : {{.Link}}
+
+Ne réponds pas à ce mail : traite la demande depuis son lien.

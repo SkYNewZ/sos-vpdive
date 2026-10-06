@@ -1,0 +1,8 @@
+La demande {{.Ref}} était suivie par {{.Former}}, dont le compte a été retiré. Elle revient « à traiter ».
+
+Catégorie : {{.Category}}
+Demandeur : {{.Name}}
+
+Ouvrir la demande : {{.Link}}
+
+Ne réponds pas à ce mail : traite la demande depuis son lien.

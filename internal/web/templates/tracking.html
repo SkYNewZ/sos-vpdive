@@ -1,0 +1,63 @@
+{{define "main"}}
+{{$d := .Data}}{{$t := $d.Ticket}}
+<h1 class="text-2xl font-bold text-primary">Ta demande {{$t.Ref}}</h1>
+<dl class="mt-4 grid grid-cols-1 gap-x-4 sm:grid-cols-[auto_1fr] sm:gap-y-2">
+<dt class="font-semibold">Statut</dt><dd class="mb-2 sm:mb-0">{{template "memberStatus" $t.Status}}</dd>
+<dt class="font-semibold">Catégorie</dt><dd class="mb-2 sm:mb-0">{{categoryLabel $t.Category}}</dd>
+<dt class="font-semibold">Envoyée le</dt><dd class="mb-2 sm:mb-0">{{formatTime $t.SubmittedAt}}</dd>
+<dt class="font-semibold">Suivie par</dt>
+<dd class="mb-2 sm:mb-0">{{with $d.Assignee}}<span class="inline-flex items-center gap-2"><img src="{{.Avatar}}" alt="" width="32" height="32" class="size-8"><span><span class="font-semibold">{{.Name}}</span> · {{.Role}}</span></span>{{else}}{{if $t.Status.Open}}Personne pour l'instant : un membre du comité va la prendre.{{else}}Le comité du club{{end}}{{end}}</dd>
+</dl>
+
+<section class="mt-8" aria-labelledby="fil">
+<h2 id="fil" class="text-xl font-semibold">Échanges</h2>
+<ol class="mt-4 flex flex-col gap-4">
+<li class="border border-base-300 p-4">
+<p class="text-sm"><span class="font-semibold">Toi</span> · {{formatTime $t.SubmittedAt}}</p>
+<p class="mt-2 whitespace-pre-line break-words">{{$t.Description}}</p>
+{{with $t.Captures}}<ul class="mt-3 flex flex-wrap gap-3">{{range .}}<li><a class="link" href="/suivi/{{$d.Token}}/captures/{{.ID}}" target="_blank" rel="noopener"><img src="/suivi/{{$d.Token}}/captures/{{.ID}}" alt="Capture d'écran jointe à ta demande" class="h-32 w-auto border border-base-300" loading="lazy"></a></li>{{end}}</ul>{{end}}
+</li>
+{{range $d.Messages}}
+<li class="border p-4 {{if .FromMember}}border-base-300{{else}}border-primary{{end}}">
+<p class="text-sm">{{if .FromMember}}<span class="font-semibold">Toi</span>{{else}}{{with accountOf .Author}}<span class="font-semibold">{{.Name}}</span> · {{.Role}}{{else}}<span class="font-semibold">Le comité</span>{{end}}{{end}} · {{formatTime .CreatedAt}}</p>
+<p class="mt-2 whitespace-pre-line break-words">{{.Body}}</p>
+{{with .Captures}}<ul class="mt-3 flex flex-wrap gap-3">{{range .}}<li><a class="link" href="/suivi/{{$d.Token}}/captures/{{.ID}}" target="_blank" rel="noopener"><img src="/suivi/{{$d.Token}}/captures/{{.ID}}" alt="Capture d'écran jointe au message" class="h-32 w-auto border border-base-300" loading="lazy"></a></li>{{end}}</ul>{{end}}
+</li>
+{{end}}
+</ol>
+</section>
+
+{{if $d.CanReply}}
+<section class="mt-8" aria-labelledby="repondre">
+<h2 id="repondre" class="text-xl font-semibold">Répondre</h2>
+{{if not $t.Status.Open}}<p class="mt-2">Ta demande est réglée. Si le problème revient, réponds ici : elle sera rouverte.</p>{{end}}
+<form method="post" action="/suivi/{{$d.Token}}/reponse" enctype="multipart/form-data" class="mt-4 flex flex-col gap-4">
+<div class="flex flex-col gap-1">
+<label class="font-semibold" for="message">Ton message</label>
+<textarea class="textarea w-full" id="message" name="message" rows="5" maxlength="4000" required{{if $d.Error}} aria-invalid="true" aria-describedby="message-erreur"{{end}}>{{$d.Reply}}</textarea>
+{{with $d.Error}}<p id="message-erreur" role="alert" class="font-semibold text-error">{{.}}</p>{{end}}
+</div>
+<div class="flex flex-col gap-1">
+<label class="font-semibold" for="captures">Captures d'écran (facultatif)</label>
+<p class="text-sm" id="captures-aide">3 images au plus, PNG, JPEG ou WebP, 5 Mo chacune.</p>
+<p class="text-sm font-semibold">N'envoie ici ni certificat médical ni document de santé. Le CACI se dépose uniquement dans VPDive.</p>
+<input class="file-input w-full" id="captures" name="captures" type="file" accept="image/png,image/jpeg,image/webp" multiple aria-describedby="captures-aide">
+</div>
+<button class="btn btn-primary min-h-11 w-full sm:w-auto sm:self-start" type="submit">Envoyer ma réponse</button>
+</form>
+</section>
+{{else}}
+<div class="mt-8 border border-base-300 p-4">
+<p>Cette demande est close depuis plus de 14 jours. Pour une nouvelle question, <a class="link link-primary" href="/">ouvre une nouvelle demande</a>.</p>
+</div>
+{{end}}
+
+{{if $t.Status.Open}}
+<form method="post" action="/suivi/{{$d.Token}}/cloture" class="mt-8 flex flex-col gap-2">
+<p>Ton problème est réglé ? Dis-le au comité :</p>
+<button class="btn btn-outline min-h-11 self-start" type="submit">Ma demande est réglée</button>
+</form>
+{{end}}
+
+<p class="mt-8 text-sm">Garde le lien de cette page : il te permet de suivre ta demande. Tu l'as perdu ? <a class="link link-primary" href="/retrouver">Reçois-le de nouveau par mail</a>.</p>
+{{end}}

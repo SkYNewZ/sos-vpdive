@@ -2,7 +2,6 @@ package web
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -14,7 +13,9 @@ import (
 )
 
 const (
-	loginBodyLimit  = 16 << 10
+	loginBodyLimit = 16 << 10
+	// postFormLimit fits a 4 000-rune reply once URL-encoded.
+	postFormLimit   = 64 << 10
 	turnstileAction = "connexion"
 )
 
@@ -59,18 +60,9 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	username := strings.ToLower(strings.TrimSpace(r.PostForm.Get("username")))
 	ip := s.clientIP(r)
 
-	if s.turnstile != nil {
-		err := s.turnstile.Verify(ctx, r.PostForm.Get("cf-turnstile-response"), ip, s.cfg.AdminBaseURL.Hostname(), turnstileAction)
-		switch {
-		case errors.Is(err, ErrBotCheckUnavailable):
-			s.logger.WarnContext(ctx, "turnstile unavailable", "error", err)
-			s.renderLogin(w, r, http.StatusServiceUnavailable, username, notice{Kind: noticeError,
-				Text: "Le contrôle anti-robot ne répond pas. Réessaie dans un instant, ou écris au club : " + s.cfg.NotifyEmail.Address + "."})
-			return
-		case err != nil:
-			s.renderLogin(w, r, http.StatusForbidden, username, notice{Kind: noticeError, Text: "Le contrôle anti-robot a échoué. Réessaie."})
-			return
-		}
+	if status, n := s.checkBot(r, r.PostForm.Get(turnstileField), s.cfg.AdminBaseURL.Hostname(), turnstileAction); n != nil {
+		s.renderLogin(w, r, status, username, *n)
+		return
 	}
 
 	// Serialise the check-then-act below: the limits and argon2id memory hold.
@@ -125,7 +117,7 @@ func (s *Server) forbidCSRF(w http.ResponseWriter, r *http.Request) {
 // postForm parses a small urlencoded form and checks its CSRF token; it has
 // already answered 403 when it returns false.
 func (s *Server) postForm(w http.ResponseWriter, r *http.Request) bool {
-	r.Body = http.MaxBytesReader(w, r.Body, loginBodyLimit)
+	r.Body = http.MaxBytesReader(w, r.Body, postFormLimit)
 	if err := r.ParseForm(); err != nil || !s.csrfValid(r, r.PostForm.Get("csrf")) {
 		s.forbidCSRF(w, r)
 		return false
@@ -139,21 +131,12 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	}
 	sess, _ := sessionFrom(r.Context())
 	s.deleteSession(r.Context(), sess.hash)
+	s.broker.disconnect(func(sub *subscriber) bool { return sub.session == string(sess.hash) })
 	http.SetCookie(w, &http.Cookie{
 		Name: sessionCookieName, Value: "", Path: "/", MaxAge: -1,
 		Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode,
 	})
 	http.Redirect(w, r, "/connexion", http.StatusSeeOther)
-}
-
-// home is the committee's start page. Lot 2 turns it into the requests board.
-func (s *Server) home(w http.ResponseWriter, r *http.Request) {
-	p, err := s.adminPage(r, "Demandes")
-	if err != nil {
-		s.serverError(w, r, err)
-		return
-	}
-	s.render(w, r, http.StatusOK, "admin_home", p)
 }
 
 // adminPage is newPage plus the committee banners (spec §3.6, §4.1, §7.2).
@@ -167,6 +150,9 @@ func (s *Server) adminPage(r *http.Request, title string) (page, error) {
 	return p, nil
 }
 
+// adminNotices are the committee banners: accounts file, members list
+// (spec §3.6, §7.2), failed mails (§6) and open requests idle for a year
+// (§8.3).
 func (s *Server) adminNotices(ctx context.Context) ([]notice, error) {
 	var out []notice
 	if err := s.admins.Err(); err != nil {
@@ -177,20 +163,50 @@ func (s *Server) adminNotices(ctx context.Context) ([]notice, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !has {
-		return append(out, notice{Kind: noticeWarning, Text: "Le formulaire est fermé : aucune liste des membres n'est importée.",
-			Link: "/imports", LinkText: "Importer la liste"}), nil
-	}
-	last, ok, err := s.members.LastImport(ctx)
+	last, imported, err := s.members.LastImport(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if ok && s.now().Sub(last.ImportedAt) > s.cfg.MembersMaxAge {
+	switch {
+	case !has:
+		out = append(out, notice{Kind: noticeWarning, Text: "Le formulaire est fermé : aucune liste des membres n'est importée.",
+			Link: "/imports", LinkText: "Importer la liste"})
+	case imported && s.now().Sub(last.ImportedAt) > s.cfg.MembersMaxAge:
 		out = append(out, notice{Kind: noticeWarning,
 			Text: fmt.Sprintf("La liste des membres date du %s. Pense à refaire l'import.", s.formatDate(last.ImportedAt)),
 			Link: "/imports", LinkText: "Refaire l'import"})
 	}
+	failed, err := s.outbox.FailedCount(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if failed > 0 {
+		out = append(out, notice{Kind: noticeError, Text: failedMailsText(failed), Link: "/envois", LinkText: "Voir les envois en échec"})
+	}
+	idle, err := s.tickets.IdleRefs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(idle) > 0 {
+		out = append(out, notice{Kind: noticeWarning, Text: idleText(idle), Link: "/?statut=" + filterAllOpen, LinkText: "Voir les demandes ouvertes"})
+	}
 	return out, nil
+}
+
+func failedMailsText(n int) string {
+	if n == 1 {
+		return "1 mail n'a pas pu partir."
+	}
+	return strconv.Itoa(n) + " mails n'ont pas pu partir."
+}
+
+// idleText names the open requests without activity for 12 months: they are
+// flagged for review, never closed automatically (spec §8.3).
+func idleText(refs []string) string {
+	if len(refs) == 1 {
+		return "1 demande ouverte est sans activité depuis 12 mois, à revoir : " + refs[0] + "."
+	}
+	return strconv.Itoa(len(refs)) + " demandes ouvertes sont sans activité depuis 12 mois, à revoir : " + strings.Join(refs, ", ") + "."
 }
 
 // serverError logs an internal error and answers 500 without detail.

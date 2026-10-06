@@ -1,0 +1,10 @@
+Bonjour {{.FirstName}},
+
+Ta demande {{.Ref}} est bien reçue. Un membre du comité va la prendre en charge.
+
+Pour suivre ta demande, répondre ou ajouter une capture d'écran, utilise ce lien personnel :
+{{.Link}}
+
+Garde ce mail : ce lien est le seul accès à ta demande. Ne le transmets à personne.
+
+Ne réponds pas à ce mail, ta réponse ne serait pas lue : écris-nous depuis la page de ta demande.

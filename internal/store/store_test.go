@@ -40,7 +40,7 @@ func TestOpenCreatesSchemaAndIsIdempotent(t *testing.T) {
 	db, path := openTemp(t)
 	ctx := context.Background()
 
-	rows, err := db.QueryContext(ctx, `SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name`)
+	rows, err := db.QueryContext(ctx, `SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name`)
 	require.NoError(t, err)
 	defer func() { assert.NoError(t, rows.Close()) }()
 	var tables []string
@@ -50,7 +50,10 @@ func TestOpenCreatesSchemaAndIsIdempotent(t *testing.T) {
 		tables = append(tables, n)
 	}
 	require.NoError(t, rows.Err())
-	assert.Equal(t, []string{"counters", "imports", "members", "meta", "sessions"}, tables)
+	assert.Equal(t, []string{
+		"attachments", "counters", "events", "imports", "members", "messages",
+		"meta", "outbox", "sessions", "stats_monthly", "tickets",
+	}, tables)
 
 	var mode string
 	require.NoError(t, db.QueryRowContext(ctx, `PRAGMA journal_mode`).Scan(&mode))

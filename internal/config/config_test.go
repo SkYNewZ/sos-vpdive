@@ -69,6 +69,10 @@ func TestLoadValidProductionAppliesDefaults(t *testing.T) {
 	assert.Equal(t, 465, c.SMTP.Port)
 	assert.Equal(t, "club@example.org", c.NotifyEmail.Address)
 	assert.Equal(t, 336*time.Hour, c.MembersMaxAge)
+	assert.Equal(t, 48*time.Hour, c.AgeWarnAfter)
+	assert.Equal(t, 168*time.Hour, c.AgeAlertAfter)
+	assert.Equal(t, 365, c.RetentionDays)
+	assert.Equal(t, 20, c.FormRateLimit)
 	assert.Equal(t, "https://plongee-pradet.fr", c.VPDiveBaseURL.String())
 	require.NotNil(t, c.S3)
 	assert.Equal(t, "auto", c.S3.Region)
@@ -136,6 +140,12 @@ func TestLoadProductionRules(t *testing.T) {
 		{"bad duration", func(m map[string]string) { m["MEMBERS_MAX_AGE"] = "two weeks" }, "MEMBERS_MAX_AGE"},
 		{"bad log level", func(m map[string]string) { m["LOG_LEVEL"] = "loud" }, "LOG_LEVEL"},
 		{"bad proxy", func(m map[string]string) { m["TRUSTED_PROXIES"] = "10.0.0.0/8, nope" }, "TRUSTED_PROXIES"},
+		{"alert before warn", func(m map[string]string) { m["AGE_WARN_AFTER"] = "72h"; m["AGE_ALERT_AFTER"] = "48h" }, "AGE_ALERT_AFTER"},
+		{"bad warn age", func(m map[string]string) { m["AGE_WARN_AFTER"] = "-1h" }, "AGE_WARN_AFTER"},
+		{"retention shorter than the reply window", func(m map[string]string) { m["RETENTION_DAYS"] = "14" }, "RETENTION_DAYS"},
+		{"rate without unit", func(m map[string]string) { m["FORM_RATE_LIMIT"] = "20" }, "FORM_RATE_LIMIT"},
+		{"rate per minute", func(m map[string]string) { m["FORM_RATE_LIMIT"] = "20/min" }, "FORM_RATE_LIMIT"},
+		{"rate too high", func(m map[string]string) { m["FORM_RATE_LIMIT"] = "10001/h" }, "FORM_RATE_LIMIT"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -175,4 +185,18 @@ func TestLoadTrustedProxies(t *testing.T) {
 		netip.MustParsePrefix("192.168.1.10/32"),
 		netip.MustParsePrefix("fd00::/8"),
 	}, c.TrustedProxies)
+}
+
+func TestLoadLot2Settings(t *testing.T) {
+	m := validEnv()
+	m["AGE_WARN_AFTER"] = "24h"
+	m["AGE_ALERT_AFTER"] = "96h"
+	m["RETENTION_DAYS"] = "730"
+	m["FORM_RATE_LIMIT"] = " 35/h "
+	c, err := Load(getenv(m))
+	require.NoError(t, err)
+	assert.Equal(t, 24*time.Hour, c.AgeWarnAfter)
+	assert.Equal(t, 96*time.Hour, c.AgeAlertAfter)
+	assert.Equal(t, 730, c.RetentionDays)
+	assert.Equal(t, 35, c.FormRateLimit)
 }

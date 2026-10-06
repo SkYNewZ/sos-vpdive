@@ -1,29 +1,14 @@
 package web
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io/fs"
 	"net/url"
 	"strings"
 
-	"go.yaml.in/yaml/v3"
+	"github.com/SkYNewZ/sos-vpdive/internal/config"
 )
-
-// decodeStrict reads a YAML content file, refusing unknown keys.
-func decodeStrict(content fs.FS, name string, v any) error {
-	data, err := fs.ReadFile(content, name)
-	if err != nil {
-		return fmt.Errorf("read %s: %w", name, err)
-	}
-	dec := yaml.NewDecoder(bytes.NewReader(data))
-	dec.KnownFields(true)
-	if err := dec.Decode(v); err != nil {
-		return fmt.Errorf("decode %s: %w", name, err)
-	}
-	return nil
-}
 
 // robotsPolicy holds the AI robots refused by robots.txt and by user agent.
 type robotsPolicy struct {
@@ -38,7 +23,7 @@ func loadRobots(content fs.FS) (robotsPolicy, error) {
 			RobotsTxtOnly bool   `yaml:"robots_txt_only"`
 		} `yaml:"robots"`
 	}
-	if err := decodeStrict(content, "config/robots.yaml", &f); err != nil {
+	if err := config.DecodeYAML(content, "config/robots.yaml", &f); err != nil {
 		return robotsPolicy{}, err
 	}
 	if len(f.Robots) == 0 {
@@ -99,7 +84,7 @@ func loadVPDiveLinks(content fs.FS, base *url.URL) (vpdiveLinks, error) {
 			Path  string `yaml:"path"`
 		} `yaml:"links"`
 	}
-	if err := decodeStrict(content, "config/vpdive.yaml", &f); err != nil {
+	if err := config.DecodeYAML(content, "config/vpdive.yaml", &f); err != nil {
 		return nil, err
 	}
 	links := vpdiveLinks{}

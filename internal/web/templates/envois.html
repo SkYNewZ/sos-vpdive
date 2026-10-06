@@ -1,0 +1,23 @@
+{{define "main"}}
+<h1 class="text-2xl font-bold text-primary">Envois en échec</h1>
+<p class="mt-4">Ces mails ne sont pas partis : adresse refusée par le serveur d'envoi, ou sept jours sans succès. Relance-les une fois le problème réglé.</p>
+{{if .Data}}
+<div class="mt-4 overflow-x-auto">
+<table class="table">
+<thead><tr><th scope="col">Mis en file le</th><th scope="col">Échec le</th><th scope="col">Mail</th><th scope="col">Demande</th><th scope="col">Destinataire</th><th scope="col"><span class="sr-only">Action</span></th></tr></thead>
+<tbody>
+{{range .Data}}<tr>
+<td class="whitespace-nowrap">{{formatTime .CreatedAt}}</td>
+<td class="whitespace-nowrap">{{formatTime .FailedAt}}</td>
+<td>{{.Event.Label}}</td>
+<td>{{if .TicketID}}<a class="link link-primary" href="/demandes/{{.TicketID}}">{{.Ref}}</a>{{else}}—{{end}}</td>
+<td class="break-words">{{.To}}</td>
+<td><form method="post" action="/envois/{{.ID}}/relancer"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button class="btn btn-outline btn-sm min-h-11" type="submit">Relancer</button></form></td>
+</tr>
+{{end}}</tbody>
+</table>
+</div>
+{{else}}
+<p class="mt-4">Aucun envoi en échec.</p>
+{{end}}
+{{end}}

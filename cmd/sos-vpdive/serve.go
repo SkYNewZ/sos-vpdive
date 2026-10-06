@@ -20,11 +20,14 @@ import (
 
 	sosvpdive "github.com/SkYNewZ/sos-vpdive"
 	"github.com/SkYNewZ/sos-vpdive/internal/admins"
+	"github.com/SkYNewZ/sos-vpdive/internal/blobs"
 	"github.com/SkYNewZ/sos-vpdive/internal/config"
+	"github.com/SkYNewZ/sos-vpdive/internal/mail"
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 	"github.com/SkYNewZ/sos-vpdive/internal/store"
 	"github.com/SkYNewZ/sos-vpdive/internal/telemetry"
+	"github.com/SkYNewZ/sos-vpdive/internal/tickets"
 	"github.com/SkYNewZ/sos-vpdive/internal/web"
 )
 
@@ -42,11 +45,15 @@ type app struct {
 	db      *sql.DB
 	admins  *admins.Registry
 	members *members.Store
+	tickets *tickets.Store
+	outbox  *mail.Outbox
+	broker  *web.Broker
 	web     *web.Server
 }
 
 // setup opens the database, refuses a SECRET_KEY that does not match it,
-// loads the accounts file and builds the web server.
+// loads the accounts file and the content files, releases the requests of
+// accounts removed while the service was stopped, and builds the web server.
 func setup(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*app, error) {
 	keys, err := secure.NewKeys(cfg.SecretKey)
 	if err != nil {
@@ -67,19 +74,56 @@ func setup(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*app, 
 	if err != nil {
 		return fail(err)
 	}
+	catalog, err := tickets.LoadCatalog(sosvpdive.Content)
+	if err != nil {
+		return fail(err)
+	}
+	captures, err := blobs.New(cfg)
+	if err != nil {
+		return fail(err)
+	}
 	memberStore := members.NewStore(db, keys, time.Now)
+	outbox := mail.NewOutbox(db, keys, time.Now)
+	broker := web.NewBroker()
+	ticketStore := tickets.NewStore(tickets.Deps{
+		DB: db, Keys: keys, Catalog: catalog, Members: memberStore, Outbox: outbox, Blobs: captures,
+		Account: registry.Get, BaseURL: cfg.BaseURL, AdminBaseURL: cfg.AdminBaseURL,
+		ClubEmail: cfg.NotifyEmail.Address, RetentionDays: cfg.RetentionDays,
+		Now: time.Now, Logger: logger, OnChange: broker.Publish,
+	})
+	a := &app{logger: logger, db: db, admins: registry, members: memberStore, tickets: ticketStore, outbox: outbox, broker: broker}
+	if err := ticketStore.ReleaseMissing(ctx, a.knownAccount); err != nil {
+		return fail(fmt.Errorf("release requests of removed accounts: %w", err))
+	}
 	var turnstile *web.Turnstile
 	if cfg.TurnstileEnabled() {
 		turnstile = web.NewTurnstile(cfg.TurnstileSiteKey, cfg.TurnstileSecretKey, "")
 	}
-	srv, err := web.New(web.Deps{
+	a.web, err = web.New(web.Deps{
 		Config: cfg, DB: db, Keys: keys, Members: memberStore, Admins: registry,
 		Content: sosvpdive.Content, Logger: logger, Now: time.Now, Turnstile: turnstile,
+		Tickets: ticketStore, Outbox: outbox, Broker: broker,
 	})
 	if err != nil {
 		return fail(err)
 	}
-	return &app{logger: logger, db: db, admins: registry, members: memberStore, web: srv}, nil
+	return a, nil
+}
+
+func (a *app) knownAccount(username string) bool {
+	_, ok := a.admins.Get(username)
+	return ok
+}
+
+// onAccountsChange revokes the sessions of removed or changed accounts and
+// returns the open requests of removed accounts to "à traiter" (spec §4.1).
+func (a *app) onAccountsChange(ctx context.Context, users []string) {
+	if err := a.web.RevokeSessions(ctx, users); err != nil {
+		a.logger.ErrorContext(ctx, "revoke sessions", "error", err)
+	}
+	if err := a.tickets.ReleaseMissing(ctx, a.knownAccount); err != nil {
+		a.logger.ErrorContext(ctx, "release requests of removed accounts", "error", err)
+	}
 }
 
 // serve runs until SIGTERM, SIGINT or ctx ends, then finishes the requests in
@@ -102,14 +146,9 @@ func serve(ctx context.Context, getenv func(string) string, stdout io.Writer) (e
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGTERM, os.Interrupt)
 	defer stop()
 	var jobs sync.WaitGroup
-	jobs.Go(func() {
-		a.admins.Watch(ctx, accountsPollInterval, func(ctx context.Context, users []string) {
-			if err := a.web.RevokeSessions(ctx, users); err != nil {
-				logger.ErrorContext(ctx, "revoke sessions", "error", err)
-			}
-		})
-	})
+	jobs.Go(func() { a.admins.Watch(ctx, accountsPollInterval, a.onAccountsChange) })
 	jobs.Go(func() { a.runPurges(ctx) })
+	jobs.Go(func() { a.outbox.Run(ctx, mail.NewSMTP(cfg.SMTP, cfg.MailFrom), logger) })
 
 	httpServer := &http.Server{
 		Addr:              ":" + strconv.Itoa(cfg.Port),
@@ -120,6 +159,8 @@ func serve(ctx context.Context, getenv func(string) string, stdout io.Writer) (e
 		IdleTimeout:       2 * time.Minute,
 		ErrorLog:          slog.NewLogLogger(logger.Handler(), slog.LevelWarn),
 	}
+	// Shutdown waits for idle connections: live board streams never are.
+	httpServer.RegisterOnShutdown(a.broker.Close)
 	listenErr := make(chan error, 1)
 	go func() { listenErr <- httpServer.ListenAndServe() }()
 	logger.InfoContext(ctx, "listening", "port", cfg.Port, "env", string(cfg.Env))
@@ -154,15 +195,24 @@ func (a *app) runPurges(ctx context.Context) {
 	}
 }
 
+// purge applies the retention rules of spec §8.3 and removes orphan screenshots.
 func (a *app) purge(ctx context.Context) {
 	ctx, span := otel.Tracer(tracerName).Start(ctx, "job.purge")
 	defer span.End()
-	if err := a.web.Purge(ctx); err != nil && ctx.Err() == nil {
-		telemetry.Fail(span, "purge_sessions")
-		a.logger.ErrorContext(ctx, "purge sessions", "error", err)
+	steps := []struct {
+		code string
+		run  func(context.Context) error
+	}{
+		{"purge_sessions", a.web.Purge},
+		{"purge_members", a.members.Purge},
+		{"purge_tickets", a.tickets.Purge},
+		{"purge_outbox", a.outbox.Purge},
+		{"sweep_captures", a.tickets.SweepOrphans},
 	}
-	if err := a.members.Purge(ctx); err != nil && ctx.Err() == nil {
-		telemetry.Fail(span, "purge_members")
-		a.logger.ErrorContext(ctx, "purge members", "error", err)
+	for _, step := range steps {
+		if err := step.run(ctx); err != nil && ctx.Err() == nil {
+			telemetry.Fail(span, step.code)
+			a.logger.ErrorContext(ctx, "purge", "step", step.code, "error", err)
+		}
 	}
 }

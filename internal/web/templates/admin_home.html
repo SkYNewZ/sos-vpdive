@@ -1,4 +1,56 @@
 {{define "main"}}
+{{$d := .Data}}
 <h1 class="text-2xl font-bold text-primary">Demandes</h1>
-<p class="mt-4">Aucune demande pour l'instant.</p>
+<form method="get" action="/" class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end">
+<div class="flex flex-col gap-1">
+<label class="font-semibold" for="statut">Statut</label>
+<select class="select w-full" id="statut" name="statut">
+{{range $d.Statuses}}<option value="{{.Value}}"{{if eq .Value $d.Query.Status}} selected{{end}}>{{.Label}}</option>
+{{end}}</select>
+</div>
+<div class="flex flex-col gap-1">
+<label class="font-semibold" for="resolveur">Résolveur</label>
+<select class="select w-full" id="resolveur" name="resolveur">
+<option value="">Tous</option>
+<option value="moi"{{if eq $d.Query.Assignee "moi"}} selected{{end}}>Les miennes</option>
+<option value="{{$d.Nobody}}"{{if eq $d.Query.Assignee $d.Nobody}} selected{{end}}>Personne</option>
+{{range $d.Accounts}}<option value="{{.Username}}"{{if eq .Username $d.Query.Assignee}} selected{{end}}>{{.Name}}</option>
+{{end}}</select>
+</div>
+<div class="flex flex-col gap-1">
+<label class="font-semibold" for="categorie">Catégorie</label>
+<select class="select w-full" id="categorie" name="categorie">
+<option value="">Toutes</option>
+{{range $d.Categories}}<option value="{{.Value}}"{{if eq .Value $d.Query.Category}} selected{{end}}>{{.Label}}</option>
+{{end}}</select>
+</div>
+<button class="btn btn-primary min-h-11" type="submit">Filtrer</button>
+</form>
+
+<div class="mt-6" data-board>
+{{if $d.Rows}}
+<div class="overflow-x-auto">
+<table class="table table-xs sm:table-md">
+<thead><tr>
+<th scope="col">Demande</th><th scope="col" class="hidden sm:table-cell">Nom</th><th scope="col" class="hidden sm:table-cell">Catégorie</th>
+<th scope="col" class="hidden sm:table-cell">Résumé</th><th scope="col" class="max-sm:px-1">Ancienneté</th>
+<th scope="col" class="max-sm:px-1">Statut</th><th scope="col">Résolveur</th>
+</tr></thead>
+<tbody>
+{{range $d.Rows}}<tr data-ticket="{{.ID}}">
+<td><a class="link link-primary inline-flex min-h-11 items-center font-semibold" href="/demandes/{{.ID}}">{{.Ref}}</a>{{if .MemberRepliedLast}} <span class="badge badge-soft badge-info whitespace-nowrap">a répondu</span>{{end}}<span class="block break-words sm:hidden">{{.FirstName}} {{.LastName}}</span></td>
+<td class="hidden break-words sm:table-cell">{{.FirstName}} {{.LastName}}</td>
+<td class="hidden sm:table-cell">{{categoryLabel .Category}}</td>
+<td class="hidden max-w-xs break-words sm:table-cell">{{.Excerpt}}</td>
+<td class="whitespace-nowrap max-sm:px-1">{{template "age" (age .SubmittedAt .ClosedAt)}}</td>
+<td class="max-sm:px-1">{{template "status" .Status}}</td>
+<td>{{with accountOf .Assignee}}<span class="inline-flex items-center gap-2"><img src="{{.Avatar}}" alt="" width="24" height="24" class="size-6"><span>{{.Name}}</span></span>{{else}}{{if .Assignee}}{{.Assignee}}{{else}}Personne{{end}}{{end}}</td>
+</tr>
+{{end}}</tbody>
+</table>
+</div>
+{{else}}
+<p>Aucune demande ne correspond à ces filtres.</p>
+{{end}}
+</div>
 {{end}}

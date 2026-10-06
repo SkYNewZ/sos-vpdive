@@ -211,6 +211,71 @@ func (s *Store) Lookup(ctx context.Context, email string) (bool, error) {
 	return found, nil
 }
 
+// Profile is what a ticket page shows of the requester (spec §4.3).
+type Profile struct {
+	FirstName      string
+	LastName       string
+	Seasons        *string // nil when the export had no "Année(s)" column
+	LicenceExpires string  // YYYY-MM-DD or ""
+}
+
+// Find returns the member of email. An address with a space returns
+// secure.ErrEmailSpace, as Lookup does.
+func (s *Store) Find(ctx context.Context, email string) (Profile, bool, error) {
+	normalized, err := secure.NormalizeEmail(email)
+	if err != nil {
+		return Profile{}, false, err
+	}
+	var first, last, seasons, licence []byte
+	err = s.db.QueryRowContext(ctx,
+		`SELECT first_name, last_name, seasons, licence_expires FROM members WHERE email_hash = ?`,
+		s.keys.Hash(normalized)).Scan(&first, &last, &seasons, &licence)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Profile{}, false, nil
+	}
+	if err != nil {
+		return Profile{}, false, fmt.Errorf("find member: %w", err)
+	}
+	var p Profile
+	if p.FirstName, err = s.keys.OpenString(first); err != nil {
+		return Profile{}, false, fmt.Errorf("decrypt member: %w", err)
+	}
+	if p.LastName, err = s.keys.OpenString(last); err != nil {
+		return Profile{}, false, fmt.Errorf("decrypt member: %w", err)
+	}
+	if seasons != nil {
+		v, err := s.keys.OpenString(seasons)
+		if err != nil {
+			return Profile{}, false, fmt.Errorf("decrypt member: %w", err)
+		}
+		p.Seasons = &v
+	}
+	if licence != nil {
+		if p.LicenceExpires, err = s.keys.OpenString(licence); err != nil {
+			return Profile{}, false, fmt.Errorf("decrypt member: %w", err)
+		}
+	}
+	return p, true, nil
+}
+
+// EraseTx deletes the member of email inside tx and reports whether one
+// existed (erasure, spec §4.5). The next import lists it again if VPDive does.
+func (s *Store) EraseTx(ctx context.Context, tx *sql.Tx, email string) (bool, error) {
+	normalized, err := secure.NormalizeEmail(email)
+	if err != nil {
+		return false, err
+	}
+	res, err := tx.ExecContext(ctx, `DELETE FROM members WHERE email_hash = ?`, s.keys.Hash(normalized))
+	if err != nil {
+		return false, fmt.Errorf("erase member: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("erase member: %w", err)
+	}
+	return n > 0, nil
+}
+
 // HasList reports whether a list is in place. Without one the form is closed.
 func (s *Store) HasList(ctx context.Context) (bool, error) {
 	var found bool
@@ -281,20 +346,16 @@ func (s *Store) current(ctx context.Context) (base int64, current map[string]boo
 		return 0, nil, err
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT email_hash FROM members`)
+	hashes, err := store.Collect(rows, err, func(rows *sql.Rows) (h []byte, err error) {
+		err = rows.Scan(&h)
+		return h, err
+	})
 	if err != nil {
 		return 0, nil, fmt.Errorf("current members: %w", err)
 	}
-	defer func() { err = errors.Join(err, rows.Close()) }()
-	current = map[string]bool{}
-	for rows.Next() {
-		var h []byte
-		if err := rows.Scan(&h); err != nil {
-			return 0, nil, fmt.Errorf("current members: %w", err)
-		}
+	current = make(map[string]bool, len(hashes))
+	for _, h := range hashes {
 		current[string(h)] = true
-	}
-	if err := rows.Err(); err != nil {
-		return 0, nil, fmt.Errorf("current members: %w", err)
 	}
 	return base, current, nil
 }
@@ -338,13 +399,8 @@ func (s *Store) sealNonEmpty(v string) any {
 	return s.keys.SealString(v)
 }
 
-// rowQuerier is satisfied by *sql.DB and *sql.Tx.
-type rowQuerier interface {
-	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
-}
-
 // latestImportID returns the id of the latest members import, 0 when none.
-func latestImportID(ctx context.Context, q rowQuerier) (int64, error) {
+func latestImportID(ctx context.Context, q store.Querier) (int64, error) {
 	var id int64
 	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(id), 0) FROM imports WHERE kind = ?`,
 		string(ImportMembers)).Scan(&id); err != nil {

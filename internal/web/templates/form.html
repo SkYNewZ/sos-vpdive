@@ -1,0 +1,95 @@
+{{define "head"}}{{if .Data.SiteKey}}<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>{{end}}{{end}}
+{{define "main"}}
+{{$d := .Data}}
+<h1 class="text-2xl font-bold text-primary">Une demande au sujet de VPDive ?</h1>
+<p class="mt-4">Ce formulaire sert aux adhérents du club pour leurs demandes au sujet de VPDive : carnet, paiement, inscription, compte ou adhésion.</p>
+<p class="mt-2">Avant d'écrire, regarde la {{with $d.FAQ.URL}}<a class="link link-primary" href="{{.}}" target="_blank" rel="noopener">FAQ</a>{{else}}FAQ{{end}} et les {{with $d.Tarifs.URL}}<a class="link link-primary" href="{{.}}" target="_blank" rel="noopener">tarifs</a>{{else}}tarifs{{end}} du club.</p>
+<p class="mt-2">Pas encore adhérent, pour un baptême ou un renseignement ? Écris au club : <a class="link link-primary break-words" href="mailto:{{.ClubEmail}}">{{.ClubEmail}}</a>.</p>
+{{if not $d.Open}}
+<div class="mt-6 border border-base-300 p-4">
+<p class="font-semibold">Le formulaire de demande n'est pas encore ouvert.</p>
+<p class="mt-2">En attendant, écris au club : <a class="link link-primary break-words" href="mailto:{{.ClubEmail}}">{{.ClubEmail}}</a>.</p>
+</div>
+{{else}}
+<form method="post" action="/demandes" enctype="multipart/form-data" class="mt-6 flex flex-col gap-5">
+<input type="hidden" name="cle" value="{{$d.FormKey}}" autocomplete="off">
+<div class="hidden" aria-hidden="true">
+<label for="site_web">Laisse ce champ vide</label>
+<input id="site_web" name="site_web" type="text" tabindex="-1" autocomplete="off">
+</div>
+
+<div class="flex flex-col gap-1">
+<label class="font-semibold" for="prenom">Prénom</label>
+<input class="input w-full" id="prenom" name="prenom" type="text" autocomplete="given-name" maxlength="100" required value="{{$d.Values.Get "prenom"}}"{{if index $d.Errors "prenom"}} aria-invalid="true" aria-describedby="err-prenom"{{end}}>
+{{with index $d.Errors "prenom"}}<p id="err-prenom" class="font-semibold text-error">{{.}}</p>{{end}}
+</div>
+
+<div class="flex flex-col gap-1">
+<label class="font-semibold" for="nom">Nom</label>
+<input class="input w-full" id="nom" name="nom" type="text" autocomplete="family-name" maxlength="100" required value="{{$d.Values.Get "nom"}}"{{if index $d.Errors "nom"}} aria-invalid="true" aria-describedby="err-nom"{{end}}>
+{{with index $d.Errors "nom"}}<p id="err-nom" class="font-semibold text-error">{{.}}</p>{{end}}
+</div>
+
+<div class="flex flex-col gap-1">
+<label class="font-semibold" for="email">Adresse mail</label>
+<p class="text-sm" id="email-aide">Celle de ton compte VPDive.</p>
+<input class="input w-full" id="email" name="email" type="email" autocomplete="email" inputmode="email" maxlength="254" required value="{{$d.Values.Get "email"}}" aria-describedby="email-aide{{if index $d.Errors "email"}} err-email{{end}}"{{if index $d.Errors "email"}} aria-invalid="true"{{end}}>
+{{with index $d.Errors "email"}}<p id="err-email" class="font-semibold text-error">{{.}}</p>{{end}}
+</div>
+
+<div class="flex flex-col gap-1">
+<label class="font-semibold" for="categorie">Catégorie</label>
+<select class="select w-full" id="categorie" name="categorie" required data-category-select{{if index $d.Errors "categorie"}} aria-invalid="true" aria-describedby="err-categorie"{{end}}>
+<option value="">Choisis la catégorie de ta demande</option>
+{{range $d.Categories}}<option value="{{.ID}}"{{if eq .ID $d.Category}} selected{{end}}>{{.Label}}</option>
+{{end}}</select>
+{{with index $d.Errors "categorie"}}<p id="err-categorie" class="font-semibold text-error">{{.}}</p>{{end}}
+</div>
+
+{{range $c := $d.Categories}}{{if or $c.Help $c.Fields}}
+<fieldset class="flex flex-col gap-4 border border-base-300 p-4" data-category="{{$c.ID}}"{{if ne $c.ID $d.Category}} hidden disabled{{end}}>
+<legend class="px-1 font-semibold">{{$c.Label}}</legend>
+{{with $c.Help}}<p class="whitespace-pre-line">{{.}}</p>{{end}}
+{{range $f := $c.Fields}}{{template "categoryField" (formField $c.ID $f $d)}}{{end}}
+</fieldset>
+{{end}}{{end}}
+
+<div class="flex flex-col gap-1">
+<label class="font-semibold" for="description">Description</label>
+<p class="text-sm" id="description-aide">Explique ce qui se passe, ce que tu as déjà essayé et ce que tu attends du club : 20 caractères au moins.</p>
+<textarea class="textarea w-full" id="description" name="description" rows="6" minlength="20" maxlength="4000" required aria-describedby="description-aide{{if index $d.Errors "description"}} err-description{{end}}"{{if index $d.Errors "description"}} aria-invalid="true"{{end}}>{{$d.Values.Get "description"}}</textarea>
+{{with index $d.Errors "description"}}<p id="err-description" class="font-semibold text-error">{{.}}</p>{{end}}
+</div>
+
+<div class="flex flex-col gap-1">
+<label class="font-semibold" for="captures">Captures d'écran (facultatif)</label>
+<p class="text-sm" id="captures-aide">3 images au plus, PNG, JPEG ou WebP, 5 Mo chacune.</p>
+<p class="text-sm font-semibold">N'envoie ici ni certificat médical ni document de santé. Le CACI se dépose uniquement dans VPDive.</p>
+<input class="file-input w-full" id="captures" name="captures" type="file" accept="image/png,image/jpeg,image/webp" multiple aria-describedby="captures-aide{{if index $d.Errors "captures"}} err-captures{{end}}">
+{{if $d.CapturesLost}}<p class="text-sm font-semibold">Ajoute de nouveau tes captures : elles ne sont pas gardées quand le formulaire revient avec une remarque.</p>{{end}}
+{{with index $d.Errors "captures"}}<p id="err-captures" class="font-semibold text-error">{{.}}</p>{{end}}
+</div>
+
+{{if $d.SiteKey}}<div class="cf-turnstile" data-sitekey="{{$d.SiteKey}}" data-action="demande"></div>
+<noscript><p class="font-semibold">L'envoi demande JavaScript, pour le contrôle anti-robot. Active-le, ou écris au club : {{.ClubEmail}}.</p></noscript>{{end}}
+<button class="btn btn-primary min-h-11 w-full sm:w-auto sm:self-start" type="submit">Envoyer ma demande</button>
+</form>
+<p class="mt-6 text-sm">Tu as perdu le lien de suivi d'une demande ? <a class="link link-primary" href="/retrouver">Reçois-le de nouveau</a>.</p>
+{{end}}
+{{end}}
+
+{{define "categoryField"}}<div class="flex flex-col gap-1">
+<label class="font-semibold" for="{{.Name}}">{{.Label}}{{if .Required}} (obligatoire){{end}}</label>
+{{with .Hint}}<p class="text-sm">{{.}}</p>{{end}}
+{{if eq .Type "textarea"}}<textarea class="textarea w-full" id="{{.Name}}" name="{{.Name}}" rows="3" maxlength="2000"{{template "fieldAttrs" .}}>{{.Value}}</textarea>
+{{else if eq .Type "choice"}}<select class="select w-full" id="{{.Name}}" name="{{.Name}}"{{template "fieldAttrs" .}}>
+<option value="">{{if .Required}}Choisis…{{else}}Sans objet, ou je ne sais pas{{end}}</option>
+{{range .Options}}<option value="{{.ID}}"{{if eq .ID $.Value}} selected{{end}}>{{.Label}}</option>
+{{end}}</select>
+{{else if eq .Type "date"}}<input class="input w-full" id="{{.Name}}" name="{{.Name}}" type="date" value="{{.Value}}"{{template "fieldAttrs" .}}>
+{{else if eq .Type "number"}}<input class="input w-full" id="{{.Name}}" name="{{.Name}}" type="number" inputmode="numeric" min="0" max="9999" step="1" value="{{.Value}}"{{template "fieldAttrs" .}}>
+{{else}}<input class="input w-full" id="{{.Name}}" name="{{.Name}}" type="text" maxlength="200" value="{{.Value}}"{{template "fieldAttrs" .}}>{{end}}
+{{with .Error}}<p id="err-{{$.Name}}" class="font-semibold text-error">{{.}}</p>{{end}}
+</div>{{end}}
+
+{{define "fieldAttrs"}}{{if .Required}} required{{end}}{{if .Error}} aria-invalid="true" aria-describedby="err-{{.Name}}"{{end}}{{end}}

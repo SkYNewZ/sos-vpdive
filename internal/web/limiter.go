@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"strings"
 	"time"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
@@ -14,16 +15,18 @@ import (
 
 // Login limits (spec §11.3): 10 failures per hour per address; per username,
 // from the 5th consecutive failure, a wait of one minute doubled at each
-// further failure, capped at one hour and reset by a success. Counters live
-// in the database and survive a restart; their keys are HMACs because an
-// address is personal data.
+// further failure, capped at one hour and reset by a success. The other
+// limits of §11.3 use allow. Counters live in the database and survive a
+// restart; their keys are HMACs because addresses and emails are personal
+// data.
 const (
 	ipFailureLimit   = 10
 	ipWindow         = time.Hour
 	userFailureLimit = 5
 	userBaseDelay    = time.Minute
 	userMaxDelay     = time.Hour
-	counterRetention = 24 * time.Hour
+	// counterRetention outlives the longest window (one day for lost links).
+	counterRetention = 48 * time.Hour
 )
 
 type limiter struct {
@@ -32,12 +35,63 @@ type limiter struct {
 	now  func() time.Time
 }
 
+// hashedKey keeps the purpose of "purpose:value" readable and hides the value.
+func (l *limiter) hashedKey(key string) string {
+	purpose, _, _ := strings.Cut(key, ":")
+	return purpose + ":" + l.keys.HashHex(key)
+}
+
 func (l *limiter) ipKey(ip netip.Addr) string {
-	return "login-ip:" + l.keys.HashHex("login-ip:"+ip.String())
+	return l.hashedKey("login-ip:" + ip.String())
 }
 
 func (l *limiter) userKey(username string) string {
-	return "login-user:" + l.keys.HashHex("login-user:"+username)
+	return l.hashedKey("login-user:" + username)
+}
+
+// countInWindow counts one more event under the hashed key in a fixed window
+// that starts with its first event, and returns the count. It is the single
+// window rule of every limit.
+func (l *limiter) countInWindow(ctx context.Context, q store.Querier, key string, window time.Duration) (int, error) {
+	now := l.now().Unix()
+	windowEnd := now - int64(window/time.Second)
+	var count int
+	err := q.QueryRowContext(ctx,
+		`INSERT INTO counters (key, window_start, count) VALUES (?, ?, 1)
+		 ON CONFLICT (key) DO UPDATE SET
+		   count = CASE WHEN window_start <= ? THEN 1 ELSE count + 1 END,
+		   window_start = CASE WHEN window_start <= ? THEN excluded.window_start ELSE window_start END
+		 RETURNING count`,
+		key, now, windowEnd, windowEnd).Scan(&count)
+	return count, err
+}
+
+// allow counts one more event under key ("purpose:value") and reports whether
+// the count stays within limit.
+func (l *limiter) allow(ctx context.Context, key string, limit int, window time.Duration) (bool, error) {
+	count, err := l.countInWindow(ctx, l.db, l.hashedKey(key), window)
+	if err != nil {
+		return false, fmt.Errorf("rate limit: %w", err)
+	}
+	return count <= limit, nil
+}
+
+// rule is one rule of allowAll: at most n events per window under key.
+type rule struct {
+	key    string
+	n      int
+	window time.Duration
+}
+
+// allowAll counts one more event under every rule in order and stops at the
+// first refusal: later rules do not count a refused event.
+func (l *limiter) allowAll(ctx context.Context, rules ...rule) (bool, error) {
+	for _, r := range rules {
+		if ok, err := l.allow(ctx, r.key, r.n, r.window); err != nil || !ok {
+			return false, err
+		}
+	}
+	return true, nil
 }
 
 // userDelay is the wait after count consecutive failures.
@@ -79,21 +133,14 @@ func (l *limiter) retryAfter(ctx context.Context, ip netip.Addr, username string
 // window; the username counts consecutive failures, window_start holding the
 // last one.
 func (l *limiter) fail(ctx context.Context, ip netip.Addr, username string) error {
-	now := l.now().Unix()
-	windowEnd := now - int64(ipWindow/time.Second)
 	return store.Tx(ctx, l.db, "login.fail", func(ctx context.Context, tx *sql.Tx) error {
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO counters (key, window_start, count) VALUES (?, ?, 1)
-			 ON CONFLICT (key) DO UPDATE SET
-			   count = CASE WHEN window_start <= ? THEN 1 ELSE count + 1 END,
-			   window_start = CASE WHEN window_start <= ? THEN excluded.window_start ELSE window_start END`,
-			l.ipKey(ip), now, windowEnd, windowEnd); err != nil {
+		if _, err := l.countInWindow(ctx, tx, l.ipKey(ip), ipWindow); err != nil {
 			return fmt.Errorf("count address failure: %w", err)
 		}
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO counters (key, window_start, count) VALUES (?, ?, 1)
 			 ON CONFLICT (key) DO UPDATE SET count = count + 1, window_start = excluded.window_start`,
-			l.userKey(username), now); err != nil {
+			l.userKey(username), l.now().Unix()); err != nil {
 			return fmt.Errorf("count username failure: %w", err)
 		}
 		return nil
@@ -108,11 +155,11 @@ func (l *limiter) succeed(ctx context.Context, username string) error {
 	return nil
 }
 
-// purge drops login counters untouched for a day: they block nothing.
+// purge drops counters untouched for two days: they block nothing.
 func (l *limiter) purge(ctx context.Context) error {
 	cutoff := l.now().Add(-counterRetention).Unix()
-	if _, err := l.db.ExecContext(ctx, `DELETE FROM counters WHERE key LIKE 'login-%' AND window_start < ?`, cutoff); err != nil {
-		return fmt.Errorf("purge login counters: %w", err)
+	if _, err := l.db.ExecContext(ctx, `DELETE FROM counters WHERE window_start < ?`, cutoff); err != nil {
+		return fmt.Errorf("purge counters: %w", err)
 	}
 	return nil
 }
