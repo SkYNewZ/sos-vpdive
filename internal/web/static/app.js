@@ -81,6 +81,8 @@ if (draftForm && draftNote && writeDraft(readDraft())) {
   const save = () => writeDraft({ savedAt: Date.now(), fields: Object.fromEntries(kept().map((el) => [el.name, el.value])) });
   draftForm.addEventListener("input", save);
   draftForm.addEventListener("change", save);
+  // The key that leaves with the form is the one a lost answer must find again.
+  draftForm.addEventListener("submit", save);
   draftNote.hidden = false;
   draftNote.querySelector("[data-draft-clear]").addEventListener("click", () => {
     writeDraft(null);
