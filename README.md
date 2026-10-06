@@ -168,6 +168,25 @@ then sent by a background worker: retries after 1 minute, 5 minutes,
 definitive refusal, the mail is marked failed and listed on the committee's
 « Envois » page, where it can be sent again.
 
+## Installable apps
+
+Each host name is also an app a phone can install: « SOS CPP » for members,
+« SOS CPP Comité » for the committee, each with its own manifest, service
+worker and icons. Chrome on Android offers to install it; on iPhone, Safari's
+Share menu has « Sur l'écran d'accueil ». The service worker keeps the static
+files and an offline page, nothing else: pages and screenshots always come
+from the network. After a deploy, open pages show « Une nouvelle version du
+site est disponible » and reload only when asked.
+
+- On iPhone, the installed app keeps its own cookies and storage, apart from
+  Safari: resolvers sign in again inside the app.
+- Another club replaces the PNG files of `internal/web/static/icons/membres/`
+  and `comite/` (192 and 512 px; a 512 px maskable one whose logo fits in the
+  central 80 % circle; a 180 px Apple icon; a 32 px favicon), and the app
+  names in `internal/web/pwa.go` and `templates/layout.html`.
+- Browsers older than Chrome 111, Safari 16.4 or Firefox 128 get a short
+  notice with the club's address instead of the page.
+
 ## Committee alerts
 
 Besides the mail to the club mailbox, a new request and a member's reply can

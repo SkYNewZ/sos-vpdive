@@ -62,6 +62,13 @@
 }
 
 
+/* iOS Safari zooms into a focused control under 16 px; daisyUI sets 14 px. */
+.input,
+.select,
+.textarea {
+  --font-size-min: 1rem;
+}
+
 /* Live board: a row changed since its request was last opened (app.js). */
 [data-changed] > :first-child {
   border-inline-start: 4px solid var(--color-info);

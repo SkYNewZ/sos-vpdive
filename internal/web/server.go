@@ -74,6 +74,7 @@ type Server struct {
 	robots  robotsPolicy
 	vpdive  vpdiveLinks
 	assets  *assets
+	apps    map[bool]installable // by committee host
 	pages   map[string]*template.Template
 	public  http.Handler
 	admin   http.Handler
@@ -108,6 +109,9 @@ func New(d Deps) (*Server, error) {
 		robots:    robots, vpdive: links, assets: static,
 	}
 	if s.dummyHash, err = dummyHash(); err != nil {
+		return nil, err
+	}
+	if s.apps, err = newInstallables(static); err != nil {
 		return nil, err
 	}
 	for _, f := range d.KB.Fiches {
@@ -153,7 +157,7 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) publicRoutes() *http.ServeMux {
 	mux := http.NewServeMux()
-	s.commonRoutes(mux)
+	s.commonRoutes(mux, false)
 	s.handle(mux, "GET /{$}", s.formPage)
 	s.handle(mux, "POST /demandes", s.submit)
 	s.handle(mux, "POST /demandes/confirmer", s.confirmDraft)
@@ -173,7 +177,7 @@ func (s *Server) publicRoutes() *http.ServeMux {
 // adminRoutes serves the committee site.
 func (s *Server) adminRoutes() *http.ServeMux {
 	mux := http.NewServeMux()
-	s.commonRoutes(mux)
+	s.commonRoutes(mux, true)
 	s.handle(mux, "GET /connexion", s.loginForm)
 	s.handle(mux, "POST /connexion", s.login)
 	s.handle(mux, "POST /deconnexion", s.signedIn(s.logout))
@@ -194,12 +198,19 @@ func (s *Server) adminRoutes() *http.ServeMux {
 	return mux
 }
 
-// commonRoutes are served on both domains. Health checks and static files
-// are neither traced nor logged (spec §9.9).
-func (s *Server) commonRoutes(mux *http.ServeMux) {
+// offlinePath is the page the service worker shows when a navigation fails.
+const offlinePath = "/hors-ligne"
+
+// commonRoutes are served on both domains, each with its own app (spec
+// §9.6). Health checks and static files are neither traced nor logged
+// (spec §9.9).
+func (s *Server) commonRoutes(mux *http.ServeMux, admin bool) {
 	mux.HandleFunc("GET /healthz", s.healthz)
 	mux.Handle("GET /static/", s.assets.handler())
 	s.handle(mux, "GET /robots.txt", s.robotsTxt)
+	s.handle(mux, "GET /manifest.webmanifest", s.manifestFile(admin))
+	s.handle(mux, "GET /sw.js", s.serviceWorker(admin))
+	s.handle(mux, "GET "+offlinePath, s.offlinePage)
 	s.handle(mux, "/", s.notFound)
 }
 

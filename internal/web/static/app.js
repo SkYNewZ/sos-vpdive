@@ -141,3 +141,45 @@ for (const button of document.querySelectorAll("[data-copy]")) {
     }
   });
 }
+
+// Installable app (spec §9.6): register the service worker. A new version
+// waits until the member or resolver taps « Recharger », so nothing being
+// typed is ever lost to a forced reload.
+if ("serviceWorker" in navigator) {
+  const banner = document.querySelector("[data-update]");
+  let reloading = false;
+  const offer = (worker) => {
+    if (!banner) return;
+    banner.hidden = false;
+    banner.querySelector("[data-update-reload]").addEventListener(
+      "click",
+      () => {
+        reloading = true;
+        worker.postMessage("skip-waiting");
+      },
+      { once: true },
+    );
+  };
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (reloading) location.reload();
+  });
+  navigator.serviceWorker
+    .register("/sw.js")
+    .then((registration) => {
+      if (registration.waiting && navigator.serviceWorker.controller) offer(registration.waiting);
+      registration.addEventListener("updatefound", () => {
+        const worker = registration.installing;
+        worker?.addEventListener("statechange", () => {
+          if (worker.state === "installed" && navigator.serviceWorker.controller) offer(worker);
+        });
+      });
+    })
+    .catch(() => {
+      // No service worker (private browsing, for instance): the site works without it.
+    });
+}
+
+// Offline page: try the page again.
+for (const button of document.querySelectorAll("[data-reload]")) {
+  button.addEventListener("click", () => location.reload());
+}

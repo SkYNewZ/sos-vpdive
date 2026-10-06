@@ -2,17 +2,31 @@
 <html lang="fr" data-theme="cpp">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow, noai, noimageai">
+<meta name="theme-color" content="#0b2e4a">
 <title>{{.Title}} · {{if .Admin}}SOS CPP Comité{{else}}SOS CPP{{end}}</title>
-<link rel="preload" href="/static/fonts/atkinson-hyperlegible-next-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="manifest" href="/manifest.webmanifest">
+{{if .Admin}}<link rel="icon" type="image/png" sizes="32x32" href="{{static "icons/comite/favicon-32.png"}}">
+<link rel="apple-touch-icon" href="{{static "icons/comite/apple-touch-icon.png"}}">
+{{else}}<link rel="icon" type="image/png" sizes="32x32" href="{{static "icons/membres/favicon-32.png"}}">
+<link rel="apple-touch-icon" href="{{static "icons/membres/apple-touch-icon.png"}}">
+{{end}}<link rel="preload" href="/static/fonts/atkinson-hyperlegible-next-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="{{static "app.css"}}">
+<script src="{{static "compat.js"}}" defer></script>
 <script src="{{static "app.js"}}" defer></script>
 {{block "head" .}}{{end}}
 </head>
 <body class="min-h-dvh bg-base-100 font-sans text-base-content antialiased">
 {{if .Account}}{{template "adminNav" .}}{{end}}
+<div data-old-browser hidden>
+<p>Ton navigateur est trop ancien pour ce site. Mets-le à jour, ou écris au club : <a href="mailto:{{.ClubEmail}}">{{.ClubEmail}}</a>.</p>
+</div>
 <main class="mx-auto w-full px-4 pt-6 pb-12 {{if .Admin}}max-w-5xl{{else}}max-w-160{{end}}">
+<div data-update hidden role="status" class="alert alert-soft alert-info mb-4">
+<span>Une nouvelle version du site est disponible.</span>
+<button class="btn btn-sm btn-primary min-h-11" type="button" data-update-reload>Recharger</button>
+</div>
 {{range .Notices}}{{template "notice" .}}{{end}}
 {{template "main" .}}
 </main>

@@ -129,3 +129,10 @@ No i18n framework.
   read-only.
 - The Dockerfile's CSS stage downloads Tailwind from GitHub; the CI `image` job
   is its end-to-end check.
+- iOS installed apps: no `viewport-fit=cover`, no `env(safe-area-inset-*)`
+  (iOS keeps the status bar and home indicator areas), and form controls at
+  16 px or Safari zooms on focus (`--font-size-min` in `css/input.css`).
+- Safari asks for push permission only from a direct tap: `pushManager.subscribe`
+  comes first in the handler, and every push must show a notification.
+- The service worker's cache name hashes every embedded file: any deploy that
+  changes the site shows the update banner.
