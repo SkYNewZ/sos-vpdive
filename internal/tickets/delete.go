@@ -21,8 +21,9 @@ const (
 
 // Erasure counts what an erasure removes.
 type Erasure struct {
-	Tickets int
-	Member  bool
+	Tickets      int
+	Member       bool
+	PaymentLines int // every line of the member's name, a homonym's included
 }
 
 // deleteCapture removes one screenshot, a CACI sent by mistake for instance.
@@ -122,15 +123,21 @@ func (s *Store) PreviewErasure(ctx context.Context, email string) (Erasure, erro
 		s.Keys.Hash(normalized)).Scan(&e.Tickets); err != nil {
 		return Erasure{}, fmt.Errorf("count tickets of address: %w", err)
 	}
-	if _, e.Member, err = s.Members.Find(ctx, normalized); err != nil {
+	p, member, err := s.Members.Find(ctx, normalized)
+	if err != nil {
+		return Erasure{}, err
+	}
+	e.Member = member
+	if e.PaymentLines, err = s.Payments.Count(ctx, p.NameHash); err != nil {
 		return Erasure{}, err
 	}
 	return e, nil
 }
 
 // Erase answers an erasure request (spec §4.5): every request of email, its
-// members row and every mail to it, in one transaction, then the stored
-// captures. The next members import may list the address again.
+// members row, the payment lines of that member's name and every mail to it,
+// in one transaction, then the stored captures. The next imports may list
+// the address and the lines again.
 func (s *Store) Erase(ctx context.Context, email, actor string) (Erasure, error) {
 	normalized, err := secure.NormalizeEmail(email)
 	if err != nil {
@@ -150,7 +157,12 @@ func (s *Store) Erase(ctx context.Context, email, actor string) (Erasure, error)
 		if keys, err = s.drop(ctx, tx, list); err != nil {
 			return err
 		}
-		if e.Member, err = s.Members.EraseTx(ctx, tx, normalized); err != nil {
+		nameHash, err := s.Members.EraseTx(ctx, tx, normalized)
+		if err != nil {
+			return err
+		}
+		e.Member = nameHash != nil
+		if e.PaymentLines, err = s.Payments.EraseTx(ctx, tx, nameHash); err != nil {
 			return err
 		}
 		return s.Outbox.DeleteRecipient(ctx, tx, normalized)
@@ -163,7 +175,8 @@ func (s *Store) Erase(ctx context.Context, email, actor string) (Erasure, error)
 	for _, d := range list {
 		s.changed(ChangeDeleted, d.id)
 	}
-	s.Logger.InfoContext(ctx, "person erased", "actor", actor, "tickets", e.Tickets, "member", e.Member)
+	s.Logger.InfoContext(ctx, "person erased", "actor", actor, "tickets", e.Tickets, "member", e.Member,
+		"payment_lines", e.PaymentLines)
 	return e, nil
 }
 

@@ -179,22 +179,24 @@ func (s *Store) Find(ctx context.Context, email string) (Profile, bool, error) {
 	return p, true, nil
 }
 
-// EraseTx deletes the member of email inside tx and reports whether one
-// existed (erasure, spec §4.5). The next import lists it again if VPDive does.
-func (s *Store) EraseTx(ctx context.Context, tx *sql.Tx, email string) (bool, error) {
+// EraseTx deletes the member of email inside tx and returns its name hash,
+// nil when there was none (erasure, spec §4.5): the caller erases the payment
+// lines of that name. The next import lists it again if VPDive does.
+func (s *Store) EraseTx(ctx context.Context, tx *sql.Tx, email string) ([]byte, error) {
 	normalized, err := secure.NormalizeEmail(email)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
-	res, err := tx.ExecContext(ctx, `DELETE FROM members WHERE email_hash = ?`, s.keys.Hash(normalized))
+	var nameHash []byte
+	err = tx.QueryRowContext(ctx, `DELETE FROM members WHERE email_hash = ? RETURNING name_hash`,
+		s.keys.Hash(normalized)).Scan(&nameHash)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
 	if err != nil {
-		return false, fmt.Errorf("erase member: %w", err)
+		return nil, fmt.Errorf("erase member: %w", err)
 	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return false, fmt.Errorf("erase member: %w", err)
-	}
-	return n > 0, nil
+	return nameHash, nil
 }
 
 // HasList reports whether a list is in place. Without one the form is closed.

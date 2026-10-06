@@ -21,6 +21,7 @@ import (
 	"github.com/SkYNewZ/sos-vpdive/internal/blobs"
 	"github.com/SkYNewZ/sos-vpdive/internal/mail"
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
+	"github.com/SkYNewZ/sos-vpdive/internal/payments"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 	"github.com/SkYNewZ/sos-vpdive/internal/store"
 )
@@ -64,6 +65,7 @@ type env struct {
 	outbox   *mail.Outbox
 	sender   *fakeSender
 	members  *members.Store
+	payments *payments.Store
 	logs     *bytes.Buffer
 	mu       sync.Mutex
 	changes  []Change
@@ -95,8 +97,9 @@ func newTestStore(t *testing.T, opts ...func(*Deps)) *env {
 	}
 	e.outbox = mail.NewOutbox(db, keys, e.clock.now)
 	e.members = members.NewStore(db, keys, e.clock.now)
+	e.payments = payments.NewStore(db, keys, e.clock.now)
 	d := Deps{
-		DB: db, Keys: keys, Catalog: catalog, Members: e.members, Outbox: e.outbox, Blobs: objects,
+		DB: db, Keys: keys, Catalog: catalog, Members: e.members, Payments: e.payments, Outbox: e.outbox, Blobs: objects,
 		Account: e.account,
 		BaseURL: &url.URL{Scheme: "https", Host: "sos.example.org"}, AdminBaseURL: &url.URL{Scheme: "https", Host: "comite.example.org"},
 		ClubEmail: clubAddress, RetentionDays: 365, Now: e.clock.now,

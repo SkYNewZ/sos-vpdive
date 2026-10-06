@@ -33,6 +33,8 @@ import (
 	"github.com/SkYNewZ/sos-vpdive/internal/mail"
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
 	"github.com/SkYNewZ/sos-vpdive/internal/members/memberstest"
+	"github.com/SkYNewZ/sos-vpdive/internal/payments"
+	"github.com/SkYNewZ/sos-vpdive/internal/payments/paymentstest"
 	"github.com/SkYNewZ/sos-vpdive/internal/push"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 	"github.com/SkYNewZ/sos-vpdive/internal/store"
@@ -183,7 +185,8 @@ func newTestEnv(t *testing.T, opts ...func(*Deps)) *testEnv {
 	outbox := mail.NewOutbox(db, keys, clock.now)
 	broker := NewBroker()
 	ticketStore := tickets.NewStore(tickets.Deps{
-		DB: db, Keys: keys, Catalog: catalog, Members: memberStore, Outbox: outbox, Blobs: blobStore,
+		DB: db, Keys: keys, Catalog: catalog, Members: memberStore, Payments: payments.NewStore(db, keys, clock.now),
+		Outbox: outbox, Blobs: blobStore,
 		Account: registry.Get, BaseURL: cfg.BaseURL, AdminBaseURL: cfg.AdminBaseURL, ClubEmail: clubEmail,
 		RetentionDays: cfg.RetentionDays, Now: clock.now, Logger: logger, OnChange: broker.Publish,
 	})
@@ -270,6 +273,12 @@ func (e *testEnv) csrf(t *testing.T, cookie *http.Cookie, path string) string {
 func (e *testEnv) importMembers(t *testing.T, fixture string) {
 	t.Helper()
 	memberstest.Import(t, e.deps.Members, fixture)
+}
+
+// importPayments imports payments_valid.xlsx directly through the payments store.
+func (e *testEnv) importPayments(t *testing.T) {
+	t.Helper()
+	paymentstest.Import(t, e.deps.Tickets.Payments, "payments_valid.xlsx")
 }
 
 // count counts the rows of a table.

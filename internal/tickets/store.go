@@ -17,6 +17,7 @@ import (
 	"github.com/SkYNewZ/sos-vpdive/internal/blobs"
 	"github.com/SkYNewZ/sos-vpdive/internal/mail"
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
+	"github.com/SkYNewZ/sos-vpdive/internal/payments"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 	"github.com/SkYNewZ/sos-vpdive/internal/store"
 )
@@ -158,6 +159,7 @@ type Deps struct {
 	Keys          *secure.Keys
 	Catalog       *Catalog
 	Members       *members.Store
+	Payments      *payments.Store
 	Outbox        *mail.Outbox
 	Blobs         blobs.Store
 	Account       func(username string) (admins.Account, bool)

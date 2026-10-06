@@ -26,6 +26,7 @@ func (f *fakeSender) fail(err error) {
 func TestErasureOfAPerson(t *testing.T) {
 	e := newTestEnv(t)
 	e.importMembers(t, "members_valid.xlsx")
+	e.importPayments(t)
 	cookie := e.login(t)
 	first := e.submitTicket(t, "lea.martin@example.org", withCapture(t))
 	e.submitTicket(t, "lea.martin@example.org")
@@ -44,13 +45,17 @@ func TestErasureOfAPerson(t *testing.T) {
 	}
 
 	preview := post(url.Values{"email": {" Lea.Martin@Example.org "}, "etape": {"apercu"}})
-	for _, want := range []string{"2 demandes", "une ligne dans la liste des membres", "ne peut pas être rappelé", "le prochain import de la liste des membres la réinscrit"} {
+	for _, want := range []string{
+		"2 demandes", "une ligne dans la liste des membres", "2 lignes de paiement", "ne peut pas être rappelé",
+		"les prochains imports de VPDive la réinscrivent",
+	} {
 		assert.Contains(t, preview, want)
 	}
 	assert.Equal(t, 3, e.count(t, "tickets"), "a preview erases nothing")
 
 	done := post(url.Values{"email": {"lea.martin@example.org"}, "etape": {"confirmer"}})
-	assert.Contains(t, done, "Données effacées")
+	assert.Contains(t, done, "Données effacées : 2 demandes, la ligne de la liste des membres et 2 lignes de paiement.")
+	assert.Equal(t, 18, e.count(t, "payment_lines"))
 	assert.Equal(t, 1, e.count(t, "tickets"))
 	assert.Equal(t, kept.ID, e.detail(t, kept.ID).ID)
 	known, err := e.deps.Members.Lookup(context.Background(), "lea.martin@example.org")
