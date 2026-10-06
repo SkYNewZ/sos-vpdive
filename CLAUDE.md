@@ -76,22 +76,26 @@ No i18n framework.
 
 ## Layout and commands
 
-- `cmd/sos-vpdive` (subcommands) + `internal/{config,secure,telemetry,store,xlsx,members,admins,web}`.
+- `cmd/sos-vpdive` (subcommands) + `internal/{config,secure,telemetry,store,xlsx,members,admins,tickets,mail,blobs,images,web}`.
   Migrations: `internal/store/migrations/NNNN_*.sql`. Content files `config/*.yaml`
-  are embedded by the root `content.go`.
+  (categories, products, vpdive, robots) are embedded by the root `content.go`.
 - `make test` / `make lint` (golangci-lint v2, `default: all`) / `make css` /
   `make build` / `make fixtures` (regenerates `testdata/fixtures/*.xlsx`).
 - `make run` needs `.env` (from `.env.example`, `APP_ENV=development`) and
   `admins/admins.yaml`; sites on `http://sos.localhost:8080` and
   `http://comite.localhost:8080` (browsers treat `*.localhost` as secure).
 - `./scripts/check-forbidden-files.sh` is the CI guard on private files.
+- The repo's `.env`, `admins/` and `data/` are the owner's dev files: never delete
+  or overwrite them; acceptance runs use a scratch `DATA_DIR` and `ADMINS_FILE`.
 
 ## Workflow
 
 - Gitflow, `feature/*` from `develop`. Greenfield: no PR, merge `--no-ff` into
   `develop` and push once everything is green; `main` is a release decision.
-- Before merging a lot: `/simplify`, `/ponytail:ponytail-review`, `/codex:review`,
-  and a browser check (`playwright-cli`) of every page with a form.
+- Before merging a lot: `/simplify`, `/ponytail:ponytail-review`, `/codex:review`
+  (only the user can run it), and a browser check (`playwright-cli`) of every page with a form.
+- Plans that carry full code: build, lint and test it in a scratch copy of the repo
+  before execution.
 - Plans and designs go in `docs/superpowers/` (gitignored, never committed).
 
 ## Gotchas
@@ -101,7 +105,20 @@ No i18n framework.
 - Write invisible characters in Go tests as escapes (`\u00a0`, `\u0301`):
   editors and agents normalise raw ones away.
 - html/template outputs `+` as `&#43;` and `'` as `&#39;`.
-- `internal/web` tests take 30–60 s (argon2id at 64 MiB per login).
+- `internal/web` tests take about 90 s (argon2id at 64 MiB per login).
+- SQLite reuses the highest `INTEGER PRIMARY KEY` after a delete: ids that leave the
+  process (URLs, in-flight sends) need `AUTOINCREMENT`.
+- Migrations are tracked by number only: never edit one that has shipped.
+- Go templates: no `{{else if}}` after `{{with}}` (nest instead); a map keyed by a
+  named string type cannot be indexed with a literal (use `map[string]…`).
+- Tailwind scans only `internal/web/templates`: `app.js` toggles attributes
+  (`hidden`, `data-*`), never classes.
+- Never disable the clicked button in a submit handler: its `name=value`
+  (`action=…`) leaves the form data.
+- The SMTP sender refuses plaintext and untrusted certificates: test mail end to end
+  with Mailpit in TLS mode, its CA given to the container through `SSL_CERT_FILE`.
+- Object keys never reach logs: `internal/blobs` scrubs its errors at the boundary;
+  keep new store methods behind it.
 - daisyUI control height is `--size-field` × 10: the theme sets 0.275rem for 44 px.
 - Mount the accounts file's directory, never the single file: a file bind mount
   pins the inode and hot reload never sees rename-saves.
