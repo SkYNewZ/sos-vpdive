@@ -189,7 +189,7 @@ func newTestEnv(t *testing.T, opts ...func(*Deps)) *testEnv {
 	})
 	deps := Deps{
 		Config: cfg, DB: db, Keys: keys, Members: memberStore, Admins: registry,
-		Tickets: ticketStore, Outbox: outbox, Push: push.NewStore(db, keys, clock.now, logger), Broker: broker, KB: base,
+		Tickets: ticketStore, Outbox: outbox, Push: push.NewStore(db, keys, clock.now), Broker: broker, KB: base,
 		Content: sosvpdive.Content, Logger: logger, Now: clock.now,
 	}
 	for _, opt := range opts {

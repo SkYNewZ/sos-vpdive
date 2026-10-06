@@ -95,7 +95,7 @@ func setup(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*app, 
 	}
 	memberStore := members.NewStore(db, keys, time.Now)
 	outbox := mail.NewOutbox(db, keys, time.Now)
-	pushStore := push.NewStore(db, keys, time.Now, logger)
+	pushStore := push.NewStore(db, keys, time.Now)
 	senders, alerts := alertSenders(cfg, registry, pushStore, logger)
 	broker := web.NewBroker()
 	ticketStore := tickets.NewStore(tickets.Deps{

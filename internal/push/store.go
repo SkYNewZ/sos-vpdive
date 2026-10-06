@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
@@ -21,16 +20,18 @@ const unusedFor = 90 * 24 * time.Hour
 // endpoint and keys sealed. A subscription belongs to a session: deleting
 // the session (logout, revocation, expiry) deletes it through the cascade.
 type Store struct {
-	db     *sql.DB
-	keys   *secure.Keys
-	now    func() time.Time
-	logger *slog.Logger
+	db   *sql.DB
+	keys *secure.Keys
+	now  func() time.Time
 }
 
 // NewStore returns the subscriptions store; now is injectable for tests.
-func NewStore(db *sql.DB, keys *secure.Keys, now func() time.Time, logger *slog.Logger) *Store {
-	return &Store{db: db, keys: keys, now: now, logger: logger}
+func NewStore(db *sql.DB, keys *secure.Keys, now func() time.Time) *Store {
+	return &Store{db: db, keys: keys, now: now}
 }
+
+// errUnreadable reports a subscription List could not decrypt.
+var errUnreadable = errors.New("push subscription unreadable")
 
 type sealedKeys struct {
 	P256DH string `json:"p256dh"`
@@ -91,9 +92,9 @@ func (s *Store) HasSession(ctx context.Context, sessionHash []byte) (bool, error
 // List returns the subscriptions of live sessions, decrypted, for one alert.
 // An expired session stays a day before the purge: it gets nothing. Sessions
 // of accounts that changed are revoked, at reload and at startup, and their
-// subscriptions go with them. An unreadable row is logged and skipped: it
-// must not cost the other devices their alert.
-func (s *Store) List(ctx context.Context) ([]Subscription, error) {
+// subscriptions go with them. The ids of rows that do not decrypt come apart:
+// they must not cost the other devices their alert.
+func (s *Store) List(ctx context.Context) (subs []Subscription, unreadable []int64, err error) {
 	type sealedRow struct {
 		id             int64
 		endpoint, keys []byte
@@ -107,18 +108,17 @@ func (s *Store) List(ctx context.Context) ([]Subscription, error) {
 		return r, err
 	})
 	if err != nil {
-		return nil, fmt.Errorf("list push subscriptions: %w", err)
+		return nil, nil, fmt.Errorf("list push subscriptions: %w", err)
 	}
-	out := make([]Subscription, 0, len(sealed))
 	for _, r := range sealed {
 		sub, err := s.open(r.id, r.endpoint, r.keys)
 		if err != nil {
-			s.logger.ErrorContext(ctx, "push subscription unreadable, skipped", "subscription_id", r.id, "error", err)
+			unreadable = append(unreadable, r.id)
 			continue
 		}
-		out = append(out, sub)
+		subs = append(subs, sub)
 	}
-	return out, nil
+	return subs, unreadable, nil
 }
 
 // Delete removes a subscription the push service no longer knows.

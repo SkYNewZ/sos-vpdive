@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
-	"log/slog"
 	"path/filepath"
 	"testing"
 	"time"
@@ -21,7 +20,6 @@ type testStore struct {
 
 	db    *sql.DB
 	clock *testClock
-	logs  *bytes.Buffer
 }
 
 func newTestStore(t *testing.T) *testStore {
@@ -33,8 +31,7 @@ func newTestStore(t *testing.T) *testStore {
 	keys, err := secure.NewKeys(bytes.Repeat([]byte{7}, 32))
 	require.NoError(t, err)
 	clock := &testClock{t: time.Date(2026, 10, 6, 9, 0, 0, 0, time.UTC)}
-	logs := &bytes.Buffer{}
-	return &testStore{Store: NewStore(db, keys, clock.now, slog.New(slog.NewTextHandler(logs, nil))), db: db, clock: clock, logs: logs}
+	return &testStore{Store: NewStore(db, keys, clock.now), db: db, clock: clock}
 }
 
 // session inserts a committee session and returns its token hash.
@@ -55,6 +52,15 @@ func (s *testStore) count(t *testing.T) int {
 	return n
 }
 
+// touched counts the subscriptions used since they were saved.
+func (s *testStore) touched(t *testing.T) int {
+	t.Helper()
+	var n int
+	require.NoError(t, s.db.QueryRowContext(context.Background(),
+		`SELECT count(*) FROM push_subscriptions WHERE last_used_at > created_at`).Scan(&n))
+	return n
+}
+
 func sampleSubscription(endpoint string) Subscription {
 	return Subscription{Endpoint: endpoint, P256DH: bytes.Repeat([]byte{4}, 65), Auth: bytes.Repeat([]byte{5}, 16)}
 }
@@ -69,7 +75,7 @@ func TestStoreSavesSealedAndLists(t *testing.T) {
 	var sealed []byte
 	require.NoError(t, s.db.QueryRowContext(ctx, `SELECT endpoint || keys FROM push_subscriptions`).Scan(&sealed))
 	assert.NotContains(t, string(sealed), "witness-endpoint-token")
-	subs, err := s.List(ctx)
+	subs, _, err := s.List(ctx)
 	require.NoError(t, err)
 	require.Len(t, subs, 1)
 	assert.Equal(t, endpoint, subs[0].Endpoint)
@@ -95,7 +101,7 @@ func TestStoreKeepsOneRowPerBrowserAndPerSession(t *testing.T) {
 	assert.False(t, has)
 
 	require.NoError(t, s.Save(ctx, after, "alice", sampleSubscription("https://fcm.googleapis.com/b")))
-	subs, err := s.List(ctx)
+	subs, _, err := s.List(ctx)
 	require.NoError(t, err)
 	require.Len(t, subs, 1, "a session is one device: its new subscription replaces the old one")
 	assert.Equal(t, "https://fcm.googleapis.com/b", subs[0].Endpoint)
@@ -121,7 +127,7 @@ func TestStoreTouchDeleteAndPurge(t *testing.T) {
 	used, idle := s.session(t, "used", "alice"), s.session(t, "idle", "bob")
 	require.NoError(t, s.Save(ctx, used, "alice", sampleSubscription("https://fcm.googleapis.com/used")))
 	require.NoError(t, s.Save(ctx, idle, "bob", sampleSubscription("https://fcm.googleapis.com/idle")))
-	subs, err := s.List(ctx)
+	subs, _, err := s.List(ctx)
 	require.NoError(t, err)
 	byEndpoint := map[string]int64{subs[0].Endpoint: subs[0].ID, subs[1].Endpoint: subs[1].ID}
 
@@ -129,7 +135,7 @@ func TestStoreTouchDeleteAndPurge(t *testing.T) {
 	require.NoError(t, s.Touch(ctx, byEndpoint["https://fcm.googleapis.com/used"]))
 	s.clock.advance(11 * 24 * time.Hour)
 	require.NoError(t, s.Purge(ctx))
-	subs, err = s.List(ctx)
+	subs, _, err = s.List(ctx)
 	require.NoError(t, err)
 	require.Len(t, subs, 1, "90 days without a successful push (spec §8.3)")
 	assert.Equal(t, "https://fcm.googleapis.com/used", subs[0].Endpoint)
@@ -150,25 +156,24 @@ func TestListSkipsExpiredSessions(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, s.Save(ctx, hash, "alice", sampleSubscription("https://fcm.googleapis.com/"+token)))
 	}
-	subs, err := s.List(ctx)
+	subs, _, err := s.List(ctx)
 	require.NoError(t, err)
 	require.Len(t, subs, 1, "an expired session gets no alert, though the purge keeps it a day more")
 	assert.Equal(t, "https://fcm.googleapis.com/valid", subs[0].Endpoint)
 }
 
-func TestListSkipsAnUnreadableSubscription(t *testing.T) {
+func TestListSetsApartAnUnreadableSubscription(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 	require.NoError(t, s.Save(ctx, s.session(t, "phone", "alice"), "alice", sampleSubscription("https://fcm.googleapis.com/phone")))
 	require.NoError(t, s.Save(ctx, s.session(t, "laptop", "bob"), "bob", sampleSubscription("https://fcm.googleapis.com/laptop")))
-	_, err := s.db.ExecContext(ctx, `UPDATE push_subscriptions SET keys = X'00' WHERE endpoint_hash = ?`,
-		secure.TokenHash("https://fcm.googleapis.com/laptop"))
-	require.NoError(t, err)
+	var broken int64
+	require.NoError(t, s.db.QueryRowContext(ctx, `UPDATE push_subscriptions SET keys = X'00' WHERE endpoint_hash = ? RETURNING id`,
+		secure.TokenHash("https://fcm.googleapis.com/laptop")).Scan(&broken))
 
-	subs, err := s.List(ctx)
+	subs, unreadable, err := s.List(ctx)
 	require.NoError(t, err, "one broken row does not cost the others their alert")
 	require.Len(t, subs, 1)
 	assert.Equal(t, "https://fcm.googleapis.com/phone", subs[0].Endpoint)
-	assert.Contains(t, s.logs.String(), "level=ERROR")
-	assert.Contains(t, s.logs.String(), "subscription_id=")
+	assert.Equal(t, []int64{broken}, unreadable)
 }

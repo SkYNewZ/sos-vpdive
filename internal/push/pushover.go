@@ -9,8 +9,6 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"sync"
-	"sync/atomic"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -46,27 +44,23 @@ func NewPushover(token string, adminBaseURL *url.URL, accounts func() []admins.A
 // stop the others; the alert fails only when every call failed.
 func (p *Pushover) Send(ctx context.Context, m mail.Message) error {
 	link := p.admin.String() + "/demandes/" + strconv.FormatInt(m.TicketID, 10)
-	var (
-		wg    sync.WaitGroup
-		tried int
-		sent  atomic.Int64
-	)
+	var keyed []admins.Account
 	for _, a := range p.accounts() {
-		if a.PushoverUserKey == "" {
+		if a.PushoverUserKey != "" {
+			keyed = append(keyed, a)
+		}
+	}
+	errs := sendAll(len(keyed), func(i int) error { return p.post(ctx, keyed[i].PushoverUserKey, m, link) })
+	sent := 0
+	for i, err := range errs {
+		if err != nil {
+			p.logger.WarnContext(ctx, "pushover alert not delivered", "username", keyed[i].Username, "error", err)
 			continue
 		}
-		tried++
-		wg.Go(func() { // all at once: one slow call delays no other account
-			if err := p.post(ctx, a.PushoverUserKey, m, link); err != nil {
-				p.logger.WarnContext(ctx, "pushover alert not delivered", "username", a.Username, "error", err)
-				return
-			}
-			sent.Add(1)
-		})
+		sent++
 	}
-	wg.Wait()
-	if tried > 0 && sent.Load() == 0 {
-		return fmt.Errorf("pushover alert reached none of %d accounts", tried)
+	if len(keyed) > 0 && sent == 0 {
+		return fmt.Errorf("pushover alert reached none of %d accounts", len(keyed))
 	}
 	return nil
 }
