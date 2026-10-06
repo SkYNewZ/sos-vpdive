@@ -381,6 +381,14 @@ func TestDeletingAMessageOrARequestDropsItsMails(t *testing.T) {
 	assert.Empty(t, s.messages())
 }
 
+func TestOutboxIdIsNeverReused(t *testing.T) {
+	o := newTestOutbox(t)
+	first := o.enqueue(t, sampleMail())
+	_, err := o.db.ExecContext(context.Background(), `DELETE FROM outbox WHERE id = ?`, first)
+	require.NoError(t, err)
+	assert.NotEqual(t, first, o.enqueue(t, sampleMail()), "an in-flight send must not finish another mail")
+}
+
 func TestDeleteRecipient(t *testing.T) {
 	o := newTestOutbox(t)
 	ctx := context.Background()

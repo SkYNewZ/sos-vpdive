@@ -2,7 +2,7 @@
 -- token hashes are SHA-256, email hashes HMAC-SHA256. Unix seconds, UTC.
 
 CREATE TABLE tickets (
-    id INTEGER PRIMARY KEY,
+    id INTEGER PRIMARY KEY AUTOINCREMENT, -- never reused: a stale page must not reach another request
     ref TEXT UNIQUE,                 -- CPP-0042, NULL while draft
     token_hash BLOB NOT NULL UNIQUE,
     token BLOB NOT NULL,             -- sealed, to resend the original link
@@ -68,7 +68,7 @@ CREATE TABLE events (
 CREATE INDEX events_ticket ON events (ticket_id);
 
 CREATE TABLE outbox (
-    id INTEGER PRIMARY KEY,
+    id INTEGER PRIMARY KEY AUTOINCREMENT, -- never reused: an in-flight send must not finish another mail
     ticket_id INTEGER REFERENCES tickets (id) ON DELETE CASCADE,
     message_id INTEGER REFERENCES messages (id) ON DELETE CASCADE,
     event TEXT NOT NULL,

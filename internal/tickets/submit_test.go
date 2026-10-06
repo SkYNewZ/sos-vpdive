@@ -139,6 +139,16 @@ func TestReferenceIsNeverReused(t *testing.T) {
 	assert.Equal(t, "CPP-0003", third)
 }
 
+func TestTicketIdIsNeverReused(t *testing.T) {
+	e := newTestStore(t)
+	e.submit(t)
+	second, _ := e.submit(t)
+	_, err := e.db.ExecContext(context.Background(), `DELETE FROM tickets WHERE id = ?`, second)
+	require.NoError(t, err)
+	third, _ := e.submit(t)
+	assert.NotEqual(t, second, third, "a stale page must not reach another request")
+}
+
 func TestConfirmIsIdempotent(t *testing.T) {
 	e := newTestStore(t)
 	id, ref := e.submit(t)

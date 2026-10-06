@@ -40,7 +40,7 @@ func TestOpenCreatesSchemaAndIsIdempotent(t *testing.T) {
 	db, path := openTemp(t)
 	ctx := context.Background()
 
-	rows, err := db.QueryContext(ctx, `SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name`)
+	rows, err := db.QueryContext(ctx, `SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name`)
 	require.NoError(t, err)
 	defer func() { assert.NoError(t, rows.Close()) }()
 	var tables []string
