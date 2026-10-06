@@ -30,8 +30,14 @@ validated: it wins over this file, over existing code, and over preference.
 - A cancelled outing on the request page (§7.3) gets a note by payment method:
   « Prépayé » says the carnet is credited back when the outing is deleted, any
   other method says it was paid in real money and the treasurer refunds it.
-- Erasing a person (§4.5) deletes every payment line of their name hash, a
-  homonym's included.
+- Erasing a person (§4.5) deletes every payment and Mollie line of their name
+  hash, a homonym's included.
+- Every payment is online: the VPayDive export is « Encaissements Mollie » on
+  the committee side (§7.5, §7.7), its signal « encaissé par Mollie, non soldé
+  dans VPDive : à vérifier », and the `vpaydive` method of the payments export
+  reads « Mollie (VPayDive) ». Code keeps `vpaydive` and `online_payment_lines`.
+- A pushed import (§7.6) under half of the data in place is refused for the
+  three exports, not only the members list.
 
 ## Private material: `.local/` is gitignored
 
@@ -123,6 +129,9 @@ No i18n framework.
 - SQLite reuses the highest `INTEGER PRIMARY KEY` after a delete: ids that leave the
   process (URLs, in-flight sends) need `AUTOINCREMENT`.
 - Migrations are tracked by number only: never edit one that has shipped.
+- SQLite cannot alter a `CHECK`: rebuild the table and every table pointing at
+  it, each new one filled before the old ones go (`defer_foreign_keys` does not
+  survive the rename; see `0006_mollie.sql`).
 - Go templates: no `{{else if}}` after `{{with}}` (nest instead); a map keyed by a
   named string type cannot be indexed with a literal (use `map[string]…`).
 - Tailwind scans only `internal/web/templates`: `app.js` toggles attributes
