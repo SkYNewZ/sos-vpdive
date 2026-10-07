@@ -86,6 +86,29 @@ validated: it wins over this file, over existing code, and over preference.
     included: by `name_hash`, by the full name of an unregistered
     participant in either order (erasure only, never for matching), and by
     the `vpdive_id` of those.
+  - Display (lot 8 part 2), committee only, read-only: `/calendrier`
+    (month, week, day; week by default) and `/calendrier/{id}`, in the
+    sidebar and « Plus ». Phones get day lists instead of the month grid.
+  - The ticket page's « Sorties VPDive » block lists the requester's outings
+    (90 days before the request and every upcoming one; older ones folded),
+    through the member's name_hash and the linked vpdive_id. A VPDive or
+    Mollie line of the requester attaches to their outing of the same Paris
+    day, by normalised title when there are several; the others stay in
+    the existing blocks. Signals: cancelled outing with a paid « Prépayé »
+    line, or paid in real money; Mollie line not settled. Roles raise no
+    signal: everyone pays, some 0 €.
+  - Category tints (§12.2): up to five muted tints of our own, set in
+    `config/calendar.yaml` with the labels of category, activity,
+    environment and role. VPDive's colours are ignored; an unknown value
+    shows as received.
+  - An `ends_at` before `starts_at` shows the start alone, and the outing
+    page says « Heure de fin incohérente dans VPDive ».
+  - Decryption stays per page: the month decrypts events only, week and day
+    add their participants, the outing page its own; member matching counts
+    rows by name_hash; nobody else's payment lines are read outside
+    `/annulations`.
+  - `/annulations` links an outing to its calendar page when title and
+    Paris day match one event, otherwise to the day view.
 
 ## Private material: `.local/` is gitignored
 
