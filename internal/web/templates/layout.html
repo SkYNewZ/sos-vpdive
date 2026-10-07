@@ -118,3 +118,9 @@
 {{define "assigneeName"}}{{with accountOf .}}{{.Name}}{{else}}{{.}}{{end}}{{end}}
 
 {{define "age"}}<span class="{{if eq .Level "alert"}}text-error font-bold{{else if eq .Level "warn"}}text-warning{{end}}">{{.Text}}</span>{{end}}
+
+{{/* A calendar category: its tint and its label, always written. */}}
+{{define "category"}}{{$c := category .}}<span class="cal-tint-{{$c.Tint}} pl-2">{{$c.Label}}</span>{{end}}
+
+{{/* How many people an event holds: .Booked, .Max (0: no limit), .Queued. */}}
+{{define "counts"}}{{.Booked}} inscrit{{if gt .Booked 1}}s{{end}}{{with .Max}} sur {{.}}{{end}}{{with .Queued}} · {{.}} en attente{{end}}{{end}}
