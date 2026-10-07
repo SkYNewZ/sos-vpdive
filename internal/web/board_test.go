@@ -62,6 +62,8 @@ func TestBoardFilters(t *testing.T) {
 	}
 	def := board("")
 	shows(def, todo, mine)
+	assert.Contains(t, def, `<form method="get" action="/" data-autosubmit`, "a changed filter applies at once (app.js)")
+	assert.Contains(t, def, ">Filtrer</button>", "the button stays for a browser without the script")
 	assert.Contains(t, boardRow(t, def, todo.ID), "a répondu")
 	assert.NotContains(t, boardRow(t, def, mine.ID), "a répondu")
 	assert.Contains(t, boardRow(t, def, mine.ID), "Alice")

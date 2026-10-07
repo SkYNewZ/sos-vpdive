@@ -67,15 +67,21 @@ self.addEventListener("push", (event) => {
   );
 });
 
-// A tap brings up the request: the window already on it, else a new one.
-// Another open window is never steered away: it may hold a reply being typed.
+// A tap brings up the request: the window already on it, else an open
+// window, asked to go there (app.js goes unless a reply is being typed), else
+// a new one. An installed app on iOS has a single window, which openWindow
+// only wakes up without loading the request.
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const url = new URL(event.notification.data.url, location.origin).href;
   event.waitUntil(
     (async () => {
-      for (const client of await clients.matchAll({ type: "window" })) {
-        if (client.url === url) return client.focus();
+      const windows = await clients.matchAll({ type: "window" });
+      const there = windows.find((client) => client.url === url);
+      if (there) return there.focus();
+      if (windows.length > 0) {
+        windows[0].postMessage({ open: url });
+        return windows[0].focus();
       }
       return clients.openWindow(url);
     })(),
