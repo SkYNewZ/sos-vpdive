@@ -120,7 +120,7 @@
 <p><span class="font-semibold">{{formatTime .PaidAt}}</span>{{with .Method}} · {{.}}{{end}} · <span class="whitespace-nowrap">total {{.Total.Euros}}</span></p>
 <ul class="mt-2 flex flex-col gap-2">{{range .Lines}}
 <li{{if and .Unsettled (not .Dismissal)}} class="border-l-2 border-warning bg-warning/10 pl-2"{{end}}><span class="break-words">{{.Product}}{{with .Service}} · {{.}}{{end}}{{with formatDate .Starts}} ({{.}}){{end}}</span> : <span class="whitespace-nowrap">{{.Amount.Euros}}</span>{{if .Negative}}, remboursement ou remise{{end}}.
-<span class="block text-sm">{{if .Unsettled}}{{with .Dismissal}}Vérifié par {{author .By}} le {{formatDate .At}}.{{else}}<span class="font-semibold">Encaissé par Mollie, non soldé dans VPDive : à vérifier.</span>{{end}}{{else if eq .Settled "Oui"}}Soldé dans VPDive.{{else}}« Payé » vaut « {{.Settled}} » dans l'export.{{end}}</span></li>{{end}}
+<span class="block text-sm">{{if .Unsettled}}{{with .Dismissal}}Vérifié par {{author .By}} le {{formatDate .At}}.{{else}}<span class="font-semibold">Encaissé par Mollie, non soldé dans VPDive : à vérifier.</span>{{end}}{{else if eq .Settled "Oui"}}Soldé dans VPDive.{{else if .Settled}}« Payé » vaut « {{.Settled}} » dans l'export.{{else}}« Payé » est vide dans l'export.{{end}}</span></li>{{end}}
 </ul>
 </li>{{end}}
 </ol>

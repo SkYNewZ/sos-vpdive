@@ -489,11 +489,17 @@ func rowList(rows []int) string {
 	return "lignes " + text
 }
 
+// formatTime shows midnight as a date: an export cell without a time reads
+// as midnight, and « à 00:00 » would invent one.
 func (s *Server) formatTime(t time.Time) string {
 	if t.IsZero() {
 		return ""
 	}
-	return t.In(s.paris).Format(dateTimeFormat)
+	t = t.In(s.paris)
+	if t.Equal(time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, s.paris)) {
+		return t.Format(dateFormat)
+	}
+	return t.Format(dateTimeFormat)
 }
 
 func (s *Server) formatDate(t time.Time) string {

@@ -5,8 +5,11 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/SkYNewZ/sos-vpdive/internal/xlsx/xlsxtest"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Spec §7.3 and §13: the « Paiements VPDive » block of a request page, in
@@ -88,4 +91,29 @@ func TestRequestPageMollieBlock(t *testing.T) {
 	_, tracking := e.tracking(t, hugo.Token)
 	assert.NotContains(t, tracking, "Encaissements Mollie")
 	assert.NotContains(t, tracking, "53,00")
+}
+
+// An export cell holding a date and no time reads as midnight: it shows as
+// a date, never « à 00:00 ».
+func TestMidnightShowsAsADate(t *testing.T) {
+	e := newTestEnv(t)
+	assert.Equal(t, "12/08/2026", e.srv.formatTime(time.Date(2026, 8, 12, 0, 0, 0, 0, e.srv.paris)))
+	assert.Equal(t, "12/08/2026 à 00:01", e.srv.formatTime(time.Date(2026, 8, 12, 0, 1, 0, 0, e.srv.paris)))
+}
+
+// An empty « Payé » cell is named as such, not quoted as an empty value.
+func TestRequestPageNamesAnEmptySettledCell(t *testing.T) {
+	e := newTestEnv(t, withImportToken)
+	e.importMembers(t, "members_valid.xlsx")
+	cookie := e.login(t)
+	hugo := e.submitTicket(t, "hugo.bernard@example.org")
+	wb := xlsxtest.Build(t, xlsxtest.Sheet{
+		{"Nom", "Prénom", "Type Panier", "Montant Panier", "Payé", "Date paiement"},
+		{"Bernard", "Hugo", "Calendrier", 40, "", "12/08/2026 14:05"},
+	})
+	require.Equal(t, http.StatusOK, e.push(t, "vpaydive", wb, importToken).Code)
+
+	page := e.openTicket(t, cookie, hugo.ID).body
+	assert.Contains(t, page, "« Payé » est vide dans l'export.")
+	assert.NotContains(t, page, "« Payé » vaut")
 }
