@@ -27,6 +27,7 @@ const apiImportLimit = 10
 // {type} values of the pushed-import route.
 var exportNames = map[imports.Kind]string{
 	imports.Members: "liste des membres", imports.Payments: "export des paiements", imports.Mollie: "export VPayDive",
+	imports.Calendar: "calendrier",
 }
 
 // pushed is the answer to an accepted pushed import (spec §7.6): what the
@@ -93,8 +94,7 @@ func (s *Server) apiImport(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, imports.ErrUnchanged):
 		answer.Result = "unchanged"
 	case errors.Is(err, imports.ErrTooFew):
-		s.refusePushed(w, r, kind, http.StatusUnprocessableEntity, pushRefused{Error: "too_few",
-			Message: "Ce fichier contient moins de la moitié des données en place. S'il est juste, dépose-le à la main sur la page des imports."})
+		s.refusePushed(w, r, kind, http.StatusUnprocessableEntity, pushRefused{Error: "too_few", Message: tooFewMessage(kind)})
 		return
 	default:
 		if code, msg, refused := refusal(kind, err); refused {
@@ -107,6 +107,15 @@ func (s *Server) apiImport(w http.ResponseWriter, r *http.Request) {
 	}
 	s.logger.InfoContext(ctx, "export pushed", "kind", string(kind), "result", answer.Result, "kept", answer.Kept)
 	s.writeJSON(w, r, http.StatusOK, answer)
+}
+
+// tooFewMessage explains a pushed file under half of the data in place. The
+// calendar has no manual upload to get past it (owner decision, lot 8).
+func tooFewMessage(kind imports.Kind) string {
+	if kind == imports.Calendar {
+		return "Ce calendrier contient moins de la moitié des événements en place sur sa période. Vérifie le calendrier dans VPDive."
+	}
+	return "Ce fichier contient moins de la moitié des données en place. S'il est juste, dépose-le à la main sur la page des imports."
 }
 
 // importTokenValid compares the bearer token with IMPORT_TOKEN in constant
@@ -125,6 +134,8 @@ func (s *Server) importPushed(ctx context.Context, exp export) error {
 		return s.members.Import(ctx, exp.members)
 	case exp.payments != nil:
 		return s.payments.Import(ctx, exp.payments)
+	case exp.calendar != nil:
+		return s.calendar.Import(ctx, exp.calendar)
 	default:
 		return s.mollie.Import(ctx, exp.mollie)
 	}
@@ -141,6 +152,8 @@ func (e export) counts() pushed {
 		p.Kept, p.Skipped, p.ToCheck = len(e.payments.Lines), e.payments.Skipped, e.payments.ToCheck()
 	case e.mollie != nil:
 		p.Kept, p.Skipped, p.ToCheck = len(e.mollie.Lines), e.mollie.Skipped, e.mollie.ToCheck()
+	case e.calendar != nil:
+		p.Kept, p.Skipped = len(e.calendar.Events), e.calendar.Skipped
 	}
 	p.Read = p.Kept + p.Skipped
 	return p
@@ -151,9 +164,12 @@ func (e export) counts() pushed {
 func (s *Server) refusePushed(w http.ResponseWriter, r *http.Request, kind imports.Kind, status int, answer pushRefused) {
 	ctx := r.Context()
 	s.logger.InfoContext(ctx, "pushed export refused", "kind", string(kind), "code", answer.Error)
+	next := "Vérifie l'export dans VPDive, puis dépose-le à la main si besoin"
+	if kind == imports.Calendar { // no manual upload for the calendar
+		next = "Le script d'import est peut-être en panne. Dernier calendrier reçu"
+	}
 	text := fmt.Sprintf("Le script d'import a déposé un fichier que l'outil a refusé : %s.\n\nRaison : %s\n\n"+
-		"Les données en place n'ont pas changé. Vérifie l'export dans VPDive, puis dépose-le à la main si besoin",
-		exportNames[kind], answer.Message)
+		"Les données en place n'ont pas changé. %s", exportNames[kind], answer.Message, next)
 	if err := store.Tx(ctx, s.db, "import.refused", func(ctx context.Context, tx *sql.Tx) error {
 		return s.queueImportsMail(ctx, tx, mail.EventImportRefused, "Import automatique refusé : "+exportNames[kind], text)
 	}); err != nil {

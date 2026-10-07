@@ -217,6 +217,21 @@
 <button class="btn {{if .Data.Mollie.Preview}}btn-outline{{else}}btn-primary{{end}} min-h-11 self-start" type="submit">Voir l'aperçu</button>
 </form>
 </section>
+
+<section class="mt-10" aria-labelledby="calendrier-titre">
+<h2 id="calendrier-titre" class="text-xl font-semibold">Calendrier des activités</h2>
+<p class="mt-2">Le script d'import dépose le calendrier. Il n'y a rien à déposer à la main.</p>
+{{with .Data.Calendar}}
+<dl class="mt-4 grid grid-cols-1 gap-x-4 gap-y-0 sm:grid-cols-[auto_1fr] sm:gap-y-1">
+<dt class="font-semibold">Reçu le</dt><dd class="mb-2 sm:mb-0">{{formatTime .ImportedAt}}</dd>
+<dt class="font-semibold">Par</dt><dd class="mb-2 sm:mb-0">{{author .ImportedBy}}</dd>
+<dt class="font-semibold">Période</dt><dd class="mb-2 sm:mb-0">{{template "dates" .}}</dd>
+<dt class="font-semibold">Événements</dt><dd class="mb-2 sm:mb-0">{{.Rows}}</dd>
+</dl>
+{{else}}
+<p class="mt-4">Aucun calendrier reçu pour l'instant.</p>
+{{end}}
+</section>
 {{end}}
 
 {{define "period"}}{{template "dates" .}}{{if and (not .PeriodFrom.IsZero) (shortPeriod .PeriodFrom .PeriodTo)}}<span class="block font-semibold">Moins de 12 mois : élargis le filtre de dates de VPDive avant le prochain export.</span>{{end}}{{end}}

@@ -55,12 +55,12 @@ func answer(t *testing.T, rec *httptest.ResponseRecorder) pushAnswer {
 	return a
 }
 
-// clubMails returns the mails to the club inbox of event.
-func (e *testEnv) clubMails(t *testing.T, ev mail.Event) []mail.Message {
+// clubMails returns the mails to the club inbox about a refused pushed import.
+func (e *testEnv) clubMails(t *testing.T) []mail.Message {
 	t.Helper()
 	var out []mail.Message
 	for _, m := range e.mails(t) {
-		if m.To == clubEmail && strings.Contains(m.Subject, map[mail.Event]string{mail.EventImportRefused: "Import automatique refusé"}[ev]) {
+		if m.To == clubEmail && strings.Contains(m.Subject, "Import automatique refusé") {
 			out = append(out, m)
 		}
 	}
@@ -84,7 +84,7 @@ func TestPushedImportRouteNeedsItsToken(t *testing.T) {
 	assert.NotContains(t, e.logs.String(), importToken)
 	assert.NotContains(t, e.logs.String(), "not-the-")
 	assert.Zero(t, e.count(t, "members"))
-	assert.Empty(t, e.clubMails(t, mail.EventImportRefused), "a bad token mails nobody")
+	assert.Empty(t, e.clubMails(t), "a bad token mails nobody")
 
 	unknown := e.push(t, "contacts", data, importToken)
 	assert.Equal(t, http.StatusNotFound, unknown.Code)
@@ -236,7 +236,7 @@ func TestPushedRefusalsKeepTheDataAndMailTheCommittee(t *testing.T) {
 	garbage := e.push(t, "vpaydive", []byte("Nom;Prénom\n"), importToken)
 	assert.Equal(t, "invalid_workbook", answer(t, garbage).Error)
 
-	mails := e.clubMails(t, mail.EventImportRefused)
+	mails := e.clubMails(t)
 	require.Len(t, mails, 3)
 	assert.Equal(t, "Import automatique refusé : liste des membres", mails[0].Subject)
 	assert.Contains(t, mails[0].Text, "moins de la moitié")
@@ -253,7 +253,7 @@ func TestPushedImportLimits(t *testing.T) {
 	big := e.push(t, "members", bytes.Repeat([]byte{'x'}, maxUploadBytes+1), importToken)
 	assert.Equal(t, http.StatusRequestEntityTooLarge, big.Code)
 	assert.Equal(t, "too_large", answer(t, big).Error)
-	refused := e.clubMails(t, mail.EventImportRefused)
+	refused := e.clubMails(t)
 	require.Len(t, refused, 1, "an oversized file is a refused import too")
 	assert.Equal(t, "Import automatique refusé : liste des membres", refused[0].Subject)
 	assert.Contains(t, refused[0].Text, "5 Mo au plus")

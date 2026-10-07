@@ -1,22 +1,23 @@
 {{define "main"}}
 {{$d := .Data}}
 <h1 class="text-2xl font-bold text-primary max-lg:sr-only">Effacer les données d'une personne</h1>
-<p class="mt-4">Pour répondre à une demande d'effacement : toutes les demandes de l'adresse, avec leurs messages, leurs captures et leurs mails en attente, sa ligne dans la liste des membres, ses lignes de paiement et ses encaissements Mollie.</p>
+<p class="mt-4">Pour répondre à une demande d'effacement : toutes les demandes de l'adresse, avec leurs messages, leurs captures et leurs mails en attente, sa ligne dans la liste des membres, ses lignes de paiement, ses encaissements Mollie et ses participations au calendrier.</p>
 {{if eq $d.Step "fait"}}
-<div role="status" class="alert alert-soft alert-success mt-6"><span>Données effacées : {{$d.Counts.Tickets}} {{if eq $d.Counts.Tickets 1}}demande{{else}}demandes{{end}}{{if $d.Counts.Member}}, la ligne de la liste des membres{{end}}, {{template "paymentLines" $d.Counts.PaymentLines}} et {{template "mollieLines" $d.Counts.MollieLines}}.</span></div>
-<p class="mt-4">Tant que la personne a un compte VPDive, les prochains imports de VPDive la réinscrivent dans la liste blanche et remettent ses paiements.</p>
+<div role="status" class="alert alert-soft alert-success mt-6"><span>Données effacées : {{$d.Counts.Tickets}} {{if eq $d.Counts.Tickets 1}}demande{{else}}demandes{{end}}{{if $d.Counts.Member}}, la ligne de la liste des membres{{end}}, {{template "paymentLines" $d.Counts.PaymentLines}}, {{template "mollieLines" $d.Counts.MollieLines}} et {{template "participations" $d.Counts.Participations}}.</span></div>
+<p class="mt-4">Tant que la personne a un compte VPDive, les prochains imports de VPDive la réinscrivent dans la liste blanche et remettent ses paiements et ses participations au calendrier.</p>
 <p class="mt-4"><a class="link link-primary" href="/">Retour aux demandes</a></p>
 {{else if eq $d.Step "apercu"}}
 <div class="panel mt-6 border-error p-4">
 <h2 class="text-lg font-semibold break-words">Ce qui sera effacé pour {{$d.Email}}</h2>
 <ul class="mt-2 list-disc pl-6">
-<li>{{$d.Counts.Tickets}} {{if eq $d.Counts.Tickets 1}}demande{{else}}demandes{{end}}, avec leurs messages, leurs captures, leur journal et leurs mails en attente ;</li>
-<li>{{if $d.Counts.Member}}une ligne dans la liste des membres{{else}}aucune ligne dans la liste des membres{{end}} ;</li>
-<li>{{template "paymentLines" $d.Counts.PaymentLines}}{{if $d.Counts.PaymentLines}}, y compris celles d'un homonyme éventuel{{end}} ;</li>
-<li>{{template "mollieLines" $d.Counts.MollieLines}}{{if $d.Counts.MollieLines}}, y compris celles d'un homonyme éventuel{{end}}.</li>
+<li>{{$d.Counts.Tickets}} {{if eq $d.Counts.Tickets 1}}demande{{else}}demandes{{end}}, avec leurs messages, leurs captures, leur journal et leurs mails en attente&nbsp;;</li>
+<li>{{if $d.Counts.Member}}une ligne dans la liste des membres{{else}}aucune ligne dans la liste des membres{{end}}&nbsp;;</li>
+<li>{{template "paymentLines" $d.Counts.PaymentLines}}{{if $d.Counts.PaymentLines}}, y compris celles d'un homonyme éventuel{{end}}&nbsp;;</li>
+<li>{{template "mollieLines" $d.Counts.MollieLines}}{{if $d.Counts.MollieLines}}, y compris celles d'un homonyme éventuel{{end}}&nbsp;;</li>
+<li>{{template "participations" $d.Counts.Participations}}{{if $d.Counts.Participations}}, y compris celles d'un homonyme éventuel{{end}}.</li>
 </ul>
 <p class="mt-3">Un mail déjà remis à son destinataire ne peut pas être rappelé.</p>
-<p class="mt-2">Tant que la personne a un compte VPDive, les prochains imports de VPDive la réinscrivent dans la liste blanche et remettent ses paiements.</p>
+<p class="mt-2">Tant que la personne a un compte VPDive, les prochains imports de VPDive la réinscrivent dans la liste blanche et remettent ses paiements et ses participations au calendrier.</p>
 <form method="post" action="/effacement" class="mt-4 flex flex-wrap gap-3">
 <input type="hidden" name="csrf" value="{{.CSRF}}">
 <input type="hidden" name="email" value="{{$d.Email}}">
@@ -41,3 +42,4 @@
 
 {{define "paymentLines"}}{{if eq . 0}}aucune ligne de paiement{{else if eq . 1}}1 ligne de paiement{{else}}{{.}} lignes de paiement{{end}}{{end}}
 {{define "mollieLines"}}{{if eq . 0}}aucune ligne d'encaissement Mollie{{else if eq . 1}}1 ligne d'encaissement Mollie{{else}}{{.}} lignes d'encaissement Mollie{{end}}{{end}}
+{{define "participations"}}{{if eq . 0}}aucune participation au calendrier{{else if eq . 1}}1 participation au calendrier{{else}}{{.}} participations au calendrier{{end}}{{end}}

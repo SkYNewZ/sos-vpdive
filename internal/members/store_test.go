@@ -326,18 +326,24 @@ func TestFindAndEraseMember(t *testing.T) {
 	_, _, err = f.store.Find(ctx, "lea martin@example.org")
 	require.ErrorIs(t, err, secure.ErrEmailSpace)
 
-	erase := func(email string) []byte {
-		var nameHash []byte
+	erase := func(email string) (Profile, bool) {
+		var (
+			p  Profile
+			ok bool
+		)
 		require.NoError(t, store.Tx(ctx, f.db, "test.erase", func(ctx context.Context, tx *sql.Tx) error {
 			var err error
-			nameHash, err = f.store.EraseTx(ctx, tx, email)
+			p, ok, err = f.store.EraseTx(ctx, tx, email)
 			return err
 		}))
-		return nameHash
+		return p, ok
 	}
-	assert.Equal(t, f.keys.Hash(secure.NameKey("Martin", "Léa")), erase("lea.martin@example.org"),
-		"the erased member's name hash, to erase their payment lines")
-	assert.Nil(t, erase("lea.martin@example.org"))
+	p, ok = erase("lea.martin@example.org")
+	require.True(t, ok)
+	assert.Equal(t, Profile{FirstName: "Léa", LastName: "Martin", NameHash: f.keys.Hash(secure.NameKey("Martin", "Léa"))}, p,
+		"the erased member's name, to erase their payment lines and participations")
+	_, ok = erase("lea.martin@example.org")
+	assert.False(t, ok)
 	listed, err := f.store.Lookup(ctx, "lea.martin@example.org")
 	require.NoError(t, err)
 	assert.False(t, listed)

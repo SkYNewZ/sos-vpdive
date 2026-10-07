@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/SkYNewZ/sos-vpdive/internal/calendar"
 	"github.com/SkYNewZ/sos-vpdive/internal/imports"
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
 	"github.com/SkYNewZ/sos-vpdive/internal/payments"
@@ -46,6 +47,7 @@ type importsData struct {
 	Members  membersSection
 	Payments paymentsSection
 	Mollie   mollieSection
+	Calendar *imports.Info // latest calendar pushed by the script (lot 8)
 }
 
 // importErrors are shown beside the upload and the confirmation of a section.
@@ -149,6 +151,13 @@ func (s *Server) importsView(ctx context.Context, d *importsData) error {
 	if err := fillLines(ctx, &d.Mollie.linesSection, s.mollie); err != nil {
 		return err
 	}
+	cal, ok, err := imports.Last(ctx, s.db, imports.Calendar)
+	if err != nil {
+		return err
+	}
+	if ok {
+		d.Calendar = &cal
+	}
 	d.Mollie.ToCheck, d.Payments.ToCheck, err = s.checks.Count(ctx)
 	return err
 }
@@ -206,27 +215,30 @@ type export struct {
 	members  *members.Export
 	payments *payments.Export
 	mollie   *payments.MollieExport
+	calendar *calendar.Export
 }
 
 // readExport reads and validates an export of kind, whatever its source:
 // the upload form and the pushed route share it (spec §7.6). The export
 // carries the hash of the file, which the journal keeps.
 func (s *Server) readExport(ctx context.Context, kind imports.Kind, data []byte) (export, error) {
+	hash := s.keys.Hash(string(data))
 	var (
 		rows    []xlsx.Row
 		created time.Time // the members export dates itself in row 2
 	)
-	if err := telemetry.Trace(ctx, s.tracer, "import.read", func(context.Context) error {
-		var err error
-		rows, err = xlsx.ReadFirstSheet(data, imports.Limits())
-		if err == nil && kind != imports.Members {
-			created, _ = xlsx.Created(data, imports.Limits())
+	if kind != imports.Calendar { // the calendar is JSON pushed by the script: no workbook
+		if err := telemetry.Trace(ctx, s.tracer, "import.read", func(context.Context) error {
+			var err error
+			rows, err = xlsx.ReadFirstSheet(data, imports.Limits())
+			if err == nil && kind != imports.Members {
+				created, _ = xlsx.Created(data, imports.Limits())
+			}
+			return err
+		}); err != nil {
+			return export{}, fmt.Errorf("%w: %w", errUnreadable, err)
 		}
-		return err
-	}); err != nil {
-		return export{}, fmt.Errorf("%w: %w", errUnreadable, err)
 	}
-	hash := s.keys.Hash(string(data))
 	var exp export
 	err := telemetry.Trace(ctx, s.tracer, "import.validate", func(context.Context) error {
 		var err error
@@ -242,6 +254,10 @@ func (s *Server) readExport(ctx context.Context, kind imports.Kind, data []byte)
 		case imports.Mollie:
 			if exp.mollie, err = payments.ParseMollie(rows, created, s.paris); err == nil {
 				exp.mollie.FileHash = hash
+			}
+		case imports.Calendar:
+			if exp.calendar, err = calendar.Parse(data, s.paris, s.now()); err == nil {
+				exp.calendar.FileHash = hash
 			}
 		}
 		return err
@@ -394,6 +410,7 @@ func refusal(kind imports.Kind, err error) (code, message string, refused bool) 
 	var (
 		membersErr  *members.ParseError
 		paymentsErr *payments.ParseError
+		calendarErr *calendar.ParseError
 	)
 	switch {
 	case errors.Is(err, xlsx.ErrTooLarge):
@@ -402,6 +419,8 @@ func refusal(kind imports.Kind, err error) (code, message string, refused bool) 
 		return "too_many_rows", "Fichier trop long : 20 000 lignes au plus.", true
 	case errors.Is(err, errUnreadable):
 		return "invalid_workbook", unreadableMessage(kind), true
+	case errors.As(err, &calendarErr):
+		return "invalid_calendar", calendarMessage(calendarErr), true
 	case errors.As(err, &membersErr):
 		return string(membersErr.Kind), membersMessage(membersErr), true
 	case errors.As(err, &paymentsErr) && kind == imports.Mollie:
@@ -415,6 +434,7 @@ func refusal(kind imports.Kind, err error) (code, message string, refused bool) 
 func unreadableMessage(kind imports.Kind) string {
 	const unreadable = "Ce fichier n'est pas un classeur Excel (.xlsx) lisible."
 	switch kind {
+	case imports.Calendar: // JSON pushed by the script: never an unreadable workbook
 	case imports.Members:
 		return unreadable + " Dépose l'export « Télécharger » de la liste des membres."
 	case imports.Payments:
@@ -468,6 +488,27 @@ func mollieMessage(pe *payments.ParseError) string {
 	case payments.ProblemInvalidDate:
 		return "Date de paiement illisible, " + rowList(pe.Rows) + ". Refais l'export sans retoucher le fichier."
 	case payments.ProblemEmptyProduct: // the VPayDive export has no such check
+	}
+	return fileRefused
+}
+
+// calendarMessage explains a refused calendar. It cites at most an event id,
+// never a person.
+func calendarMessage(pe *calendar.ParseError) string {
+	switch pe.Kind {
+	case calendar.ProblemUnreadable:
+		return "Ce calendrier n'est pas un JSON lisible."
+	case calendar.ProblemWindow:
+		return "Période du calendrier absente ou illisible."
+	case calendar.ProblemEventID:
+		if pe.Event == "" {
+			return "Un événement n'a pas d'identifiant."
+		}
+		return "Identifiant d'événement en double : " + pe.Event + "."
+	case calendar.ProblemDates:
+		return "Dates illisibles pour l'événement " + pe.Event + "."
+	case calendar.ProblemPerson:
+		return "Participant sans identifiant dans l'événement " + pe.Event + "."
 	}
 	return fileRefused
 }

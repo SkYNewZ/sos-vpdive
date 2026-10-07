@@ -69,6 +69,23 @@ validated: it wins over this file, over existing code, and over preference.
   - The suggestion call sends `"thinking": {"type": "disabled"}` (§5.2).
 - The README has no dependency list (§9.1, §9.3): the commit that adds a
   dependency says why.
+- The club's activity calendar is in scope (§2, §7.6, lot 8): the external
+  script pushes it as JSON to `POST /api/imports/calendar`; the tool still
+  never contacts VPDive.
+  - Each event is stored or updated by its `id`. A stored event that starts
+    in `[from, to]` (Paris dates) and is missing from the push is deleted;
+    the others stay as history, 12 months after their start (§8.3).
+  - The « under half » guard compares with the events stored in
+    `[from, to]`. There is no manual upload, so no way past a `too_few`
+    refusal in v1.
+  - `CALENDAR_MAX_AGE` defaults to 48 h (§10).
+  - Matching (§7.3): by `name_hash` only for a registered participant with
+    both a last and a first name; otherwise by `vpdive_id`, through another
+    registered participation. Never on an empty name.
+  - Erasing a person (§4.5) deletes their participations, a homonym's
+    included: by `name_hash`, by the full name of an unregistered
+    participant in either order (erasure only, never for matching), and by
+    the `vpdive_id` of those.
 
 ## Private material: `.local/` is gitignored
 
@@ -135,7 +152,7 @@ No i18n framework.
 
 ## Layout and commands
 
-- `cmd/sos-vpdive` (subcommands) + `internal/{config,secure,telemetry,store,xlsx,imports,members,payments,admins,tickets,mail,blobs,images,kb,suggest,push,web}`.
+- `cmd/sos-vpdive` (subcommands) + `internal/{config,secure,telemetry,store,xlsx,imports,members,payments,calendar,admins,tickets,mail,blobs,images,kb,suggest,push,web}`.
   Migrations: `internal/store/migrations/NNNN_*.sql`. Content files `config/*.yaml`
   (categories, products, vpdive, robots) are embedded by the root `content.go`.
 - `make test` / `make lint` (golangci-lint v2, `default: all`) / `make css` /

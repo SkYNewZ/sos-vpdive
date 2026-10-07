@@ -1,4 +1,4 @@
-// Package imports holds what the members, payments and Mollie imports share
+// Package imports holds what the members, payments, Mollie and calendar imports share
 // (spec §7.2, §7.6): the imports journal, unconfirmed previews kept in
 // memory, the replacement transaction with the guards of a pushed import, and
 // the « ambiguë » mark of payment lines (§7.3).
@@ -35,6 +35,7 @@ const (
 	Members  Kind = "members"
 	Payments Kind = "payments"
 	Mollie   Kind = "vpaydive" // the VPayDive export, Mollie collections (spec §7.5)
+	Calendar Kind = "calendar" // the activity calendar pushed as JSON (lot 8)
 )
 
 // ScriptAuthor is the journal author of a pushed import (spec §7.6).
@@ -125,6 +126,17 @@ func Replace(ctx context.Context, db *sql.DB, span string, m *Meta, e Entry,
 func Push(ctx context.Context, db *sql.DB, span string, e Entry,
 	fn func(ctx context.Context, tx *sql.Tx, importID int64) error,
 ) error {
+	current := func(ctx context.Context, q store.Querier) (int, error) { return countInPlace(ctx, q, e.Kind) }
+	return PushCounted(ctx, db, span, e, e.Rows, current, fn)
+}
+
+// PushCounted is Push with its own guard: incoming is what the file brings
+// and current counts, inside the transaction, what it replaces. The calendar
+// compares the events of its window only (lot 8).
+func PushCounted(ctx context.Context, db *sql.DB, span string, e Entry, incoming int,
+	current func(ctx context.Context, q store.Querier) (int, error),
+	fn func(ctx context.Context, tx *sql.Tx, importID int64) error,
+) error {
 	return store.Tx(ctx, db, span, func(ctx context.Context, tx *sql.Tx) error {
 		latest, ok, err := Last(ctx, tx, e.Kind)
 		if err != nil {
@@ -133,11 +145,11 @@ func Push(ctx context.Context, db *sql.DB, span string, e Entry,
 		if ok && len(e.FileHash) > 0 && bytes.Equal(latest.FileHash, e.FileHash) {
 			return ErrUnchanged
 		}
-		current, err := countInPlace(ctx, tx, e.Kind)
+		n, err := current(ctx, tx)
 		if err != nil {
 			return err
 		}
-		if UnderHalf(e.Rows, current) {
+		if UnderHalf(incoming, n) {
 			return ErrTooFew
 		}
 		return replace(ctx, tx, e, fn)
