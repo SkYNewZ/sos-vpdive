@@ -52,6 +52,6 @@ func TestEventPage(t *testing.T) {
 
 	code, missing := e.page(t, cookie, "/calendrier/evt-nope")
 	assert.Equal(t, http.StatusNotFound, code)
-	assert.Contains(t, missing, "Sortie introuvable : supprimée dans VPDive, ou commencée il y a plus de 12 mois.")
+	assert.Contains(t, missing, "La sortie a été supprimée dans VPDive, ou elle a commencé il y a plus de 12 mois.")
 	assert.Equal(t, http.StatusNotFound, e.do(t, http.MethodGet, publicHost, "/calendrier/evt-cap", nil).Code)
 }

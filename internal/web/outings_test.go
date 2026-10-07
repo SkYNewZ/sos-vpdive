@@ -117,10 +117,10 @@ func TestRequestPageOutingsBlock(t *testing.T) {
 	}
 	assert.Less(t, strings.Index(page, "Séjour Corse"), strings.Index(page, "Sortie Porquerolles"), "newest first")
 
-	assert.Contains(t, e.openTicket(t, cookie, lea.ID).body, "Plusieurs membres portent ce nom : aucune sortie affichée.")
+	assert.Contains(t, e.openTicket(t, cookie, lea.ID).body, "Plusieurs membres portent ce nom : aucune sortie n'est affichée.")
 	assert.Contains(t, e.openTicket(t, cookie, ines.ID).body, "Aucune sortie dans le calendrier pour ce membre.")
 	e.importMembers(t, "members_minimal.xlsx")
-	assert.Contains(t, e.openTicket(t, cookie, noe.ID).body, "Demandeur absent de la liste des membres : aucune sortie rapprochée.")
+	assert.Contains(t, e.openTicket(t, cookie, noe.ID).body, "Le demandeur n'est pas dans la liste des membres : aucune sortie ne peut lui être rattachée.")
 
 	_, tracking := e.tracking(t, hugo.Token)
 	assert.NotContains(t, tracking, "Sorties VPDive")
@@ -155,5 +155,6 @@ func TestOutingsBlockWordsMollieLikeItsBlock(t *testing.T) {
 	}
 	page = e.openTicket(t, cookie, hugo.ID).body
 	assert.NotContains(t, page, signalMollie)
-	assert.Equal(t, 2, strings.Count(page, "Vérifié par Alice (Présidente) le 02/09/2026"), "the Mollie block and the outing")
+	assert.Equal(t, 1, strings.Count(page, "Vérifié par Alice (Présidente) le 02/09/2026."), "the Mollie block")
+	assert.Equal(t, 1, strings.Count(page, ", vérifié par Alice (Présidente) le 02/09/2026,"), "the outing, mid-line")
 }
