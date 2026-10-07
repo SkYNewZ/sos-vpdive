@@ -177,7 +177,7 @@ No i18n framework.
 
 - `cmd/sos-vpdive` (subcommands) + `internal/{config,secure,telemetry,store,xlsx,imports,members,payments,calendar,admins,tickets,mail,blobs,images,kb,suggest,push,web}`.
   Migrations: `internal/store/migrations/NNNN_*.sql`. Content files `config/*.yaml`
-  (categories, products, vpdive, robots) are embedded by the root `content.go`.
+  (categories, products, vpdive, robots, calendar) are embedded by the root `content.go`.
 - `make test` / `make lint` (golangci-lint v2, `default: all`) / `make css` /
   `make build` / `make fixtures` (regenerates `testdata/fixtures/*.xlsx`).
 - One test: `go test ./internal/web -run TestName` (`make test` adds `-race`).
