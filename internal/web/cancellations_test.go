@@ -102,3 +102,20 @@ func TestEmptyPaymentsImportIsNotAPurge(t *testing.T) {
 	rec := e.do(t, http.MethodGet, adminHost, "/annulations", nil, withCookie(cookie))
 	assert.Contains(t, html.UnescapeString(rec.Body.String()), "Aucune sortie annulée en attente de suppression.")
 }
+
+// Lot 8 part 2: a cancelled outing points at its calendar page when title
+// and day find one event, else at the day view.
+func TestCancellationsLinkToTheCalendar(t *testing.T) {
+	e := newTestEnv(t)
+	e.importPayments(t)
+	cookie := e.login(t)
+
+	_, before := e.page(t, cookie, "/annulations")
+	assert.Contains(t, before, `href="/calendrier?vue=jour&date=2026-05-10"`, "no calendar yet: the day view")
+
+	e.importCalendar(t, "calendar_view.json")
+	_, page := e.page(t, cookie, "/annulations")
+	assert.Contains(t, page, `href="/calendrier/evt-levant"`, "same title and day")
+	assert.Regexp(t, `class="[^"]*\bmin-h-11\b[^"]*" href="/calendrier/evt-levant"`, page, "a 44 px touch target")
+	assert.Contains(t, page, `href="/calendrier?vue=jour&date=2026-05-08"`, "renamed in the calendar: the day view")
+}
