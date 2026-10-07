@@ -81,9 +81,11 @@ picked up by the hot reload).
   carries up to three 5 MB screenshots plus its fields, and the committee host
   takes import uploads (5 MiB plus fields), above nginx's 1 MB default
   (nginx: `client_max_body_size 16m;` in both server blocks).
-- Serve HTTP/2 to browsers (nginx: `http2 on;`). The board and each request
-  page hold a live stream open; over HTTP/1.1 six open tabs exhaust the
-  browser's connection limit per host name.
+- Serve HTTP/2 to browsers (nginx: `http2 on;`). On a computer every
+  committee page holds a live stream open (it shows a toast when someone else
+  files, answers or changes a request); on a phone the board and each request
+  page do. Over HTTP/1.1 six open tabs exhaust the browser's connection limit
+  per host name.
 
 ## Configuration
 

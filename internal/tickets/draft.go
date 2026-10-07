@@ -72,7 +72,7 @@ func (s *Store) suggested(ctx context.Context, id int64, sg Suggestion) (Outcome
 		return Outcome{Token: token}, err
 	}
 	if late {
-		s.changed(ChangeUpdated, id)
+		s.changed(ChangeUpdated, id, "")
 	}
 	ref, err := s.Confirm(ctx, id)
 	return Outcome{Ref: ref}, err

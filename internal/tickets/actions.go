@@ -112,7 +112,7 @@ func (s *Store) Apply(ctx context.Context, cmd Command) error {
 	if cmd.Action == ActionDelete {
 		s.Logger.InfoContext(ctx, "ticket deleted", "actor", cmd.Actor, "ticket_id", cmd.TicketID, "captures", len(res.objects))
 	}
-	s.changed(res.change, cmd.TicketID)
+	s.changed(res.change, cmd.TicketID, cmd.Actor)
 	return nil
 }
 
@@ -266,7 +266,7 @@ func (s *Store) MemberReply(ctx context.Context, id int64, body string, captures
 		s.deleteObjects(ctx, keys)
 		return err
 	}
-	s.changed(ChangeReplied, id)
+	s.changed(ChangeReplied, id, "")
 	return nil
 }
 
@@ -347,6 +347,6 @@ func (s *Store) MemberClose(ctx context.Context, id int64) error {
 	if err != nil {
 		return err
 	}
-	s.changed(ChangeUpdated, id)
+	s.changed(ChangeUpdated, id, "")
 	return nil
 }

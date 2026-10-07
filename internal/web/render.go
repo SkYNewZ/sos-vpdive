@@ -102,6 +102,24 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, name
 	}
 }
 
+// renderFragment executes the template name of the page file name.html
+// alone: a piece of page that a script fetches.
+func (s *Server) renderFragment(w http.ResponseWriter, r *http.Request, name string, data any) {
+	t, ok := s.pages[name]
+	if !ok {
+		s.logger.ErrorContext(r.Context(), "unknown page", "page", name)
+		http.Error(w, "Erreur interne.", http.StatusInternalServerError)
+		return
+	}
+	var buf bytes.Buffer
+	if err := t.ExecuteTemplate(&buf, name, data); err != nil {
+		s.logger.ErrorContext(r.Context(), "render fragment", "page", name, "error", err)
+		http.Error(w, "Erreur interne.", http.StatusInternalServerError)
+		return
+	}
+	s.write(w, r, http.StatusOK, "text/html; charset=utf-8", buf.Bytes())
+}
+
 // writeText sends a short plain-text response.
 func (s *Server) writeText(w http.ResponseWriter, r *http.Request, status int, text string) {
 	s.write(w, r, status, "text/plain; charset=utf-8", []byte(text))

@@ -191,7 +191,7 @@ func (s *Store) Confirm(ctx context.Context, id int64) (string, error) {
 		return "", err
 	}
 	if created {
-		s.changed(ChangeCreated, id)
+		s.changed(ChangeCreated, id, "")
 	}
 	return ref, nil
 }

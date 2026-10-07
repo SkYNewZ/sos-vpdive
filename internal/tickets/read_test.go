@@ -157,6 +157,29 @@ func TestCanReply(t *testing.T) {
 	assert.False(t, e.store.CanReply(d))
 }
 
+// Row is one request as the live toast shows it; a draft or a deleted
+// request has none.
+func TestRow(t *testing.T) {
+	e := newTestStore(t)
+	ctx := context.Background()
+	id, ref := e.submit(t)
+	r, err := e.store.Row(ctx, id)
+	require.NoError(t, err)
+	assert.Equal(t, ref, r.Ref)
+	assert.Equal(t, "Léa", r.FirstName)
+	assert.Equal(t, "Martin", r.LastName)
+	assert.Equal(t, "carnet", r.Category)
+	assert.Equal(t, StatusTodo, r.Status)
+
+	_, draft := e.screen2(t)
+	d, err := e.store.DraftByToken(ctx, draft)
+	require.NoError(t, err)
+	_, err = e.store.Row(ctx, d.ID)
+	require.ErrorIs(t, err, ErrNotFound, "a draft is invisible")
+	_, err = e.store.Row(ctx, 999)
+	require.ErrorIs(t, err, ErrNotFound)
+}
+
 func TestOthers(t *testing.T) {
 	e := newTestStore(t)
 	ctx := context.Background()

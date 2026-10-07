@@ -200,6 +200,7 @@ func (s *Server) adminRoutes() *http.ServeMux {
 	s.handle(mux, "GET /demandes/{id}", s.signedIn(s.ticketPage))
 	s.handle(mux, "POST /demandes/{id}/actions", s.signedIn(s.ticketAction))
 	s.handle(mux, "GET /demandes/{id}/captures/{cid}", s.signedIn(s.adminCapture))
+	s.handle(mux, "GET /demandes/{id}/toast", s.signedIn(s.toast))
 	s.handle(mux, "GET /effacement", s.signedIn(s.erasurePage))
 	s.handle(mux, "POST /effacement", s.signedIn(s.erase))
 	s.handle(mux, "GET /fiches", s.signedIn(s.fichesPage))
