@@ -32,6 +32,10 @@ func TestOwnerCreatesResetsAndDeletesAccounts(t *testing.T) {
 		assert.Contains(t, body, want)
 	}
 
+	rec = e.postAs(t, cookie, "/comptes", url.Values{"csrf": {csrf}, "identifiant": {".."}, "nom": {"Bob"}, "fonction": {"Trésorier"}})
+	assert.Equal(t, http.StatusUnprocessableEntity, rec.Code, "a path segment browsers normalise away")
+	assert.Contains(t, html.UnescapeString(rec.Body.String()), "Lettres minuscules sans accent")
+
 	rec = e.postAs(t, cookie, "/comptes", url.Values{"csrf": {csrf}, "identifiant": {" Bob "}, "nom": {"Bob"}, "fonction": {"Trésorier"}})
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "no-store", rec.Header().Get("Cache-Control"))

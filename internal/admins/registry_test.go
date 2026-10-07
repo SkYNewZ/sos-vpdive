@@ -83,6 +83,8 @@ func TestInsertRefusesInvalidAndTaken(t *testing.T) {
 	for _, a := range []Account{
 		{Username: "Alice", Name: "A", Role: "R"},
 		{Username: "", Name: "A", Role: "R"},
+		{Username: ".", Name: "A", Role: "R"},  // browsers normalise /comptes/. away
+		{Username: "..", Name: "A", Role: "R"}, // and /comptes/..
 		{Username: "carol", Name: " ", Role: "R"},
 		{Username: "carol", Name: "Carol", Role: ""},
 	} {

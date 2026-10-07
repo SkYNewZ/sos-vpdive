@@ -478,9 +478,11 @@ func TestOwnerUsername(t *testing.T) {
 	_, err := Load(getenv(env))
 	require.ErrorContains(t, err, "OWNER_USERNAME", "required in production")
 
-	env["OWNER_USERNAME"] = "Alice!"
-	_, err = Load(getenv(env))
-	require.ErrorContains(t, err, "OWNER_USERNAME")
+	for _, v := range []string{"Alice!", ".", ".."} {
+		env["OWNER_USERNAME"] = v
+		_, err = Load(getenv(env))
+		require.ErrorContains(t, err, "OWNER_USERNAME", v)
+	}
 
 	env = validEnv()
 	env["APP_ENV"] = "development"

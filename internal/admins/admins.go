@@ -48,9 +48,10 @@ func NormalizeUsername(s string) string {
 	return strings.ToLower(strings.TrimSpace(s))
 }
 
-// ValidUsername reports whether u can identify an account.
+// ValidUsername reports whether u can identify an account. "." and ".."
+// cannot: browsers normalise them away from the account's URL.
 func ValidUsername(u string) bool {
-	return usernamePattern.MatchString(u)
+	return u != "." && u != ".." && usernamePattern.MatchString(u)
 }
 
 // temporaryAlphabet leaves out 0, 1, l and o, easily misread when the

@@ -292,7 +292,7 @@ func (p *parser) owner(env Env) string {
 	case v == "" && env == EnvProduction:
 		p.fail("OWNER_USERNAME", ErrMissing)
 	case v != "" && !admins.ValidUsername(v):
-		p.fail("OWNER_USERNAME", errors.New("must be 1 to 32 characters among a-z, 0-9, '.', '_' and '-'"))
+		p.fail("OWNER_USERNAME", errors.New("must be 1 to 32 characters among a-z, 0-9, '.', '_' and '-', other than '.' and '..'"))
 	}
 	return v
 }
