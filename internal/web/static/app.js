@@ -246,11 +246,14 @@ if (withToasts) {
 }
 
 // A tap on a notification while the app is open (service worker): go to the
-// request, unless something is being typed here; then a banner offers it.
+// request, unless something is being typed here; then a banner offers it. A
+// reply or a note the server wrote back after a refused action counts too.
 const typing = () =>
-  [...document.querySelectorAll("form[method=post] :is(textarea, input)")].some((el) =>
-    el.type === "file" ? el.files.length > 0 : el.type !== "hidden" && el.value !== el.defaultValue,
-  );
+  [...document.querySelectorAll("form[method=post] :is(textarea, input)")].some((el) => {
+    if (el.type === "file") return el.files.length > 0;
+    if (el.localName === "textarea" && el.value.trim() !== "") return true;
+    return el.type !== "hidden" && el.value !== el.defaultValue;
+  });
 navigator.serviceWorker?.addEventListener("message", (event) => {
   const url = typeof event.data?.open === "string" ? new URL(event.data.open, location.href) : null;
   if (!url || url.origin !== location.origin) return;
