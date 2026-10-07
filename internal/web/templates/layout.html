@@ -110,6 +110,6 @@
 
 {{define "assignee"}}{{with accountOf .}}<span class="inline-flex items-center gap-2"><img src="{{.Avatar}}" alt="" width="24" height="24" class="size-6"><span>{{.Name}}</span></span>{{else}}{{template "assigneeName" .}}{{end}}{{end}}
 
-{{define "assigneeName"}}{{with accountOf .}}{{.Name}}{{else}}{{if .}}{{.}}{{else}}Personne{{end}}{{end}}{{end}}
+{{define "assigneeName"}}{{with accountOf .}}{{.Name}}{{else}}{{.}}{{end}}{{end}}
 
 {{define "age"}}<span class="{{if eq .Level "alert"}}text-error font-bold{{else if eq .Level "warn"}}text-warning{{end}}">{{.Text}}</span>{{end}}

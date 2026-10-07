@@ -1,7 +1,7 @@
 {{define "toast"}}<div data-toast class="flex items-start gap-3 rounded-box border border-l-4 border-base-300 {{if eq .Kind "replied"}}border-l-warning{{else}}border-l-info{{end}} bg-base-100 p-3">
 <div class="min-w-0 flex-1">
 <p class="font-semibold">{{.Title}} · {{.Row.Ref}}</p>
-<p class="truncate text-sm">{{if eq .Kind "changed"}}{{.Row.Status.Label}} · {{template "assigneeName" .Row.Assignee}}{{else}}{{.Row.FirstName}} {{.Row.LastName}} · {{categoryLabel .Row.Category}}{{end}}</p>
+<p class="truncate text-sm">{{if eq .Kind "changed"}}{{.Row.Status.Label}}{{with .Row.Assignee}} · {{template "assigneeName" .}}{{end}}{{else}}{{.Row.FirstName}} {{.Row.LastName}} · {{categoryLabel .Row.Category}}{{end}}</p>
 </div>
 <div class="flex flex-col items-end">
 <a class="link link-primary inline-flex min-h-11 items-center font-semibold" href="/demandes/{{.Row.ID}}">Ouvrir</a>

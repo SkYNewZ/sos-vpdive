@@ -67,7 +67,8 @@ func TestBoardFilters(t *testing.T) {
 	assert.Contains(t, boardRow(t, def, todo.ID), "a répondu")
 	assert.NotContains(t, boardRow(t, def, mine.ID), "a répondu")
 	assert.Contains(t, boardRow(t, def, mine.ID), "Alice")
-	assert.Contains(t, boardRow(t, def, todo.ID), "Personne")
+	assert.NotContains(t, boardRow(t, def, todo.ID), "Personne", "an unassigned row leaves the resolver empty")
+	assert.NotContains(t, def, "· Personne", "nor does its phone line")
 	assert.Contains(t, boardRow(t, def, todo.ID), "Mon carnet affiche un montant", "description start until lot 3's summary")
 
 	shows(board("?statut=done"), done)

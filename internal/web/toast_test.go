@@ -34,6 +34,9 @@ func TestToastFragment(t *testing.T) {
 	_, body = get("replied")
 	assert.Contains(t, body, "Réponse de l'adhérent · "+tk.Ref)
 
+	_, body = get("changed")
+	assert.Contains(t, body, ">À traiter</p>", "no resolver, no name after the status")
+
 	page := e.openTicket(t, cookie, tk.ID)
 	require.Equal(t, http.StatusSeeOther, e.act(t, cookie, tk.ID, page, url.Values{"action": {"take"}}).Code)
 	_, body = get("changed")
