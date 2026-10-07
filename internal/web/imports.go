@@ -230,7 +230,7 @@ func (s *Server) readExport(ctx context.Context, kind imports.Kind, data []byte)
 	var exp export
 	err := telemetry.Trace(ctx, s.tracer, "import.validate", func(context.Context) error {
 		var err error
-		switch kind {
+		switch kind { //nolint:exhaustive // the calendar is pushed as JSON and never read as a workbook
 		case imports.Members:
 			if exp.members, err = members.Parse(rows, s.paris); err == nil {
 				exp.members.FileHash = hash
@@ -414,7 +414,7 @@ func refusal(kind imports.Kind, err error) (code, message string, refused bool) 
 
 func unreadableMessage(kind imports.Kind) string {
 	const unreadable = "Ce fichier n'est pas un classeur Excel (.xlsx) lisible."
-	switch kind {
+	switch kind { //nolint:exhaustive // the calendar is JSON: it is never an unreadable workbook
 	case imports.Members:
 		return unreadable + " Dépose l'export « Télécharger » de la liste des membres."
 	case imports.Payments:
