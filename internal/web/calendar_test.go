@@ -114,6 +114,7 @@ func TestPushedCalendarRefusals(t *testing.T) {
 		assert.Equal(t, "Import automatique refusé : calendrier", m.Subject)
 		assert.NotContains(t, m.Text, "à la main")
 		assert.Contains(t, m.Text, "script d'import est peut-être en panne")
+		assert.Contains(t, m.Text, "Dernier calendrier reçu")
 	}
 }
 

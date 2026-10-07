@@ -143,9 +143,10 @@ func (s *Store) PreviewErasure(ctx context.Context, email string) (Erasure, erro
 }
 
 // Erase answers an erasure request (spec §4.5): every request of email, its
-// members row, the payment and Mollie lines of that member's name and every
-// mail to it, in one transaction, then the stored captures. The next imports
-// may list the address and the lines again.
+// members row, the payment and Mollie lines and the calendar participations
+// of that member's name and every mail to it, in one transaction, then the
+// stored captures. The next imports may list the address, the lines and the
+// participations again.
 func (s *Store) Erase(ctx context.Context, email, actor string) (Erasure, error) {
 	normalized, err := secure.NormalizeEmail(email)
 	if err != nil {

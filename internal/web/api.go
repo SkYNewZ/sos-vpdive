@@ -166,7 +166,7 @@ func (s *Server) refusePushed(w http.ResponseWriter, r *http.Request, kind impor
 	s.logger.InfoContext(ctx, "pushed export refused", "kind", string(kind), "code", answer.Error)
 	next := "Vérifie l'export dans VPDive, puis dépose-le à la main si besoin"
 	if kind == imports.Calendar { // no manual upload for the calendar
-		next = "Vérifie le calendrier dans VPDive. Le script d'import est peut-être en panne"
+		next = "Le script d'import est peut-être en panne. Dernier calendrier reçu"
 	}
 	text := fmt.Sprintf("Le script d'import a déposé un fichier que l'outil a refusé : %s.\n\nRaison : %s\n\n"+
 		"Les données en place n'ont pas changé. %s", exportNames[kind], answer.Message, next)

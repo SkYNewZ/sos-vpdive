@@ -54,8 +54,9 @@ func (s *Store) EraseTx(ctx context.Context, tx *sql.Tx, nameHash []byte, last, 
 }
 
 // persons returns the person hashes an erasure reaches: those with a
-// participation of nameHash, and those with an unregistered participation
-// whose full name is the member's in either order. The full name serves
+// participation of nameHash, and those with a participation without a name
+// hash (unregistered, or a name part missing) whose full name is the member's
+// in either order. The full name serves
 // erasure only, never matching, and never with an empty name part.
 func (s *Store) persons(ctx context.Context, q store.Querier, nameHash []byte, last, first string) (map[string]bool, error) {
 	rows, err := q.QueryContext(ctx, `SELECT person_hash FROM calendar_participants WHERE name_hash = ?`, nameHash)

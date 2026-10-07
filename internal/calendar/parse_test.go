@@ -82,6 +82,19 @@ func TestParseReadsTheContract(t *testing.T) {
 	assert.True(t, p.Registered)
 	assert.Equal(t, []Role{{Name: "Directeur de plongée", Confirmed: true}, {Name: "Pilote", Boat: "Bateau A"}}, p.Roles)
 	assert.Equal(t, &Payment{Status: "partial", DueCents: 6000, PaidCents: 4000}, p.Payment)
+
+	// A typo in a JSON tag drops a field silently: the body's event and the
+	// parsed one, both as generic JSON, must be the same.
+	var sent struct {
+		Events []map[string]any `json:"events"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(body), &sent))
+	require.Len(t, sent.Events, 1)
+	kept, err := json.Marshal(ev)
+	require.NoError(t, err)
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(kept, &got))
+	assert.Equal(t, sent.Events[0], got)
 }
 
 func TestParseRefusals(t *testing.T) {

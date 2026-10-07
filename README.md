@@ -317,8 +317,9 @@ On a real Android phone and a real iPhone:
 - Logs and traces never hold a token, an email address, a name or a request's
   text.
 - Erasing a person on the « Effacement » page deletes their requests, their
-  member entry and every payment and Mollie line under their name, a
-  namesake's included. The next imports bring back what VPDive still holds.
+  member entry and every payment, Mollie line and calendar participation under
+  their name, a namesake's included. The next imports bring back what VPDive
+  still holds.
 
 ## Backup and restore
 
