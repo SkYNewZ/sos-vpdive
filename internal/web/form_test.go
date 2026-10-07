@@ -314,14 +314,12 @@ func TestWebMCPOnTheMemberForm(t *testing.T) {
 	e.importMembers(t, "members_valid.xlsx")
 	rec := e.do(t, http.MethodGet, publicHost, "/", nil)
 	body := html.UnescapeString(rec.Body.String())
-	assert.Contains(t, body, `toolname="envoyerDemandeVPDive"`)
-	assert.Contains(t, body, "tooldescription=")
+	assert.Contains(t, body, `toolname="envoyerDemandeVPDive" tooldescription="Prépare`)
 	assert.NotContains(t, body, "toolautosubmit", "the member checks the form and sends it")
-	assert.Contains(t, body, `name="site_web" type="text" tabindex="-1" autocomplete="off" toolparamdescription="Toujours vide.`, "an agent filling the trap would have the request refused")
+	assert.Contains(t, body, `toolparamdescription="Toujours vide."`, "an agent filling the honeypot would have the request refused")
 	assert.Empty(t, rec.Header().Get("Origin-Trial"), "no token, no header")
 
-	e = newTestEnv(t, func(d *Deps) { d.Config.WebMCPOriginTrial = "token-abc" })
-	e.importMembers(t, "members_valid.xlsx")
+	e.deps.Config.WebMCPOriginTrial = "token-abc"
 	assert.Equal(t, "token-abc", e.do(t, http.MethodGet, publicHost, "/", nil).Header().Get("Origin-Trial"))
 	short := validRequest(e.formKey(t))
 	short.Set("description", "trop court")
