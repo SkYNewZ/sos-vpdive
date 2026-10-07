@@ -110,6 +110,20 @@ No i18n framework.
 - Anything the spec lists as out of scope (§2).
 - Key rotation, an ORM, a JS framework, a second datastore.
 
+## Architecture
+
+- `cmd/sos-vpdive serve` builds everything in `setup` (serve.go): one SQLite
+  handle, `secure.Keys` derived from `SECRET_KEY` (sealing, HMAC hashes,
+  CSRF), the stores, then `web.Server`.
+- `web.Server.route` picks the site by `Host`: the public mux (form, tracking)
+  or the committee mux (`signedIn` routes, `/api/imports` by token). Both share
+  `commonRoutes` (health, static, manifest, service worker).
+- `tickets.Store` owns request state changes; it writes mails and alerts to
+  the `mail.Outbox` in the same transaction, and `Outbox.Run` delivers them per
+  channel (SMTP, Pushover, Web Push). Its `OnChange` feeds the SSE `Broker`.
+- Background jobs in `serve`: outbox delivery, accounts reload, daily purge
+  (`app.purge`, spec §8.3).
+
 ## Layout and commands
 
 - `cmd/sos-vpdive` (subcommands) + `internal/{config,secure,telemetry,store,xlsx,imports,members,payments,admins,tickets,mail,blobs,images,kb,suggest,push,web}`.
@@ -117,6 +131,10 @@ No i18n framework.
   (categories, products, vpdive, robots) are embedded by the root `content.go`.
 - `make test` / `make lint` (golangci-lint v2, `default: all`) / `make css` /
   `make build` / `make fixtures` (regenerates `testdata/fixtures/*.xlsx`).
+- One test: `go test ./internal/web -run TestName` (`make test` adds `-race`).
+- CI (`.github/workflows/ci.yml`): `check` runs `gofmt -l`, `go vet`,
+  `go test -race`, `validate-kb` and the forbidden-files guard; `image` builds
+  the Dockerfile and pushes it (develop → `:latest`, tag `vX.Y.Z` → `:X.Y.Z`).
 - `make run` needs `.env` (from `.env.example`, `APP_ENV=development`) and
   `admins/admins.yaml`; sites on `http://sos.localhost:8080` and
   `http://comite.localhost:8080` (browsers treat `*.localhost` as secure).
@@ -136,8 +154,6 @@ No i18n framework.
 - Before merging a lot: `/simplify`, `/ponytail:ponytail-review`, `/codex:review`
   (only the user can run it), and a browser check of every page with a form
   (`playwright-cli`, or the desktop app's built-in browser when cheaper).
-- Plans that carry full code: build, lint and test it in a scratch copy of the repo
-  before execution.
 - Plans and designs go in `docs/superpowers/` (gitignored, never committed).
 
 ## Gotchas
