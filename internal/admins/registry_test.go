@@ -252,3 +252,50 @@ func TestCurrentChecksAccountAndPassword(t *testing.T) {
 	_, ok = r.Current("bob", bob().CredentialHash())
 	assert.False(t, ok, "no such account")
 }
+
+// A write whose request ends right after the commit still revokes sessions:
+// OnChange never gets a cancelled context. sync is called directly because a
+// cancelled context makes the write's own transaction fail first.
+func TestSyncIgnoresTheCallersCancellation(t *testing.T) {
+	r, db := newRegistry(t, alice(), bob())
+	_, err := db.ExecContext(context.Background(), `DELETE FROM accounts WHERE username = 'bob'`)
+	require.NoError(t, err)
+	got := context.Canceled
+	r.OnChange = func(ctx context.Context) { got = ctx.Err() }
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	r.sync(ctx)
+	require.NoError(t, got, "OnChange ran with a live context")
+	_, ok := r.Get("bob")
+	assert.False(t, ok)
+}
+
+// A reload that keeps failing (every Watch tick) logs once, not every tick;
+// it logs again after a successful reload.
+func TestSyncLogsAPersistentErrorOnce(t *testing.T) {
+	ctx := context.Background()
+	db, err := store.Open(ctx, filepath.Join(t.TempDir(), store.FileName))
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, db.Close()) })
+	var logs bytes.Buffer
+	r, err := Open(ctx, db, testKeys(t), slog.New(slog.NewTextHandler(&logs, nil)), time.Now)
+	require.NoError(t, err)
+	require.NoError(t, r.Insert(ctx, alice()))
+	corrupt := func() {
+		_, err := db.ExecContext(ctx, `UPDATE accounts SET name = x'00' WHERE username = 'alice'`)
+		require.NoError(t, err)
+	}
+
+	corrupt()
+	r.sync(ctx)
+	r.sync(ctx)
+	assert.Equal(t, 1, strings.Count(logs.String(), "reload accounts"))
+	_, err = db.ExecContext(ctx, `DELETE FROM accounts`)
+	require.NoError(t, err)
+	r.sync(ctx)
+	require.NoError(t, r.Insert(ctx, alice()))
+	corrupt()
+	r.sync(ctx)
+	assert.Equal(t, 2, strings.Count(logs.String(), "reload accounts"))
+}

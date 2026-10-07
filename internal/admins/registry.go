@@ -48,6 +48,9 @@ type Registry struct {
 	syncMu  sync.Mutex // one Reload at a time: a slower one never undoes a newer one
 	avatars map[string]template.URL
 
+	logMu   sync.Mutex
+	lastErr string // the last failed reload, logged once while it persists
+
 	mu       sync.RWMutex
 	accounts map[string]Account
 }
@@ -304,14 +307,22 @@ func (r *Registry) avatar(username string) (template.URL, error) {
 }
 
 // sync reloads the accounts and runs OnChange when one was removed or its
-// password changed. A failed read is only logged: the change it follows is
-// committed, and the next Watch tick reads again.
+// password changed. It ignores the caller's cancellation: the change it
+// follows is committed, and its sessions must end even if the request that
+// made it is gone. A failed read is only logged, once while the same error
+// persists: the next Watch tick reads again.
 func (r *Registry) sync(ctx context.Context) {
+	ctx = context.WithoutCancel(ctx)
 	changed, err := r.Reload(ctx)
+	r.logMu.Lock()
+	if err == nil {
+		r.lastErr = ""
+	} else if msg := err.Error(); msg != r.lastErr {
+		r.lastErr = msg
+		r.logger.ErrorContext(ctx, "reload accounts", "error", err)
+	}
+	r.logMu.Unlock()
 	if err != nil {
-		if ctx.Err() == nil {
-			r.logger.ErrorContext(ctx, "reload accounts", "error", err)
-		}
 		return
 	}
 	if len(changed) > 0 && r.OnChange != nil {
