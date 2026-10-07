@@ -108,7 +108,7 @@
 
 {{define "noPayments"}}<p class="mt-3">{{if .}}{{template "purgedPayments"}}{{else}}Aucun paiement importé.{{end}} <a class="link link-primary inline-flex min-h-11 items-center" href="/imports">Importer l'export des paiements</a></p>{{end}}
 
-{{define "assignee"}}{{with accountOf .}}<span class="inline-flex items-center gap-2"><img src="{{.Avatar}}" alt="" width="24" height="24" class="size-6"><span>{{.Name}}</span></span>{{else}}{{template "assigneeName" .}}{{end}}{{end}}
+{{define "assignee"}}{{with accountOf .}}<span class="inline-flex items-center gap-2"><img src="{{.Avatar}}" alt="" width="24" height="24" class="size-6"><span>{{.Name}}</span></span>{{else}}{{.}}{{end}}{{end}}
 
 {{define "assigneeName"}}{{with accountOf .}}{{.Name}}{{else}}{{.}}{{end}}{{end}}
 

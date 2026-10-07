@@ -120,13 +120,13 @@ func TestPushedImportReplacesAndCounts(t *testing.T) {
 }
 
 // mollieWorkbook builds a VPayDive export of n lines with the required
-// columns, declaring the creation date created.
-func mollieWorkbook(t *testing.T, created time.Time, n int) []byte {
+// columns and « Payé » set to settled, declaring the creation date created.
+func mollieWorkbook(t *testing.T, created time.Time, n int, settled string) []byte {
 	t.Helper()
 	sheet := make(xlsxtest.Sheet, 0, 1+n)
 	sheet = append(sheet, []any{"Nom", "Prénom", "Type Panier", "Montant Panier", "Payé", "Date paiement"})
 	for range n {
-		sheet = append(sheet, []any{"Bernard", "Hugo", "Calendrier", 40, "Oui", "12/08/2026 14:05"})
+		sheet = append(sheet, []any{"Bernard", "Hugo", "Calendrier", 40, settled, "12/08/2026 14:05"})
 	}
 	return xlsxtest.BuildCreated(t, created, sheet)
 }
@@ -136,9 +136,9 @@ func mollieWorkbook(t *testing.T, created time.Time, n int) []byte {
 // fire although the script works.
 func TestPushedRedownloadIsImported(t *testing.T) {
 	e := newTestEnv(t, withImportToken)
-	first := e.push(t, "vpaydive", mollieWorkbook(t, time.Date(2026, 9, 1, 3, 0, 0, 0, time.UTC), 3), importToken)
+	first := e.push(t, "vpaydive", mollieWorkbook(t, time.Date(2026, 9, 1, 3, 0, 0, 0, time.UTC), 3, "Oui"), importToken)
 	require.Equal(t, http.StatusOK, first.Code)
-	again := e.push(t, "vpaydive", mollieWorkbook(t, time.Date(2026, 9, 2, 3, 0, 0, 0, time.UTC), 3), importToken)
+	again := e.push(t, "vpaydive", mollieWorkbook(t, time.Date(2026, 9, 2, 3, 0, 0, 0, time.UTC), 3, "Oui"), importToken)
 	require.Equal(t, http.StatusOK, again.Code)
 	assert.Equal(t, "imported", answer(t, again).Result)
 	assert.Equal(t, 2, e.count(t, "imports"))
@@ -147,7 +147,7 @@ func TestPushedRedownloadIsImported(t *testing.T) {
 // RFC 7235: the authentication scheme is case-insensitive.
 func TestPushedImportTakesALowerCaseScheme(t *testing.T) {
 	e := newTestEnv(t, withImportToken)
-	rec := e.do(t, http.MethodPost, adminHost, "/api/imports/vpaydive", bytes.NewReader(mollieWorkbook(t, time.Time{}, 1)),
+	rec := e.do(t, http.MethodPost, adminHost, "/api/imports/vpaydive", bytes.NewReader(mollieWorkbook(t, time.Time{}, 1, "Oui")),
 		func(r *http.Request) { r.Header.Del("Origin"); r.Header.Set("Authorization", "bearer "+importToken) })
 	assert.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 }
@@ -160,7 +160,7 @@ func TestPushBetweenPreviewAndConfirm(t *testing.T) {
 	csrf := e.csrf(t, cookie, "/imports")
 	rec := e.uploadAs(t, cookie, csrf, "mollie", fixtureBytes(t, "vpaydive_valid.xlsx"))
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.Equal(t, http.StatusOK, e.push(t, "vpaydive", mollieWorkbook(t, time.Time{}, 2), importToken).Code)
+	require.Equal(t, http.StatusOK, e.push(t, "vpaydive", mollieWorkbook(t, time.Time{}, 2, "Oui"), importToken).Code)
 
 	stale := e.confirmAs(t, cookie, csrf, "mollie", previewID(t, rec), false)
 	assert.Equal(t, http.StatusConflict, stale.Code)

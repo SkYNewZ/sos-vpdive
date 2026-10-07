@@ -235,12 +235,8 @@ func TestChooseFailures(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c := newClient(t, tt.stub, "")
-			if tt.stub.delay > 0 {
-				c.timeout = 100 * time.Millisecond // only here: a loaded machine must not time out the other cases
-			}
 			start := time.Now()
-			res, err := c.Choose(context.Background(), request, fiches)
+			res, err := newClient(t, tt.stub, "").Choose(context.Background(), request, fiches)
 			require.ErrorIs(t, err, tt.want)
 			assert.Equal(t, Result{}, res, "a failure gives neither fiche nor summary")
 			assert.Less(t, time.Since(start), 10*time.Second, "the timeout cut the wait, far below the model's delay")

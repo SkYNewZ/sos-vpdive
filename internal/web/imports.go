@@ -496,7 +496,7 @@ func (s *Server) formatTime(t time.Time) string {
 		return ""
 	}
 	t = t.In(s.paris)
-	if t.Equal(time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, s.paris)) {
+	if h, m, sec := t.Clock(); h == 0 && m == 0 && sec == 0 {
 		return t.Format(dateFormat)
 	}
 	return t.Format(dateTimeFormat)
