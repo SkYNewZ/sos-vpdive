@@ -2,20 +2,31 @@
 // that work without it; only the anti-robot check needs JavaScript.
 "use strict";
 
-// Member form: show the fields of the chosen category only. Hidden
-// fieldsets are disabled too, so that their required fields never block
-// sending, and their values are not sent.
+// Member form: show the fields of the chosen category only, and require
+// theirs only. Hidden fieldsets stay enabled, so that a browser agent (WebMCP)
+// sees every field and fills a category's fields in one call.
 (() => {
   const select = document.querySelector("[data-category-select]");
   if (!select) return;
+  const fieldsets = document.querySelectorAll("fieldset[data-category]");
   const sync = () => {
-    for (const fieldset of document.querySelectorAll("fieldset[data-category]")) {
+    for (const fieldset of fieldsets) {
       const chosen = fieldset.dataset.category === select.value;
       fieldset.hidden = !chosen;
-      fieldset.disabled = !chosen;
+      fieldset.disabled = false;
+      for (const el of fieldset.querySelectorAll("[data-required]")) el.required = chosen;
     }
   };
   select.addEventListener("change", sync);
+  // Native validation runs between the click and the submit event: hidden
+  // fieldsets are disabled before it, so that a value left in another category
+  // neither blocks sending nor leaves. Enter in a field clicks this button too.
+  select.form.querySelector("[type=submit]").addEventListener("click", () => {
+    for (const fieldset of fieldsets) fieldset.disabled = fieldset.hidden;
+    setTimeout(() => {
+      for (const fieldset of fieldsets) fieldset.disabled = false;
+    });
+  });
   sync();
 })();
 
