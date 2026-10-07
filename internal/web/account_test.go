@@ -4,6 +4,7 @@ import (
 	"context"
 	"html"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"testing"
 	"time"
@@ -147,4 +148,28 @@ func TestAccountLinks(t *testing.T) {
 	assert.Contains(t, board, `href="/compte"`, "the sidebar's account block")
 	plus := e.do(t, http.MethodGet, adminHost, "/plus", nil, withCookie(cookie)).Body.String()
 	assert.Contains(t, plus, `href="/compte"`)
+}
+
+// The owner resets the password between the request's authentication and the
+// change: the revoked session neither overwrites the reset nor gets a new
+// session. The handler is called with the session authenticated before the
+// reset, which a real request reaches only through that race.
+func TestChangePasswordRacingAReset(t *testing.T) {
+	e := newTestEnv(t)
+	cookie := e.login(t)
+	v := url.Values{"csrf": {e.csrf(t, cookie, "/compte")}, "actuel": {testPassword}, "nouveau": {newPassword}, "confirmation": {newPassword}}
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/compte", formBody(v))
+	req.Host = adminHost
+	formType(req)
+	req.AddCookie(cookie)
+	sess, ok := e.srv.sessionOf(req)
+	require.True(t, ok)
+
+	temporary, err := e.deps.Admins.ResetPassword(context.Background(), "alice")
+	require.NoError(t, err)
+	rec := httptest.NewRecorder()
+	e.srv.changePassword(rec, req.WithContext(context.WithValue(req.Context(), ctxSession, sess)))
+	assert.Equal(t, http.StatusConflict, rec.Code)
+	assert.Empty(t, rec.Result().Cookies(), "no new session")
+	assert.Equal(t, http.StatusSeeOther, e.postLogin(t, "alice", temporary).Code, "the reset stays in place")
 }

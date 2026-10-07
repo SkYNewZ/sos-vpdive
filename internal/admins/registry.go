@@ -199,13 +199,11 @@ func (r *Registry) ResetPassword(ctx context.Context, username string) (string, 
 }
 
 // ChangePassword sets the password the resolver chose and returns its hash,
-// for the session that replaces keepSession. The session whose token hash is
+// for the session that replaces keepSession. a is the account as the request
+// authenticated it: a password or session changed since then wins, and the
+// change fails with ErrPasswordChanged. The session whose token hash is
 // keepSession stays valid; the account's other sessions end.
-func (r *Registry) ChangePassword(ctx context.Context, username, password string, keepSession []byte) (string, error) {
-	a, ok := r.Get(username)
-	if !ok {
-		return "", ErrNotFound
-	}
+func (r *Registry) ChangePassword(ctx context.Context, a Account, password string, keepSession []byte) (string, error) {
 	if len([]rune(password)) < MinPasswordLength {
 		return "", ErrTooShort
 	}
@@ -222,25 +220,35 @@ func (r *Registry) ChangePassword(ctx context.Context, username, password string
 	}
 	credential := Account{PasswordHash: hash}.CredentialHash()
 	err = store.Tx(ctx, r.db, "accounts.change_password", func(ctx context.Context, tx *sql.Tx) error {
-		// Only over the password just verified: an owner's reset in between wins.
-		res, err := tx.ExecContext(ctx,
+		// Only over the password and the session the request authenticated
+		// with: an owner's reset or a revocation in between wins.
+		if err := changeOne(ctx, tx,
 			`UPDATE accounts SET password_hash = ?, must_change_password = 0 WHERE username = ? AND password_hash = ?`,
-			hash, username, a.PasswordHash)
-		if err != nil {
+			hash, a.Username, a.PasswordHash); err != nil {
 			return err
 		}
-		if n, err := res.RowsAffected(); err != nil || n == 0 {
-			return cmp.Or(err, ErrPasswordChanged)
-		}
-		_, err = tx.ExecContext(ctx, `UPDATE sessions SET credential_hash = ? WHERE token_hash = ? AND username = ?`,
-			credential, keepSession, username)
-		return err
+		return changeOne(ctx, tx,
+			`UPDATE sessions SET credential_hash = ? WHERE token_hash = ? AND username = ? AND credential_hash = ?`,
+			credential, keepSession, a.Username, a.CredentialHash())
 	})
 	if err != nil {
 		return "", fmt.Errorf("change password: %w", err)
 	}
 	r.reloadAfterWrite(ctx)
 	return hash, nil
+}
+
+// changeOne runs a statement that must change one row, ErrPasswordChanged
+// otherwise.
+func changeOne(ctx context.Context, tx *sql.Tx, query string, args ...any) error {
+	res, err := tx.ExecContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err != nil || n == 0 {
+		return cmp.Or(err, ErrPasswordChanged)
+	}
+	return nil
 }
 
 // SetPushoverKey sets the account's Pushover user key; "" removes it.

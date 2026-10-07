@@ -82,7 +82,7 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
 	var hash string
 	if len(d.Errors) == 0 {
 		var err error
-		hash, err = s.admins.ChangePassword(ctx, a.Username, next, sess.hash)
+		hash, err = s.admins.ChangePassword(ctx, a, next, sess.hash)
 		switch {
 		case errors.Is(err, admins.ErrTooShort):
 			d.Errors["nouveau"] = fmt.Sprintf("Il faut au moins %d caractères.", admins.MinPasswordLength)

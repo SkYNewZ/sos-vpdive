@@ -144,14 +144,14 @@ func TestChangePasswordKeepsOneSession(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	_, err := r.ChangePassword(ctx, "alice", "short", []byte("kept"))
+	_, err := r.ChangePassword(ctx, a, "short", []byte("kept"))
 	require.ErrorIs(t, err, ErrTooShort)
-	_, err = r.ChangePassword(ctx, "alice", testPassword, []byte("kept"))
+	_, err = r.ChangePassword(ctx, a, testPassword, []byte("kept"))
 	require.ErrorIs(t, err, ErrSamePassword)
-	_, err = r.ChangePassword(ctx, "carol", "a brand new password", nil)
-	require.ErrorIs(t, err, ErrNotFound)
+	_, err = r.ChangePassword(ctx, Account{Username: "carol", PasswordHash: testHash()}, "a brand new password", nil)
+	require.ErrorIs(t, err, ErrPasswordChanged, "no such account")
 
-	hash, err := r.ChangePassword(ctx, "alice", "a brand new password", []byte("kept"))
+	hash, err := r.ChangePassword(ctx, a, "a brand new password", []byte("kept"))
 	require.NoError(t, err)
 	got, _ := r.Get("alice")
 	assert.False(t, got.MustChangePassword)
@@ -281,7 +281,7 @@ func TestChangePasswordRefusesAPasswordChangedMeanwhile(t *testing.T) {
 	ctx := context.Background()
 	_, err := db.ExecContext(ctx, `UPDATE accounts SET password_hash = 'reset by the owner' WHERE username = 'alice'`)
 	require.NoError(t, err)
-	_, err = r.ChangePassword(ctx, "alice", "a brand new password", nil)
+	_, err = r.ChangePassword(ctx, alice(), "a brand new password", nil)
 	require.ErrorIs(t, err, ErrPasswordChanged)
 	var hash string
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT password_hash FROM accounts WHERE username = 'alice'`).Scan(&hash))
@@ -316,4 +316,42 @@ func TestWatchLogsAPersistentErrorOnce(t *testing.T) {
 	corrupt()
 	r.poll(ctx, failure)
 	assert.Equal(t, 2, strings.Count(logs.String(), "reload accounts"))
+}
+
+// The owner resets the password after the request authenticated with the old
+// one: the change made under the old password must not overwrite the reset.
+func TestChangePasswordIsBoundToTheAuthenticatedPassword(t *testing.T) {
+	r, db := newRegistry(t, alice())
+	ctx := context.Background()
+	authenticated, _ := r.Get("alice")
+	_, err := db.ExecContext(ctx,
+		`INSERT INTO sessions (token_hash, username, credential_hash, created_at, expires_at) VALUES ('kept', 'alice', ?, 0, 0)`,
+		authenticated.CredentialHash())
+	require.NoError(t, err)
+	_, err = r.ResetPassword(ctx, "alice")
+	require.NoError(t, err)
+	reset, _ := r.Get("alice")
+
+	_, err = r.ChangePassword(ctx, authenticated, "a brand new password", []byte("kept"))
+	require.ErrorIs(t, err, ErrPasswordChanged)
+	got, _ := r.Get("alice")
+	assert.Equal(t, reset.PasswordHash, got.PasswordHash, "the reset stays in place")
+}
+
+// The kept session must still be the one that authenticated, in the same
+// transaction: a session revoked meanwhile gets no new password.
+func TestChangePasswordNeedsTheKeptSession(t *testing.T) {
+	r, db := newRegistry(t, alice())
+	ctx := context.Background()
+	authenticated, _ := r.Get("alice")
+	_, err := db.ExecContext(ctx,
+		`INSERT INTO sessions (token_hash, username, credential_hash, created_at, expires_at) VALUES ('changed', 'alice', 'another credential', 0, 0)`)
+	require.NoError(t, err)
+
+	for _, token := range []string{"gone", "changed"} {
+		_, err = r.ChangePassword(ctx, authenticated, "a brand new password", []byte(token))
+		require.ErrorIs(t, err, ErrPasswordChanged, token)
+		got, _ := r.Get("alice")
+		assert.Equal(t, authenticated.PasswordHash, got.PasswordHash, token)
+	}
 }
