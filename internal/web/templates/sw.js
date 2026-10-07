@@ -71,13 +71,16 @@ self.addEventListener("push", (event) => {
 // window, asked to go there (app.js goes unless a reply is being typed), else
 // a new one. An installed app on iOS has a single window, which openWindow
 // only wakes up without loading the request. The first page after install is
-// not controlled yet: it counts as an open window too.
+// not controlled yet: it counts as an open window too. A screenshot opened in
+// its own tab runs no app.js: it does not.
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const url = new URL(event.notification.data.url, location.origin).href;
   event.waitUntil(
     (async () => {
-      const windows = await clients.matchAll({ type: "window", includeUncontrolled: true });
+      const windows = (await clients.matchAll({ type: "window", includeUncontrolled: true })).filter(
+        (client) => !new URL(client.url).pathname.includes("/captures/"),
+      );
       const there = windows.find((client) => client.url === url);
       if (there) return there.focus();
       if (windows.length > 0) {

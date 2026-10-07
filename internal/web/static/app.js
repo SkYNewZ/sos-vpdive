@@ -200,13 +200,13 @@ const showToast = async (type, id) => {
 const board = document.querySelector("[data-board]");
 const ticketPage = document.querySelector("[data-ticket-page]");
 const shown = ticketPage?.dataset.ticketPage;
-const withToasts = toasts !== null && wide.matches;
-// Phones open the stream on the board and the request page only, as before:
-// push notifications tell them the rest.
-const live = board || ticketPage || withToasts ? new EventSource("/evenements") : null;
+// One stream per page, opened on first use. Phones open it on the board and
+// the request page only, as before: push notifications tell them the rest.
+let live = null;
+const stream = () => (live ??= new EventSource("/evenements"));
 const onChange = (types, handler) => {
   for (const type of types) {
-    live?.addEventListener(type, (event) => {
+    stream().addEventListener(type, (event) => {
       const data = JSON.parse(event.data);
       handler(type, String(data.id), data.self === true);
     });
@@ -222,7 +222,7 @@ if (board) {
     refreshBoard();
   });
   let connected = false;
-  live.addEventListener("open", () => {
+  stream().addEventListener("open", () => {
     if (connected) refreshBoard(); // back after a cut: catch up on everything
     connected = true;
   });
@@ -239,25 +239,36 @@ if (ticketPage) {
   });
 }
 
-if (withToasts) {
+// Toasts start with a wide window, or when a narrow one grows wide.
+let toasting = false;
+const startToasts = () => {
+  if (toasting || toasts === null || !wide.matches) return;
+  toasting = true;
   onChange(["created", "changed", "replied"], (type, id, self) => {
-    if (!self && id !== shown) showToast(type, id);
+    if (!self && id !== shown && wide.matches) showToast(type, id);
   });
-}
+};
+startToasts();
+wide.addEventListener("change", startToasts);
 
 // A tap on a notification while the app is open (service worker): go to the
-// request, unless something is being typed here; then a banner offers it. A
-// reply or a note the server wrote back after a refused action counts too.
-const typing = () =>
-  [...document.querySelectorAll("form[method=post] :is(textarea, input)")].some((el) => {
+// request, unless something here is not sent yet; then a banner offers it.
+// Unsent: a field, a box or a choice changed by hand, or a reply or a note
+// the server wrote back after a refused action, in its field or in « Ton
+// texte » ([data-unsent]) when the request no longer takes it.
+const unsent = () =>
+  document.querySelector("[data-unsent]") !== null ||
+  [...document.querySelectorAll("form[method=post] :is(textarea, input, select)")].some((el) => {
     if (el.type === "file") return el.files.length > 0;
+    if (el.type === "checkbox" || el.type === "radio") return el.checked !== el.defaultChecked;
+    if (el.localName === "select") return el.selectedIndex !== Math.max(0, [...el.options].findIndex((o) => o.defaultSelected));
     if (el.localName === "textarea" && el.value.trim() !== "") return true;
     return el.type !== "hidden" && el.value !== el.defaultValue;
   });
 navigator.serviceWorker?.addEventListener("message", (event) => {
   const url = typeof event.data?.open === "string" ? new URL(event.data.open, location.href) : null;
   if (!url || url.origin !== location.origin) return;
-  if (!typing()) {
+  if (!unsent()) {
     location.assign(url);
     return;
   }

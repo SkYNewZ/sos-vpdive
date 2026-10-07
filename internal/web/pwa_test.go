@@ -130,6 +130,8 @@ func TestServiceWorkerPerHost(t *testing.T) {
 	assert.NotContains(t, workers[adminHost], ".navigate(", "the worker never steers a window away: the page decides, a reply may be in progress")
 	assert.Contains(t, workers[adminHost], "client.url === url", "it focuses a window already on the request")
 	assert.Contains(t, workers[adminHost], "postMessage({ open: url })", "an open window is asked to go there: iOS gives an installed app one window")
+	assert.Contains(t, workers[adminHost], `!new URL(client.url).pathname.includes("/captures/")`,
+		"a screenshot opened in its own tab runs no app.js: it cannot take the message")
 	assert.Contains(t, workers[adminHost], `clients.matchAll({ type: "window", includeUncontrolled: true })`,
 		"the first page after install is not controlled yet: it must still get the tap")
 	assert.Contains(t, workers[adminHost], "clients.openWindow(url)")

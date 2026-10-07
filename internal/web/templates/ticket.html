@@ -170,7 +170,7 @@
 </form>
 </section>
 {{else}}
-{{if or $d.Reply $d.Note}}<section class="rounded-box border border-warning bg-warning/10 p-4 lg:p-5" aria-labelledby="texte-perdu"><h2 id="texte-perdu" class="text-xl font-semibold">Ton texte</h2>
+{{if or $d.Reply $d.Note}}<section class="rounded-box border border-warning bg-warning/10 p-4 lg:p-5" aria-labelledby="texte-perdu" data-unsent><h2 id="texte-perdu" class="text-xl font-semibold">Ton texte</h2>
 {{with $d.Reply}}<p class="mt-2 whitespace-pre-line break-words">{{.}}</p>{{end}}{{with $d.Note}}<p class="mt-2 whitespace-pre-line break-words">{{.}}</p>{{end}}</section>{{end}}
 {{if $d.Can.take}}
 <p class="panel p-4">Prends la demande pour répondre à l'adhérent ou écrire une note interne.</p>
