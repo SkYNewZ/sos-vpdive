@@ -54,7 +54,7 @@ func TestMollieImportPreviewThenConfirm(t *testing.T) {
 	body := html.UnescapeString(rec.Body.String())
 	for _, want := range []string{
 		"Aperçu avant remplacement", "01/09/2026 à 18:24 (indicatif)", "du 02/04/2026 au 12/08/2026",
-		"Lignes dans le fichier</dt><dd class=\"mb-2 sm:mb-0\">16",
+		"Lignes lues</dt><dd class=\"mb-2 sm:mb-0\">17",
 		"Lignes à vérifier</dt><dd class=\"mb-2 sm:mb-0\">3",
 		"« En attente » : 1 ligne", "Remplacer les encaissements",
 	} {

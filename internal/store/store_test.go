@@ -93,7 +93,7 @@ func TestMigration6KeepsImportsAndPaymentLines(t *testing.T) {
 		_, err := tx.ExecContext(ctx, `INSERT INTO meta (key, value) VALUES ('schema_version', CAST('5' AS BLOB));
 			INSERT INTO imports (id, kind, exported_at, imported_at, imported_by, row_count, skipped_count)
 			VALUES (3, 'members', 100, 200, 'alice', 2, 0), (7, 'payments', NULL, 300, 'bob', 2, 1);
-			INSERT INTO payment_lines (import_id, name_hash, data) VALUES (7, x'01', x'02'), (7, x'03', x'04');`)
+			INSERT INTO payment_lines (id, import_id, name_hash, ambiguous, data) VALUES (11, 7, x'01', 1, x'02'), (12, 7, x'03', 0, x'04');`)
 		return err
 	}))
 	require.NoError(t, old.Close())
@@ -122,9 +122,21 @@ func TestMigration6KeepsImportsAndPaymentLines(t *testing.T) {
 		{id: 3, kind: "members", by: "alice", exported: sql.NullInt64{Int64: 100, Valid: true}, imported: 200, rows: 2},
 		{id: 7, kind: "payments", by: "bob", imported: 300, rows: 2, skp: 1},
 	}, got, "ids and values kept, no file hash before lot 7")
-	var lines int
-	require.NoError(t, db.QueryRowContext(ctx, `SELECT COUNT(*) FROM payment_lines WHERE import_id = 7`).Scan(&lines))
-	assert.Equal(t, 2, lines)
+	type line struct {
+		id, importID int64
+		hash, data   []byte
+		ambiguous    bool
+	}
+	lineRows, err := db.QueryContext(ctx, `SELECT id, import_id, name_hash, ambiguous, data FROM payment_lines ORDER BY id`)
+	lines, err := Collect(lineRows, err, func(rows *sql.Rows) (l line, err error) {
+		err = rows.Scan(&l.id, &l.importID, &l.hash, &l.ambiguous, &l.data)
+		return l, err
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []line{
+		{id: 11, importID: 7, hash: []byte{1}, data: []byte{2}, ambiguous: true},
+		{id: 12, importID: 7, hash: []byte{3}, data: []byte{4}},
+	}, lines, "lines kept with their ids, content and homonym mark")
 	fkRows, err := db.QueryContext(ctx, `PRAGMA foreign_key_check`)
 	violations, err := Collect(fkRows, err, func(rows *sql.Rows) (string, error) {
 		var table string

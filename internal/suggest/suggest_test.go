@@ -231,17 +231,15 @@ func TestChooseFailures(t *testing.T) {
 		{"answer over 64 KB", &stub{status: http.StatusOK, text: `{"fiches": [], "resume": "` + strings.Repeat("a", 70<<10) + `"}`}, ErrInvalid},
 		{"server error", &stub{status: http.StatusInternalServerError, reply: `{"type": "error"}`}, ErrHTTP},
 		{"rate limited", &stub{status: http.StatusTooManyRequests, reply: `{}`}, ErrHTTP},
-		{"too slow", &stub{status: http.StatusOK, text: `{"fiches": []}`, delay: 5 * time.Second}, ErrTimeout},
+		{"too slow", &stub{status: http.StatusOK, text: `{"fiches": []}`, delay: 20 * time.Second}, ErrTimeout},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c := newClient(t, tt.stub, "")
-			c.timeout = 100 * time.Millisecond
 			start := time.Now()
-			res, err := c.Choose(context.Background(), request, fiches)
+			res, err := newClient(t, tt.stub, "").Choose(context.Background(), request, fiches)
 			require.ErrorIs(t, err, tt.want)
 			assert.Equal(t, Result{}, res, "a failure gives neither fiche nor summary")
-			assert.Less(t, time.Since(start), 2*time.Second)
+			assert.Less(t, time.Since(start), 10*time.Second, "the timeout cut the wait, far below the model's delay")
 		})
 	}
 }

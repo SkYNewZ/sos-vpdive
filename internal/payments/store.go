@@ -27,6 +27,9 @@ type Preview struct {
 	lines []Line
 }
 
+// Read counts every data row of the file, nameless ones included.
+func (p *Preview) Read() int { return p.Lines + p.Skipped }
+
 // Count is a number of lines and of distinct payers.
 type Count struct {
 	Lines  int

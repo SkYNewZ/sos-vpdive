@@ -26,6 +26,9 @@ type MolliePreview struct {
 	lines []MollieLine
 }
 
+// Read counts every data row of the file, nameless ones included.
+func (p *MolliePreview) Read() int { return p.Lines + p.Skipped }
+
 // MollieStore imports VPayDive exports and reads the Mollie lines back
 // (table online_payment_lines, spec §7.5).
 type MollieStore struct {

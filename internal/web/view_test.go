@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestElapsed(t *testing.T) {
@@ -54,4 +55,14 @@ func TestActorName(t *testing.T) {
 	assert.Equal(t, "gone", e.srv.actorName("gone"))
 	assert.Nil(t, e.srv.accountOf(""))
 	assert.Equal(t, "Alice", e.srv.accountOf("alice").Name)
+}
+
+// An export cell holding a date and no time reads as midnight: it shows as
+// a date, never « à 00:00 ».
+func TestMidnightShowsAsADate(t *testing.T) {
+	paris, err := time.LoadLocation("Europe/Paris")
+	require.NoError(t, err)
+	s := &Server{paris: paris}
+	assert.Equal(t, "12/08/2026", s.formatTime(time.Date(2026, 8, 12, 0, 0, 0, 0, paris)))
+	assert.Equal(t, "12/08/2026 à 00:01", s.formatTime(time.Date(2026, 8, 12, 0, 1, 0, 0, paris)))
 }

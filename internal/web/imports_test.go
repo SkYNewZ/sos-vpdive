@@ -264,7 +264,7 @@ func TestPaymentsImportPreviewThenConfirm(t *testing.T) {
 	body := html.UnescapeString(rec.Body.String())
 	for _, want := range []string{
 		"Aperçu avant remplacement", "01/09/2026 à 12:50 (indicatif)", "du 05/01/2026 au 20/06/2026",
-		"Moins de 12 mois", `<dd class="mb-2 sm:mb-0">20</dd>`, "« En attente » : 1 ligne", "Remplacer les paiements",
+		"Moins de 12 mois", "Lignes lues</dt><dd class=\"mb-2 sm:mb-0\">21", "sans nom écartées</dt><dd class=\"mb-2 sm:mb-0\">1", "« En attente » : 1 ligne", "Remplacer les paiements",
 	} {
 		assert.Contains(t, body, want)
 	}

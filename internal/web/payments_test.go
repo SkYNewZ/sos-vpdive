@@ -5,8 +5,10 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Spec §7.3 and §13: the « Paiements VPDive » block of a request page, in
@@ -88,4 +90,17 @@ func TestRequestPageMollieBlock(t *testing.T) {
 	_, tracking := e.tracking(t, hugo.Token)
 	assert.NotContains(t, tracking, "Encaissements Mollie")
 	assert.NotContains(t, tracking, "53,00")
+}
+
+// An empty « Payé » cell is named as such, not quoted as an empty value.
+func TestRequestPageNamesAnEmptySettledCell(t *testing.T) {
+	e := newTestEnv(t, withImportToken)
+	e.importMembers(t, "members_valid.xlsx")
+	cookie := e.login(t)
+	hugo := e.submitTicket(t, "hugo.bernard@example.org")
+	require.Equal(t, http.StatusOK, e.push(t, "vpaydive", mollieWorkbook(t, time.Time{}, 1, ""), importToken).Code)
+
+	page := e.openTicket(t, cookie, hugo.ID).body
+	assert.Contains(t, page, "« Payé » est vide dans l'export.")
+	assert.NotContains(t, page, "« Payé » vaut")
 }

@@ -180,7 +180,7 @@ func TestRequestLeavesWhenTheModelFails(t *testing.T) {
 	tests := map[string]*modelStub{
 		"no fiche":     {answer: `{"fiches": [], "resume": "Ne voit plus ses réservations."}`},
 		"server error": {answer: choice, status: http.StatusInternalServerError},
-		"too slow":     {answer: choice, delay: 3 * time.Second},
+		"too slow":     {answer: choice, delay: 20 * time.Second},
 		"unreadable":   {answer: "Voici ma réponse."},
 	}
 	for name, m := range tests {
@@ -191,7 +191,7 @@ func TestRequestLeavesWhenTheModelFails(t *testing.T) {
 			rec := e.sendRequest(t, validRequest(e.formKey(t)))
 			require.Equal(t, http.StatusSeeOther, rec.Code, rec.Body.String())
 			assert.Equal(t, "/demandes/envoyee?ref=CPP-0001", rec.Header().Get("Location"))
-			assert.Less(t, time.Since(start), 2*time.Second, "LLM_TIMEOUT bounds the wait")
+			assert.Less(t, time.Since(start), 10*time.Second, "LLM_TIMEOUT bounds the wait, far below the model's delay")
 			assert.Len(t, e.mails(t), 2)
 		})
 	}

@@ -58,7 +58,7 @@ type manifest struct {
 // apps tell the two installable apps apart (spec §9.6, §14.1); the layout
 // picks the same icon folders.
 // The screenshots are made with synthetic data from testdata/fixtures
-// (README, "Installable apps"), never with real requests.
+// (README, "Adapt it to your club"), never with real requests.
 var apps = []struct {
 	admin       bool
 	name        string

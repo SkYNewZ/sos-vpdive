@@ -53,7 +53,7 @@
 {{range $d.Rows}}<li data-ticket="{{.ID}}"><a class="flex flex-col gap-1 px-4 py-3" href="/demandes/{{.ID}}">
 <span class="flex items-center justify-between gap-2"><span class="font-semibold text-primary underline">{{.Ref}}</span>{{template "status" .Status}}</span>
 <span class="break-words">{{.FirstName}} {{.LastName}}{{if .MemberRepliedLast}} <span class="badge badge-soft badge-info whitespace-nowrap">a répondu</span>{{end}}</span>
-<span class="text-sm text-base-content/70">{{categoryLabel .Category}} · {{template "age" (age .SubmittedAt .ClosedAt)}} · {{template "assigneeName" .Assignee}}</span>
+<span class="text-sm text-base-content/70">{{categoryLabel .Category}} · {{template "age" (age .SubmittedAt .ClosedAt)}}{{with .Assignee}} · {{template "assigneeName" .}}{{end}}</span>
 </a></li>
 {{end}}</ul>
 {{else}}
