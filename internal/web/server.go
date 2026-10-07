@@ -210,6 +210,9 @@ func (s *Server) adminRoutes() *http.ServeMux {
 	s.handle(mux, "POST /anomalies/masquer", s.signedIn(s.dismissCheck))
 	s.handle(mux, "GET /envois", s.signedIn(s.failedMails))
 	s.handle(mux, "GET /notifications", s.signedIn(s.notificationsPage))
+	if s.cfg.PushoverToken != "" {
+		s.handle(mux, "POST /notifications/pushover", s.signedIn(s.savePushover))
+	}
 	s.handle(mux, "GET /plus", s.signedIn(s.plusPage))
 	s.handle(mux, "GET "+accountPath, s.signedIn(s.accountPage))
 	s.handle(mux, "POST "+accountPath, s.signedIn(s.changePassword))
