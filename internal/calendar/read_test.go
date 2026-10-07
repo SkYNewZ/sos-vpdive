@@ -118,17 +118,30 @@ func TestParticipationsFollowTheNameAndTheLinkedPerson(t *testing.T) {
 		event(t, "evt-a", "2026-10-11T08:00:00+02:00", registered(101, "Martin", "Léa"), registered(202, "Bernard", "Hugo")),
 		event(t, "evt-b", "2026-11-15T08:00:00+01:00", unregistered(101, "MARTIN Léa")),
 		event(t, "evt-c", "2026-12-06T08:00:00+01:00", unregistered(707, "Léa Martin")),
+		event(t, "evt-d", "2027-01-10T08:00:00+01:00", registered(505, "Petit", "Chloé")),
+		event(t, "evt-e", "2027-02-14T08:00:00+01:00", registered(505, "Durand", "Noé")),
+		event(t, "evt-f", "2027-03-21T08:00:00+01:00", unregistered(505, "Chloé Petit")),
 	)))
 	ctx := context.Background()
+	seenFor := func(last, first string) []string {
+		t.Helper()
+		got, err := f.store.Participations(ctx, f.keys.Hash(secure.NameKey(last, first)))
+		require.NoError(t, err)
+		seen := make([]string, 0, len(got))
+		for _, p := range got {
+			seen = append(seen, p.Event.ID+":"+p.Participant.Name)
+		}
+		return seen
+	}
+
+	assert.Equal(t, []string{"evt-b:MARTIN Léa", "evt-a:Martin Léa"}, seenFor("Martin", "Léa"),
+		"newest first, the linked pilot included; another account of the same name never")
+	assert.Equal(t, []string{"evt-e:Durand Noé"}, seenFor("Durand", "Noé"),
+		"an account registered under two names follows neither: not the other name's row, not its unregistered one")
+	assert.Equal(t, []string{"evt-d:Petit Chloé"}, seenFor("Petit", "Chloé"))
 
 	got, err := f.store.Participations(ctx, f.keys.Hash(secure.NameKey("Martin", "Léa")))
 	require.NoError(t, err)
-	seen := make([]string, 0, len(got))
-	for _, p := range got {
-		seen = append(seen, p.Event.ID+":"+p.Participant.Name)
-	}
-	assert.Equal(t, []string{"evt-b:MARTIN Léa", "evt-a:Martin Léa"}, seen,
-		"newest first, the linked pilot included; another account of the same name never")
 	assert.Equal(t, time.Date(2026, 11, 15, 8, 0, 0, 0, paris(t)).Unix(), got[0].Event.Start.Unix())
 
 	got, err = f.store.Participations(ctx, nil)

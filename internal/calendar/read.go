@@ -172,10 +172,12 @@ func (s *Store) Event(ctx context.Context, id string) (_ Event, err error) {
 	return ev, nil
 }
 
-// Participations returns the participations of the person of nameHash:
-// those of the name hash, and those sharing a VPDive id with them (a pilot
-// without registration, a payer), newest event first. Never by name: a nil
-// hash finds nothing.
+// Participations returns the participations of the person of nameHash,
+// newest event first, by the rule of Event: the rows of the name hash itself,
+// and the unregistered ones (a pilot, a payer) of the VPDive accounts whose
+// only registered name is that hash. An account registered under two names is
+// followed by neither, so no other person's row ever lands on this one. Never
+// by name: a nil hash finds nothing.
 func (s *Store) Participations(ctx context.Context, nameHash []byte) ([]Participation, error) {
 	if nameHash == nil {
 		return nil, nil
@@ -183,7 +185,9 @@ func (s *Store) Participations(ctx context.Context, nameHash []byte) ([]Particip
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT e.starts_at, e.ends_at, e.data, p.data
 		 FROM calendar_participants p JOIN calendar_events e ON e.id = p.event_id
-		 WHERE p.person_hash IN (SELECT person_hash FROM calendar_participants WHERE name_hash = ?)
+		 WHERE p.name_hash = ?1 OR (p.name_hash IS NULL AND p.person_hash IN (
+		   SELECT person_hash FROM calendar_participants WHERE name_hash IS NOT NULL
+		   GROUP BY person_hash HAVING COUNT(DISTINCT name_hash) = 1 AND MIN(name_hash) = ?1))
 		 ORDER BY e.starts_at DESC, e.id, p.id`, nameHash)
 	out, err := store.Collect(rows, err, func(rows *sql.Rows) (pa Participation, err error) {
 		var (
