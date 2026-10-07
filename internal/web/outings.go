@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"time"
 
@@ -86,33 +87,14 @@ func normTitle(s string) string { return strings.Join(strings.Fields(strings.ToL
 
 // Signals lists what the lines of an outing tell, each once.
 func (o outing) Signals() []string {
-	var carnet, money, mollie bool
-	if o.Event.Cancelled() {
-		for _, l := range o.Lines {
-			if l.State != payments.StatePaid {
-				continue
-			}
-			switch {
-			case l.Prepaid():
-				carnet = true
-			case l.Paid > 0:
-				money = true
-			}
-		}
-	}
-	for _, l := range o.Mollie {
-		if l.Unsettled() && l.Dismissal == nil {
-			mollie = true
-		}
-	}
 	var out []string
-	if carnet {
+	if o.Event.Cancelled() && slices.ContainsFunc(o.Lines, func(l payments.Line) bool { return l.State == payments.StatePaid && l.Prepaid() }) {
 		out = append(out, signalCarnet)
 	}
-	if money {
+	if o.Event.Cancelled() && slices.ContainsFunc(o.Lines, func(l payments.Line) bool { return l.State == payments.StatePaid && !l.Prepaid() && l.Paid > 0 }) {
 		out = append(out, signalMoney)
 	}
-	if mollie {
+	if slices.ContainsFunc(o.Mollie, func(l payments.CollectedLine) bool { return l.Unsettled() && l.Dismissal == nil }) {
 		out = append(out, signalMollie)
 	}
 	return out

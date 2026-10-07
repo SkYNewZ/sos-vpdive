@@ -35,7 +35,6 @@ func TestCalendarLabels(t *testing.T) {
 	for name, body := range map[string]string{
 		"tint too high": "categories:\n  x: {label: X, tint: 6}\n",
 		"no label":      "categories:\n  x: {tint: 1}\n",
-		"empty role":    "roles:\n  Pilote: \" \"\n",
 		"unknown field": "colours: {}\n",
 	} {
 		_, err := loadCalendarLabels(fstest.MapFS{"config/calendar.yaml": {Data: []byte(body)}})

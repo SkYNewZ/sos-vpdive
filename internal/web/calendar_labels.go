@@ -41,13 +41,6 @@ func loadCalendarLabels(content fs.FS) (calendarLabels, error) {
 			return calendarLabels{}, fmt.Errorf("config/calendar.yaml: categories[%q]: a label and a tint from 0 to %d are required", key, tints)
 		}
 	}
-	for name, m := range map[string]map[string]string{"activities": l.Activities, "environments": l.Environments, "roles": l.Roles} {
-		for key, v := range m {
-			if strings.TrimSpace(v) == "" {
-				return calendarLabels{}, fmt.Errorf("config/calendar.yaml: %s[%q]: empty label", name, key)
-			}
-		}
-	}
 	return l, nil
 }
 
@@ -59,8 +52,8 @@ func (l calendarLabels) category(key string) categoryLabel {
 	return categoryLabel{Label: key}
 }
 
-// label returns the label of key in m, or key itself. Labels are validated
-// non-empty at load, so an empty value means a missing key.
+// label returns the label of key in m, or key itself when it is missing or
+// empty.
 func label(m map[string]string, key string) string { return cmp.Or(m[key], key) }
 
 // roleNote is what follows a name or a role: its boat and « proposé ».

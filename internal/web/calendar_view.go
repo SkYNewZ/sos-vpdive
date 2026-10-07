@@ -37,14 +37,6 @@ type eventView struct {
 	Detailed       bool // the day view: activity, place, boats and staff
 }
 
-// Max is the event's limit, 0 without one.
-func (v eventView) Max() int {
-	if v.MaxParticipants == nil {
-		return 0
-	}
-	return *v.MaxParticipants
-}
-
 func (s *Server) eventView(ev calendar.Event, counted bool) eventView {
 	v := eventView{Event: ev, Counted: counted, Staff: s.labels.staff(ev.Participants)}
 	for _, p := range ev.Participants {
