@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
 	"sync"
 	"testing"
 	"time"
@@ -14,7 +13,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/SkYNewZ/sos-vpdive/internal/admins"
 	"github.com/SkYNewZ/sos-vpdive/internal/push"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 )
@@ -176,35 +174,21 @@ func countSessions(t *testing.T, e *testEnv) int {
 	return n
 }
 
-func TestRevokeSessionsAfterPasswordChange(t *testing.T) {
+func TestSessionsEndWhenThePasswordIsReset(t *testing.T) {
 	e := newTestEnv(t)
 	cookie := e.login(t)
 	require.Equal(t, http.StatusOK, e.do(t, http.MethodGet, adminHost, "/", nil, withCookie(cookie)).Code)
-
-	changed := alice()
-	var err error
-	changed.PasswordHash, err = admins.HashPassword("a brand new long password")
+	_, err := e.deps.Admins.ResetPassword(context.Background(), "alice")
 	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(e.adminsPath, []byte(accountsFile(changed)), 0o600))
-	users, err := e.deps.Admins.Reload()
-	require.NoError(t, err)
-	assert.Equal(t, []string{"alice"}, users)
-
-	assert.Equal(t, 1, countSessions(t, e))
-	require.NoError(t, e.srv.RevokeSessions(context.Background(), users))
 	assert.Zero(t, countSessions(t, e))
 	assert.Equal(t, http.StatusSeeOther, e.do(t, http.MethodGet, adminHost, "/", nil, withCookie(cookie)).Code)
 }
 
-func TestSessionEndsWhenAccountRemoved(t *testing.T) {
+func TestSessionEndsWhenAccountDeleted(t *testing.T) {
 	e := newTestEnv(t)
 	cookie := e.login(t)
-	bob := admins.Account{Username: "bob", Name: "Bob", Role: "Trésorier", PasswordHash: testHash()}
-	require.NoError(t, os.WriteFile(e.adminsPath, []byte(accountsFile(bob)), 0o600))
-	users, err := e.deps.Admins.Reload()
-	require.NoError(t, err)
-	assert.Equal(t, []string{"alice"}, users)
-
+	require.NoError(t, e.deps.Admins.Delete(context.Background(), "alice"))
+	assert.Zero(t, countSessions(t, e))
 	rec := e.do(t, http.MethodGet, adminHost, "/", nil, withCookie(cookie))
 	assert.Equal(t, http.StatusSeeOther, rec.Code)
 	assert.Equal(t, "/connexion", rec.Header().Get("Location"))
@@ -274,14 +258,6 @@ func TestCommitteeBanners(t *testing.T) {
 
 	e.clock.advance(15 * 24 * time.Hour)
 	assert.Contains(t, home(), "Pense à refaire l")
-
-	require.NoError(t, os.WriteFile(e.adminsPath, []byte("admins: [\n"), 0o600))
-	_, err := e.deps.Admins.Reload()
-	require.Error(t, err)
-	body := home()
-	assert.Contains(t, body, "Le fichier des comptes est invalide")
-	assert.Contains(t, body, "Erreur : ")
-	assert.Contains(t, body, "invalid YAML")
 }
 
 func TestRevokeStaleSessionsAtStart(t *testing.T) {
@@ -304,7 +280,7 @@ func TestRevokeStaleSessionsAtStart(t *testing.T) {
 	require.NoError(t, e.deps.Push.Save(ctx, removed, "bob", sub))
 
 	require.NoError(t, e.srv.RevokeStale(ctx))
-	assert.Equal(t, 1, e.count(t, "sessions"), "the account left the file or changed its password while the service was down")
+	assert.Equal(t, 1, e.count(t, "sessions"), "the account is gone or its password changed while the service was down")
 	assert.Zero(t, e.count(t, "push_subscriptions"), "their subscriptions go with them")
 	assert.Equal(t, http.StatusOK, e.do(t, http.MethodGet, adminHost, "/", nil, withCookie(kept)).Code, "a valid session stays")
 	for _, hash := range [][]byte{removed, changed} {

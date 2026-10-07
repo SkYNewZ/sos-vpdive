@@ -51,7 +51,7 @@ func TestOpenCreatesSchemaAndIsIdempotent(t *testing.T) {
 	}
 	require.NoError(t, rows.Err())
 	assert.Equal(t, []string{
-		"attachments", "counters", "deflections", "dismissed_checks", "events", "imports", "members", "messages",
+		"accounts", "attachments", "counters", "deflections", "dismissed_checks", "events", "imports", "members", "messages",
 		"meta", "online_payment_lines", "outbox", "payment_lines", "push_subscriptions", "sessions", "stats_monthly", "tickets",
 	}, tables)
 
@@ -104,7 +104,7 @@ func TestMigration6KeepsImportsAndPaymentLines(t *testing.T) {
 
 	var version []byte
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version))
-	assert.Equal(t, "6", string(version))
+	assert.Equal(t, "7", string(version))
 	type journal struct {
 		id                  int64
 		kind, by            string

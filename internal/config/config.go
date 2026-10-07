@@ -118,7 +118,7 @@ type Config struct {
 	SecretKey          []byte
 	Port               int
 	DataDir            string
-	AdminsFile         string
+	Owner              string // OWNER_USERNAME: the account that manages the others (spec §4.1 as amended)
 	TrustedProxies     []netip.Prefix
 	LogLevel           slog.Level
 	SMTP               SMTP
@@ -136,7 +136,7 @@ type Config struct {
 	RetentionDays      int           // days a closed request is kept
 	FormRateLimit      int           // form submissions per hour and IP address
 	LLM                *LLM          // nil without LLM_API_KEY: no suggestions, no screen 2
-	PushoverToken      string        // "" turns Pushover off; user keys live in the accounts file
+	PushoverToken      string        // "" turns Pushover off; each resolver sets a user key on « Notifications »
 	VAPID              *VAPID        // nil turns Web Push off
 	PushAllowedHosts   []string      // push services a subscription may point at
 	SentryDSN          string        // "" turns Sentry off; always "" in development
@@ -159,7 +159,6 @@ func Load(getenv func(string) string) (*Config, error) {
 		SecretKey:      p.secretKey(),
 		Port:           p.int("PORT", "8080", 1, 65535),
 		DataDir:        p.optional("DATA_DIR", "/data"),
-		AdminsFile:     p.optional("ADMINS_FILE", "/config/admins.yaml"),
 		TrustedProxies: p.prefixes("TRUSTED_PROXIES"),
 		LogLevel:       p.level("LOG_LEVEL"),
 		SMTP: SMTP{
@@ -199,6 +198,7 @@ func Load(getenv func(string) string) (*Config, error) {
 	c.SentryEnvironment = p.optional("SENTRY_ENVIRONMENT", string(c.Env))
 	c.Umami = p.umami(c)
 	c.ImportToken = p.importToken()
+	c.Owner = p.owner(c.Env)
 	if c.Env == EnvProduction {
 		p.requireHTTPS("BASE_URL", c.BaseURL)
 		p.requireHTTPS("ADMIN_BASE_URL", c.AdminBaseURL)
@@ -281,6 +281,21 @@ func (p *parser) int(name, def string, minimum, maximum int) int {
 		return 0
 	}
 	return n
+}
+
+// ownerPattern is admins.ValidUsername's: config does not import admins.
+var ownerPattern = regexp.MustCompile(`^[a-z0-9._-]{1,32}$`)
+
+// owner reads OWNER_USERNAME, required in production (spec §10 as amended).
+func (p *parser) owner(env Env) string {
+	v := p.value("OWNER_USERNAME")
+	switch {
+	case v == "" && env == EnvProduction:
+		p.fail("OWNER_USERNAME", ErrMissing)
+	case v != "" && !ownerPattern.MatchString(v):
+		p.fail("OWNER_USERNAME", errors.New("must match "+ownerPattern.String()))
+	}
+	return v
 }
 
 // minImportToken is the shortest IMPORT_TOKEN accepted (spec §10).

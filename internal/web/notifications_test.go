@@ -11,7 +11,6 @@ import (
 	"maps"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"testing"
 
@@ -74,11 +73,7 @@ func TestNotificationsPageStates(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, e.do(t, http.MethodGet, publicHost, "/notifications", nil).Code, "committee host only")
 	assert.Equal(t, http.StatusNotFound, e.do(t, http.MethodPost, publicHost, "/push/abonnement", formBody(browserKeys(t)), formType).Code)
 
-	accounts, err := os.ReadFile(e.adminsPath)
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(e.adminsPath, append(accounts, []byte("    pushover_user_key: "+pushoverUserKey+"\n")...), 0o600))
-	_, err = e.deps.Admins.Reload()
-	require.NoError(t, err)
+	require.NoError(t, e.deps.Admins.SetPushoverKey(context.Background(), "alice", pushoverUserKey))
 	body = e.do(t, http.MethodGet, adminHost, "/notifications", nil, withCookie(cookie)).Body.String()
 	assert.Contains(t, body, "Actif pour ton compte")
 	assert.NotContains(t, body, pushoverUserKey, "the key never reaches a page")
@@ -165,6 +160,6 @@ func TestPushSubscriptionRoutes(t *testing.T) {
 	require.Equal(t, http.StatusNoContent, e.pushPost(t, "/push/abonnement", third, valid))
 	assert.Equal(t, 1, e.count(t, "push_subscriptions"), "the same browser after a new login: one row")
 
-	require.NoError(t, e.srv.RevokeSessions(ctx, []string{"alice"}))
+	require.NoError(t, e.deps.Admins.Delete(ctx, "alice"))
 	assert.Zero(t, e.count(t, "push_subscriptions"), "removing an account deletes its subscriptions (spec §13)")
 }

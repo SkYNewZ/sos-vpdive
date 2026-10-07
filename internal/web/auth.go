@@ -140,7 +140,7 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/connexion", http.StatusSeeOther)
 }
 
-// adminPage is newPage plus the committee banners (spec §3.6, §4.1, §7.2).
+// adminPage is newPage plus the committee banners (spec §3.6, §7.2).
 func (s *Server) adminPage(r *http.Request, title string) (page, error) {
 	p := s.newPage(r, title)
 	notices, err := s.adminNotices(r.Context())
@@ -151,15 +151,11 @@ func (s *Server) adminPage(r *http.Request, title string) (page, error) {
 	return p, nil
 }
 
-// adminNotices are the committee banners: accounts file, members list
+// adminNotices are the committee banners: members list
 // (spec §3.6, §7.2), payments and VPayDive imports (§7.3, §7.5), failed
 // mails (§6) and open requests idle for a year (§8.3).
 func (s *Server) adminNotices(ctx context.Context) ([]notice, error) {
 	var out []notice
-	if err := s.admins.Err(); err != nil {
-		out = append(out, notice{Kind: noticeError,
-			Text: "Le fichier des comptes est invalide : la dernière modification est ignorée et les comptes précédents restent actifs. Erreur : " + err.Error()})
-	}
 	has, err := s.members.HasList(ctx)
 	if err != nil {
 		return nil, err
