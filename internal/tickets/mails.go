@@ -86,7 +86,7 @@ var alertTitles = map[mail.Event]string{
 
 // clubMail queues a mail to the club mailbox, with the admin link and never
 // the secret tracking link (spec §6), then the alerts of the event on every
-// configured channel: the reference and the category, never a name or text.
+// configured channel (alertText).
 func (s *Store) clubMail(ctx context.Context, tx *sql.Tx, t ticketRow, messageID int64, ev mail.Event, d mailData) error {
 	d.Ref, d.Category, d.Link = t.ref, s.Catalog.CategoryLabel(t.category), s.adminLink(t.id)
 	d.Name = strings.TrimSpace(t.firstName + " " + t.lastName)
@@ -94,16 +94,39 @@ func (s *Store) clubMail(ctx context.Context, tx *sql.Tx, t ticketRow, messageID
 		return err
 	}
 	title, ok := alertTitles[ev]
-	if !ok {
+	if !ok || len(s.Alerts) == 0 {
 		return nil
 	}
+	text, err := s.alertText(ctx, tx, t, d)
+	if err != nil {
+		return err
+	}
 	for _, ch := range s.Alerts {
-		alert := mail.Mail{TicketID: t.id, MessageID: messageID, Event: ev, Channel: ch, Subject: title, Text: t.ref + " · " + d.Category}
+		alert := mail.Mail{TicketID: t.id, MessageID: messageID, Event: ev, Channel: ch, Subject: title, Text: text}
 		if err := s.Outbox.Enqueue(ctx, tx, alert); err != nil {
 			return fmt.Errorf("queue %s alert: %w", ch, err)
 		}
 	}
 	return nil
+}
+
+// alertText is what an alert says (spec §6, §9.6 as amended by the owner):
+// the reference, the requester and the category, then the model's summary
+// on a second line when there is one. Never the member's own text.
+func (s *Store) alertText(ctx context.Context, tx *sql.Tx, t ticketRow, d mailData) (string, error) {
+	var sealed []byte
+	if err := tx.QueryRowContext(ctx, `SELECT summary FROM tickets WHERE id = ?`, t.id).Scan(&sealed); err != nil {
+		return "", fmt.Errorf("read summary: %w", err)
+	}
+	var summary string
+	if err := s.openOptional(&summary, sealed); err != nil {
+		return "", err
+	}
+	text := t.ref + " · " + d.Name + " · " + d.Category
+	if summary != "" {
+		text += "\n" + summary
+	}
+	return text, nil
 }
 
 func (s *Store) queue(ctx context.Context, tx *sql.Tx, m mail.Mail, d mailData) error {

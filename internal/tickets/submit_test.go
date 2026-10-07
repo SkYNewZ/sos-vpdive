@@ -233,7 +233,9 @@ func alertsOf(msgs []mail.Message) []mail.Message {
 	return out
 }
 
-func TestCommitteeAlertsCarryTheRefAndCategoryOnly(t *testing.T) {
+// Alerts name the requester and the category (spec §6, §9.6 as amended),
+// never the member's text.
+func TestCommitteeAlertsNameTheRequester(t *testing.T) {
 	e := newTestStore(t, func(d *Deps) { d.Alerts = []mail.Channel{mail.ChannelPushover, mail.ChannelWebPush} })
 	ctx := context.Background()
 	id, _ := e.submit(t)
@@ -244,7 +246,7 @@ func TestCommitteeAlertsCarryTheRefAndCategoryOnly(t *testing.T) {
 	require.Len(t, alerts, 2)
 	assert.ElementsMatch(t, []mail.Channel{mail.ChannelPushover, mail.ChannelWebPush}, []mail.Channel{alerts[0].Channel, alerts[1].Channel})
 	for _, m := range alerts {
-		assert.Equal(t, mail.Message{Channel: m.Channel, TicketID: id, Subject: "Nouvelle demande", Text: "CPP-0001 · " + label}, m)
+		assert.Equal(t, mail.Message{Channel: m.Channel, TicketID: id, Subject: "Nouvelle demande", Text: "CPP-0001 · Léa Martin · " + label}, m)
 	}
 
 	require.NoError(t, e.store.MemberReply(ctx, id, "Léa Martin : voici le détail de ma plongée.", nil))
@@ -252,7 +254,7 @@ func TestCommitteeAlertsCarryTheRefAndCategoryOnly(t *testing.T) {
 	require.Len(t, alerts, 2)
 	for _, m := range alerts {
 		assert.Equal(t, "Réponse de l'adhérent", m.Subject)
-		assert.Equal(t, "CPP-0001 · "+label, m.Text, "never a name nor the member's text")
+		assert.Equal(t, "CPP-0001 · Léa Martin · "+label, m.Text, "never the member's text")
 	}
 
 	require.NoError(t, e.apply(t, id, Command{Action: ActionClose, Actor: "alice"}))
@@ -269,4 +271,16 @@ func TestCommitteeAlertsCarryTheRefAndCategoryOnly(t *testing.T) {
 	msgs = e.mails(t)
 	assert.Len(t, msgs, 1, "a release is told by mail only")
 	assert.Empty(t, alertsOf(msgs))
+}
+
+// The model's summary follows on a second line, so a resolver knows what the
+// request is about from the notification.
+func TestCommitteeAlertsCarryTheSummary(t *testing.T) {
+	e := newTestStore(t, func(d *Deps) { d.Alerts = []mail.Channel{mail.ChannelWebPush} })
+	out, err := e.store.Submit(context.Background(), submission(t), answer("Carnet décompté après une sortie annulée."))
+	require.NoError(t, err)
+	require.NotEmpty(t, out.Ref, "no fiche: filed at once")
+	alerts := alertsOf(e.mails(t))
+	require.Len(t, alerts, 1)
+	assert.Equal(t, out.Ref+" · Léa Martin · "+e.store.Catalog.CategoryLabel("carnet")+"\nCarnet décompté après une sortie annulée.", alerts[0].Text)
 }

@@ -282,9 +282,11 @@ site est disponible » and reload only when asked.
 ## Committee alerts
 
 Besides the mail to the club mailbox, a new request and a member's reply can
-reach the committee's phones. An alert carries the request reference and its
-category, never a name or what the member wrote: it travels through Apple's,
-Google's or Pushover's servers.
+reach the committee's phones. An alert reads « CPP-0042 · Léa Martin ·
+Carnet, solde de plongées », then the model's summary of the request when
+there is one; never what the member wrote. A Web Push alert is encrypted for
+the device: Apple's and Google's servers cannot read it. Pushover receives
+it in clear, as the club mailbox receives the committee mail.
 
 - Pushover: set `PUSHOVER_APP_TOKEN` to the token of an application created
   on pushover.net, and give each resolver who wants the alerts a
@@ -309,8 +311,9 @@ Before going live, check on a real Android phone and a real iPhone:
 
 1. Install both apps; each opens on its own page, without the browser bar.
 2. Turn notifications on in the committee app, file a request from the
-   members app: the phone shows « Nouvelle demande » with the reference and
-   the category only.
+   members app: the phone shows « Nouvelle demande » with the reference, the
+   requester and the category; a tap opens the request, even when the app
+   was already open on another page.
 3. Refuse the permission on another device: the « Notifications » page says
    how to allow it.
 4. Turn notifications off on the « Notifications » page, then on again;
