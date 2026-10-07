@@ -53,7 +53,7 @@ func unregistered(id int64, name string) Participant { return Participant{VPDive
 
 func TestParseReadsTheContract(t *testing.T) {
 	body := `{"from": "2026-06-04", "to": "2027-09-02", "added_later": true, "events": [{
-		"id": "evt-0001", "url": "https://vpdive.example/activite/evt-0001", "title": "Sortie épave",
+		"id": "evt-0001", "url": "https://club.example/agenda/evt-0001", "title": "Sortie épave",
 		"description": "", "starts_at": "2026-10-11T08:00:00+02:00", "ends_at": "2026-10-11T12:00:00+02:00",
 		"all_day": false, "category": "diving leisure", "color": "#0505f0", "text_color": "#ffffff",
 		"activity": "outing", "environment": "natural sea", "location": "Port du club",
