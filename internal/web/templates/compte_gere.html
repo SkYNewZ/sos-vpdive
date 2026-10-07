@@ -1,0 +1,25 @@
+{{define "main"}}
+{{$a := .Data}}
+<p><a class="link link-primary inline-flex min-h-11 items-center" href="/comptes">Retour aux comptes</a></p>
+<h1 class="text-2xl font-bold text-primary max-lg:sr-only">{{$a.Name}}</h1>
+<div class="panel mt-4 flex max-w-xl items-center gap-3 p-4">
+{{template "identity" $a}}
+</div>
+<section class="mt-8 max-w-xl" aria-labelledby="temporaire">
+<h2 id="temporaire" class="text-xl font-semibold">Nouveau mot de passe temporaire</h2>
+<p class="mt-2">Ses appareils sont déconnectés. Un nouveau mot de passe sera choisi à la prochaine connexion.</p>
+<form method="post" action="/comptes/{{$a.Username}}/mot-de-passe" class="mt-3">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<button class="btn btn-primary min-h-11" type="submit">Générer un mot de passe temporaire</button>
+</form>
+</section>
+<section class="mt-8 max-w-xl" aria-labelledby="supprimer">
+<h2 id="supprimer" class="text-xl font-semibold">Supprimer ce compte</h2>
+<p class="mt-2">Ses demandes en cours reviennent « à traiter ». Le journal des demandes affichera son identifiant à la place de son nom.</p>
+<form method="post" action="/comptes/{{$a.Username}}/suppression" class="mt-3 flex flex-col gap-3">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<label class="flex min-h-11 items-start gap-3"><input class="checkbox mt-1" type="checkbox" name="confirmer" value="oui" required><span>Je supprime le compte de {{$a.Name}}</span></label>
+<button class="btn btn-outline btn-error min-h-11 self-start" type="submit">Supprimer le compte</button>
+</form>
+</section>
+{{end}}

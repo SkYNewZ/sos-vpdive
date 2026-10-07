@@ -59,7 +59,7 @@ func elapsed(d time.Duration) string {
 }
 
 // accountOf returns the committee account of username, nil when there is
-// none or when it left the accounts file.
+// none or when it was deleted.
 func (s *Server) accountOf(username string) *admins.Account {
 	a, ok := s.admins.Get(username)
 	if !ok {

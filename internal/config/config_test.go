@@ -33,6 +33,7 @@ func validEnv() map[string]string {
 		"S3_BUCKET":            "captures",
 		"S3_ACCESS_KEY_ID":     "id",
 		"S3_SECRET_ACCESS_KEY": "secret",
+		"OWNER_USERNAME":       "alice",
 	}
 }
 
@@ -67,7 +68,7 @@ func TestLoadValidProductionAppliesDefaults(t *testing.T) {
 	assert.Len(t, c.SecretKey, 32)
 	assert.Equal(t, 8080, c.Port)
 	assert.Equal(t, "/data", c.DataDir)
-	assert.Equal(t, "/config/admins.yaml", c.AdminsFile)
+	assert.Equal(t, "alice", c.Owner)
 	assert.Equal(t, slog.LevelInfo, c.LogLevel)
 	assert.Equal(t, SMTPImplicit, c.SMTP.TLS)
 	assert.Equal(t, 465, c.SMTP.Port)
@@ -469,4 +470,24 @@ func TestLoadInvalidUmamiTurnsItOffWithAWarning(t *testing.T) {
 			assert.NotContains(t, ids, tc.set[tc.name], "the invalid ID is dropped")
 		})
 	}
+}
+
+func TestOwnerUsername(t *testing.T) {
+	env := validEnv()
+	delete(env, "OWNER_USERNAME")
+	_, err := Load(getenv(env))
+	require.ErrorContains(t, err, "OWNER_USERNAME", "required in production")
+
+	for _, v := range []string{"Alice!", ".", ".."} {
+		env["OWNER_USERNAME"] = v
+		_, err = Load(getenv(env))
+		require.ErrorContains(t, err, "OWNER_USERNAME", v)
+	}
+
+	env = validEnv()
+	env["APP_ENV"] = "development"
+	delete(env, "OWNER_USERNAME")
+	c, err := Load(getenv(env))
+	require.NoError(t, err)
+	assert.Empty(t, c.Owner, "optional in development")
 }

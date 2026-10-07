@@ -188,7 +188,7 @@ func (s *Store) Erase(ctx context.Context, email, actor string) (Erasure, error)
 }
 
 // ReleaseMissing returns to todo the open requests of accounts known() rejects
-// (spec §4.1): at startup and after each reload of the accounts file.
+// (spec §4.1): at startup and after each reload of the accounts.
 func (s *Store) ReleaseMissing(ctx context.Context, known func(username string) bool) error {
 	rows, err := s.DB.QueryContext(ctx, `SELECT id FROM tickets WHERE status IN ('in_progress', 'waiting')`)
 	ids, err := store.Collect(rows, err, func(rows *sql.Rows) (id int64, err error) {
@@ -229,7 +229,7 @@ func (s *Store) release(ctx context.Context, id int64, known func(string) bool) 
 		return err
 	}
 	if released {
-		s.Logger.InfoContext(ctx, "ticket released, its resolver left the accounts file", "ticket_id", id)
+		s.Logger.InfoContext(ctx, "ticket released, its resolver's account was deleted", "ticket_id", id)
 		s.changed(ChangeUpdated, id, "")
 	}
 	return nil

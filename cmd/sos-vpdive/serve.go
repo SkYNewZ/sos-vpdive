@@ -58,7 +58,7 @@ type app struct {
 }
 
 // setup opens the database, refuses a SECRET_KEY that does not match it,
-// loads the accounts file, the content files and the fiches, releases the requests of
+// loads the accounts, the content files and the fiches, releases the requests of
 // accounts removed while the service was stopped, builds the web server and
 // revokes the sessions of accounts that changed meanwhile.
 func setup(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*app, error) {
@@ -77,9 +77,14 @@ func setup(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*app, 
 	if err := store.CheckKey(ctx, db, keys); err != nil {
 		return fail(fmt.Errorf("refusing to start: %w", err))
 	}
-	registry, err := admins.Load(cfg.AdminsFile, logger)
+	registry, err := admins.Open(ctx, db, keys, logger, time.Now)
 	if err != nil {
 		return fail(err)
+	}
+	if cfg.Owner != "" {
+		if _, ok := registry.Get(cfg.Owner); !ok {
+			logger.WarnContext(ctx, "owner account missing: create it with reset-password -name NAME -role ROLE and the OWNER_USERNAME value")
+		}
 	}
 	catalog, err := tickets.LoadCatalog(sosvpdive.Content)
 	if err != nil {
@@ -122,7 +127,7 @@ func setup(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*app, 
 		tickets: ticketStore, outbox: outbox,
 		senders: senders, push: pushStore, broker: broker,
 	}
-	if err := ticketStore.ReleaseMissing(ctx, a.knownAccount); err != nil {
+	if err := ticketStore.ReleaseMissing(ctx, registry.Has); err != nil {
 		return fail(fmt.Errorf("release requests of removed accounts: %w", err))
 	}
 	var turnstile *web.Turnstile
@@ -140,6 +145,7 @@ func setup(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*app, 
 	if err := a.web.RevokeStale(ctx); err != nil {
 		return fail(fmt.Errorf("revoke sessions of accounts changed while stopped: %w", err))
 	}
+	registry.OnChange = a.web.AccountsChanged
 	return a, nil
 }
 
@@ -180,22 +186,6 @@ func validateKB(stdout io.Writer) error {
 	return err
 }
 
-func (a *app) knownAccount(username string) bool {
-	_, ok := a.admins.Get(username)
-	return ok
-}
-
-// onAccountsChange revokes the sessions of removed or changed accounts and
-// returns the open requests of removed accounts to "à traiter" (spec §4.1).
-func (a *app) onAccountsChange(ctx context.Context, users []string) {
-	if err := a.web.RevokeSessions(ctx, users); err != nil {
-		a.logger.ErrorContext(ctx, "revoke sessions", "error", err)
-	}
-	if err := a.tickets.ReleaseMissing(ctx, a.knownAccount); err != nil {
-		a.logger.ErrorContext(ctx, "release requests of removed accounts", "error", err)
-	}
-}
-
 // serve runs until SIGTERM, SIGINT or ctx ends, then finishes the requests in
 // flight (spec §9.2).
 func serve(ctx context.Context, getenv func(string) string, stdout io.Writer) (err error) {
@@ -221,7 +211,7 @@ func serve(ctx context.Context, getenv func(string) string, stdout io.Writer) (e
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGTERM, os.Interrupt)
 	defer stop()
 	var jobs sync.WaitGroup
-	jobs.Go(func() { a.admins.Watch(ctx, accountsPollInterval, a.onAccountsChange) })
+	jobs.Go(func() { a.admins.Watch(ctx, accountsPollInterval) })
 	jobs.Go(func() { a.runPurges(ctx) })
 	jobs.Go(func() { a.outbox.Run(ctx, a.senders, logger) })
 

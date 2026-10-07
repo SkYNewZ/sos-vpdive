@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
 	"regexp"
 	"strconv"
 	"testing"
@@ -28,9 +27,7 @@ func bob() admins.Account {
 // addBob adds a second committee account; alice's sessions stay valid.
 func (e *testEnv) addBob(t *testing.T) {
 	t.Helper()
-	require.NoError(t, os.WriteFile(e.adminsPath, []byte(accountsFile(alice(), bob())), 0o600))
-	_, err := e.deps.Admins.Reload()
-	require.NoError(t, err)
+	require.NoError(t, e.deps.Admins.Insert(context.Background(), bob()))
 }
 
 // shownTicket is a request page as a committee member saw it.

@@ -1,0 +1,36 @@
+{{define "main"}}
+{{$d := .Data}}
+<h1 class="text-2xl font-bold text-primary max-lg:sr-only">Comptes</h1>
+<ul class="panel mt-6 max-w-2xl divide-y divide-base-300">
+{{range $d.Accounts}}<li>{{if eq .Username $d.Owner}}<div class="flex min-h-14 items-center gap-3 px-4 py-2">{{template "accountRow" .}}<span class="badge badge-outline whitespace-nowrap">Toi</span></div>
+{{else}}<a class="flex min-h-14 items-center gap-3 px-4 py-2 hover:bg-base-200" href="/comptes/{{.Username}}">{{template "accountRow" .}}<span aria-hidden="true">›</span></a>{{end}}</li>
+{{end}}</ul>
+<section class="mt-8 max-w-md" aria-labelledby="ajouter">
+<h2 id="ajouter" class="text-xl font-semibold">Ajouter un compte</h2>
+<form method="post" action="/comptes" class="mt-4 flex flex-col gap-4">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+{{$err := index $d.Errors "identifiant"}}<div class="flex flex-col gap-1">
+<label class="font-semibold" for="identifiant">Identifiant</label>
+<p id="identifiant-aide" class="text-sm">Il sert à se connecter et ne change jamais. Lettres minuscules sans accent, chiffres, point, tiret ou tiret&nbsp;bas, 32 caractères au plus.</p>
+<input class="input w-full" id="identifiant" name="identifiant" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="32" required value="{{$d.New.Username}}" aria-describedby="identifiant-aide{{if $err}} identifiant-erreur{{end}}"{{if $err}} aria-invalid="true"{{end}}>
+{{with $err}}<p id="identifiant-erreur" class="font-semibold text-error">{{.}}</p>{{end}}
+</div>
+{{$err = index $d.Errors "nom"}}<div class="flex flex-col gap-1">
+<label class="font-semibold" for="nom">Nom affiché</label>
+<p id="nom-aide" class="text-sm">Les adhérents le voient sur le suivi de leur demande.</p>
+<input class="input w-full" id="nom" name="nom" type="text" autocomplete="off" required value="{{$d.New.Name}}" aria-describedby="nom-aide{{if $err}} nom-erreur{{end}}"{{if $err}} aria-invalid="true"{{end}}>
+{{with $err}}<p id="nom-erreur" class="font-semibold text-error">{{.}}</p>{{end}}
+</div>
+{{$err = index $d.Errors "fonction"}}<div class="flex flex-col gap-1">
+<label class="font-semibold" for="fonction">Fonction</label>
+<p id="fonction-aide" class="text-sm">Par exemple Secrétaire. Elle ne change plus non plus.</p>
+<input class="input w-full" id="fonction" name="fonction" type="text" autocomplete="off" required value="{{$d.New.Role}}" aria-describedby="fonction-aide{{if $err}} fonction-erreur{{end}}"{{if $err}} aria-invalid="true"{{end}}>
+{{with $err}}<p id="fonction-erreur" class="font-semibold text-error">{{.}}</p>{{end}}
+</div>
+<button class="btn btn-primary min-h-11 self-start" type="submit">Créer le compte</button>
+</form>
+</section>
+{{end}}
+
+{{define "accountRow"}}<img src="{{.Avatar}}" alt="" width="32" height="32" class="size-8">
+<span class="min-w-0 flex-1"><span class="block font-semibold">{{.Name}}</span><span class="block text-sm">{{.Role}}</span><span class="block text-sm">Identifiant : {{.Username}}</span><span class="mt-1 block">{{if .MustChangePassword}}<span class="badge badge-soft badge-warning whitespace-nowrap">Mot de passe temporaire</span>{{else}}<span class="badge badge-soft whitespace-nowrap">Actif</span>{{end}}</span></span>{{end}}

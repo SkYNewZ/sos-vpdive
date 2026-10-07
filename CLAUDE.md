@@ -24,9 +24,18 @@ validated: it wins over this file, over existing code, and over preference.
   checks pass: develop as `:latest`, a tag `vX.Y.Z` as `:X.Y.Z` (§9.4).
 - `sessions.credential_hash` (§8.2): a session is valid only while it matches
   the account's current password hash.
+- Committee accounts live in the database, not in a file (§4.1, §8.2, §9.3,
+  §10): `OWNER_USERNAME` names the owner, who creates, resets and deletes the
+  other accounts on `/comptes` (404 for anyone else). A new account or a
+  reset gets a temporary password shown once; the first sign-in leads every
+  page to « Mon compte » until it is changed. Identifier, name and function
+  never change. `reset-password` (run with `docker exec`) gives any existing
+  account a new temporary password and creates a missing one: that is how the
+  owner gets back in. `ADMINS_FILE` and `hash-password` are gone.
+  Each resolver sets their Pushover key on « Notifications ».
 - `.env.example` lists only the variables the binary reads; each lot adds its own.
-- Pushover is per resolver: an optional `pushover_user_key` per account in the
-  accounts file; `PUSHOVER_APP_TOKEN` stays in the environment and
+- Pushover is per resolver: an optional `pushover_user_key` per account,
+  set on « Notifications »; `PUSHOVER_APP_TOKEN` stays in the environment and
   `PUSHOVER_USER_KEY` is gone (§6, §10).
 - A cancelled outing on the request page (§7.3) gets a note by payment method:
   « Prépayé » says the carnet is credited back when the outing is deleted, any
@@ -110,6 +119,20 @@ No i18n framework.
 - Anything the spec lists as out of scope (§2).
 - Key rotation, an ORM, a JS framework, a second datastore.
 
+## Architecture
+
+- `cmd/sos-vpdive serve` builds everything in `setup` (serve.go): one SQLite
+  handle, `secure.Keys` derived from `SECRET_KEY` (sealing, HMAC hashes,
+  CSRF), the stores, then `web.Server`.
+- `web.Server.route` picks the site by `Host`: the public mux (form, tracking)
+  or the committee mux (`signedIn` routes, `/api/imports` by token). Both share
+  `commonRoutes` (health, static, manifest, service worker).
+- `tickets.Store` owns request state changes; it writes mails and alerts to
+  the `mail.Outbox` in the same transaction, and `Outbox.Run` delivers them per
+  channel (SMTP, Pushover, Web Push). Its `OnChange` feeds the SSE `Broker`.
+- Background jobs in `serve`: outbox delivery, accounts reload, daily purge
+  (`app.purge`, spec §8.3).
+
 ## Layout and commands
 
 - `cmd/sos-vpdive` (subcommands) + `internal/{config,secure,telemetry,store,xlsx,imports,members,payments,admins,tickets,mail,blobs,images,kb,suggest,push,web}`.
@@ -117,12 +140,17 @@ No i18n framework.
   (categories, products, vpdive, robots) are embedded by the root `content.go`.
 - `make test` / `make lint` (golangci-lint v2, `default: all`) / `make css` /
   `make build` / `make fixtures` (regenerates `testdata/fixtures/*.xlsx`).
-- `make run` needs `.env` (from `.env.example`, `APP_ENV=development`) and
-  `admins/admins.yaml`; sites on `http://sos.localhost:8080` and
-  `http://comite.localhost:8080` (browsers treat `*.localhost` as secure).
+- One test: `go test ./internal/web -run TestName` (`make test` adds `-race`).
+- CI (`.github/workflows/ci.yml`): `check` runs `gofmt -l`, `go vet`,
+  `go test -race`, `validate-kb` and the forbidden-files guard; `image` builds
+  the Dockerfile and pushes it (develop → `:latest`, tag `vX.Y.Z` → `:X.Y.Z`).
+- `make run` needs `.env` (from `.env.example`, `APP_ENV=development`); sites
+  on `http://sos.localhost:8080` and `http://comite.localhost:8080` (browsers
+  treat `*.localhost` as secure).
+- `make account ARGS='…'` creates a local account.
 - `./scripts/check-forbidden-files.sh` is the CI guard on private files.
 - The repo's `.env`, `admins/` and `data/` are the owner's dev files: never delete
-  or overwrite them; acceptance runs use a scratch `DATA_DIR` and `ADMINS_FILE`.
+  or overwrite them; acceptance runs use a scratch `DATA_DIR`.
 - Acceptance instance: binary built into a scratch dir, port 8091, started with
   `exec` after saving `$$`, stopped by that PID only (`make run` has the same
   command line: never `pkill`).
@@ -136,8 +164,6 @@ No i18n framework.
 - Before merging a lot: `/simplify`, `/ponytail:ponytail-review`, `/codex:review`
   (only the user can run it), and a browser check of every page with a form
   (`playwright-cli`, or the desktop app's built-in browser when cheaper).
-- Plans that carry full code: build, lint and test it in a scratch copy of the repo
-  before execution.
 - Plans and designs go in `docs/superpowers/` (gitignored, never committed).
 
 ## Gotchas
@@ -165,8 +191,6 @@ No i18n framework.
 - Object keys never reach logs: `internal/blobs` scrubs its errors at the boundary;
   keep new store methods behind it.
 - daisyUI control height is `--size-field` × 10: the theme sets 0.275rem for 44 px.
-- Mount the accounts file's directory, never the single file: a file bind mount
-  pins the inode and hot reload never sees rename-saves.
 - Backups are switched to a rollback journal: a WAL-flagged copy cannot be opened
   read-only.
 - The Dockerfile's CSS stage downloads Tailwind from GitHub; the CI `image` job

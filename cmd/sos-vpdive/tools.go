@@ -1,32 +1,27 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
-	"unicode/utf8"
-
-	"golang.org/x/term"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/admins"
 	"github.com/SkYNewZ/sos-vpdive/internal/config"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 	"github.com/SkYNewZ/sos-vpdive/internal/store"
 )
-
-const minPasswordLength = 12
 
 // vapidKeys prints a new VAPID key pair in the form .env expects (spec §9.6).
 func vapidKeys(stdout io.Writer) error {
@@ -47,55 +42,55 @@ func vapidKeys(stdout io.Writer) error {
 	return err
 }
 
-// hashPassword prints the argon2id hash of a password for admins.yaml.
-func hashPassword(stdin io.Reader, stdout io.Writer) error {
-	password, err := readPassword(stdin)
+// resetPassword creates an account or puts a temporary password in place,
+// and prints that password (spec §4.1 as amended). It runs next to the
+// server, without a shell: docker exec <container> /sos-vpdive
+// reset-password <username>.
+func resetPassword(ctx context.Context, getenv func(string) string, args []string, stdout io.Writer) (err error) {
+	flags := flag.NewFlagSet("reset-password", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	name := flags.String("name", "", "display name of a new account")
+	role := flags.String("role", "", "function of a new account")
+	if err := flags.Parse(args); err != nil || flags.NArg() != 1 {
+		return usageError{"reset-password takes -name and -role (new account only), then one username"}
+	}
+	username := admins.NormalizeUsername(flags.Arg(0))
+	cfg, keys, err := loadKeys(getenv)
 	if err != nil {
 		return err
 	}
-	if utf8.RuneCountInString(password) < minPasswordLength {
-		return fmt.Errorf("password must have at least %d characters", minPasswordLength)
+	if err := ensureDataDir(cfg); err != nil {
+		return err
 	}
-	hash, err := admins.HashPassword(password)
+	db, err := store.Open(ctx, filepath.Join(cfg.DataDir, store.FileName))
 	if err != nil {
 		return err
 	}
-	_, err = fmt.Fprintln(stdout, hash)
+	defer func() { err = errors.Join(err, db.Close()) }()
+	if err := store.CheckKey(ctx, db, keys); err != nil {
+		return err
+	}
+	registry, err := admins.Open(ctx, db, keys, slog.New(slog.DiscardHandler), time.Now)
+	if err != nil {
+		return err
+	}
+	var password string
+	if _, exists := registry.Get(username); exists {
+		if *name != "" || *role != "" {
+			return usageError{"-name and -role only apply to a new account: they never change"}
+		}
+		password, err = registry.ResetPassword(ctx, username)
+	} else {
+		if *name == "" || *role == "" {
+			return usageError{"no such account: add -name and -role to create it"}
+		}
+		password, err = registry.Create(ctx, username, *name, *role)
+	}
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(stdout, "Temporary password for %s: %s\nThe dashes are part of it. The first sign-in asks for a new password.\n", username, password)
 	return err
-}
-
-// readPassword reads twice without echo from a terminal; otherwise it reads
-// the first line of stdin (for `docker run -i ... hash-password < file`).
-func readPassword(stdin io.Reader) (string, error) {
-	if f, ok := stdin.(*os.File); ok && term.IsTerminal(int(f.Fd())) {
-		first, err := prompt(f, "Password: ")
-		if err != nil {
-			return "", err
-		}
-		second, err := prompt(f, "Again: ")
-		if err != nil {
-			return "", err
-		}
-		if first != second {
-			return "", errors.New("the two passwords differ")
-		}
-		return first, nil
-	}
-	line, err := bufio.NewReader(stdin).ReadString('\n')
-	if err != nil && !errors.Is(err, io.EOF) {
-		return "", fmt.Errorf("read password: %w", err)
-	}
-	return strings.TrimRight(line, "\r\n"), nil
-}
-
-func prompt(f *os.File, label string) (string, error) {
-	fmt.Fprint(os.Stderr, label)
-	b, err := term.ReadPassword(int(f.Fd()))
-	fmt.Fprintln(os.Stderr)
-	if err != nil {
-		return "", fmt.Errorf("read password: %w", err)
-	}
-	return string(b), nil
 }
 
 // loadKeys reads the configuration and derives the keys from SECRET_KEY.

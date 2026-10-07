@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -59,8 +60,6 @@ func key(b byte) string { return base64.StdEncoding.EncodeToString(bytes.Repeat(
 func devEnv(t *testing.T, port int) map[string]string {
 	t.Helper()
 	dir := t.TempDir()
-	adminsPath := filepath.Join(dir, "admins.yaml")
-	require.NoError(t, os.WriteFile(adminsPath, []byte("admins:\n  - username: alice\n    name: Alice\n    role: Présidente\n    password_hash: \""+testHash()+"\"\n"), 0o600))
 	return map[string]string{
 		"APP_ENV":        "development",
 		"BASE_URL":       "http://sos.localhost:" + strconv.Itoa(port),
@@ -68,7 +67,6 @@ func devEnv(t *testing.T, port int) map[string]string {
 		"SECRET_KEY":     key(5),
 		"PORT":           strconv.Itoa(port),
 		"DATA_DIR":       filepath.Join(dir, "data"),
-		"ADMINS_FILE":    adminsPath,
 		"SMTP_HOST":      "smtp.example.org",
 		"SMTP_PORT":      "465",
 		"SMTP_USERNAME":  "user",
@@ -93,15 +91,15 @@ func quietLogger() *slog.Logger { return slog.New(slog.DiscardHandler) }
 
 func TestUsage(t *testing.T) {
 	var u usageError
-	require.ErrorAs(t, run(context.Background(), nil, getenv(nil), nil, &bytes.Buffer{}), &u)
-	require.ErrorAs(t, run(context.Background(), []string{"dance"}, getenv(nil), nil, &bytes.Buffer{}), &u)
-	require.ErrorAs(t, run(context.Background(), []string{"backup"}, getenv(nil), nil, &bytes.Buffer{}), &u)
+	require.ErrorAs(t, run(context.Background(), nil, getenv(nil), &bytes.Buffer{}), &u)
+	require.ErrorAs(t, run(context.Background(), []string{"dance"}, getenv(nil), &bytes.Buffer{}), &u)
+	require.ErrorAs(t, run(context.Background(), []string{"backup"}, getenv(nil), &bytes.Buffer{}), &u)
 }
 
 func TestServeNamesMissingVariable(t *testing.T) {
 	env := devEnv(t, freePort(t))
 	delete(env, "SECRET_KEY")
-	err := run(context.Background(), []string{"serve"}, getenv(env), nil, &bytes.Buffer{})
+	err := run(context.Background(), []string{"serve"}, getenv(env), &bytes.Buffer{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "SECRET_KEY")
 }
@@ -123,27 +121,6 @@ func TestSetupRefusesAnotherKey(t *testing.T) {
 	assert.Contains(t, err.Error(), "SECRET_KEY does not match")
 }
 
-func TestSetupRefusesInvalidAccountsFile(t *testing.T) {
-	env := devEnv(t, freePort(t))
-	require.NoError(t, os.WriteFile(env["ADMINS_FILE"], []byte("admins: []\n"), 0o600))
-	cfg, err := config.Load(getenv(env))
-	require.NoError(t, err)
-	_, err = setup(context.Background(), cfg, quietLogger())
-	require.ErrorContains(t, err, "no account")
-}
-
-func TestHashPasswordFromPipe(t *testing.T) {
-	var out bytes.Buffer
-	require.NoError(t, run(context.Background(), []string{"hash-password"}, getenv(nil), strings.NewReader("a long enough password\n"), &out))
-	hash := strings.TrimSpace(out.String())
-	ok, err := admins.VerifyPassword(hash, "a long enough password")
-	require.NoError(t, err)
-	assert.True(t, ok)
-
-	err = run(context.Background(), []string{"hash-password"}, getenv(nil), strings.NewReader("short\n"), &bytes.Buffer{})
-	require.ErrorContains(t, err, "at least 12")
-}
-
 func TestBackupThenRestoreOnABlankMachine(t *testing.T) {
 	ctx := context.Background()
 	env := devEnv(t, freePort(t))
@@ -155,11 +132,11 @@ func TestBackupThenRestoreOnABlankMachine(t *testing.T) {
 	require.NoError(t, a.db.Close())
 
 	backupFile := filepath.Join(t.TempDir(), "support-backup.db")
-	require.NoError(t, run(ctx, []string{"backup", backupFile}, getenv(env), nil, &bytes.Buffer{}))
+	require.NoError(t, run(ctx, []string{"backup", backupFile}, getenv(env), &bytes.Buffer{}))
 
 	blank := devEnv(t, freePort(t))
 	blank["SECRET_KEY"] = env["SECRET_KEY"]
-	require.NoError(t, run(ctx, []string{"restore", backupFile}, getenv(blank), nil, &bytes.Buffer{}))
+	require.NoError(t, run(ctx, []string{"restore", backupFile}, getenv(blank), &bytes.Buffer{}))
 	restoredCfg, err := config.Load(getenv(blank))
 	require.NoError(t, err)
 	restored, err := setup(ctx, restoredCfg, quietLogger())
@@ -171,14 +148,14 @@ func TestBackupThenRestoreOnABlankMachine(t *testing.T) {
 
 	wrong := devEnv(t, freePort(t))
 	wrong["SECRET_KEY"] = key(7)
-	require.ErrorIs(t, run(ctx, []string{"restore", backupFile}, getenv(wrong), nil, &bytes.Buffer{}), store.ErrWrongKey)
+	require.ErrorIs(t, run(ctx, []string{"restore", backupFile}, getenv(wrong), &bytes.Buffer{}), store.ErrWrongKey)
 }
 
 func TestBackupRefusesMissingDatabase(t *testing.T) {
 	env := devEnv(t, freePort(t))
 	env["DATA_DIR"] = t.TempDir()
 	backupFile := filepath.Join(t.TempDir(), "backup.db")
-	err := run(context.Background(), []string{"backup", backupFile}, getenv(env), nil, &bytes.Buffer{})
+	err := run(context.Background(), []string{"backup", backupFile}, getenv(env), &bytes.Buffer{})
 	require.ErrorContains(t, err, "no database to back up")
 	entries, err := os.ReadDir(env["DATA_DIR"])
 	require.NoError(t, err)
@@ -192,11 +169,11 @@ func TestServeAnswersHealthcheckAndStops(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	logs := &lockedBuffer{}
 	done := make(chan error, 1)
-	go func() { done <- run(ctx, []string{"serve"}, getenv(env), nil, logs) }()
+	go func() { done <- run(ctx, []string{"serve"}, getenv(env), logs) }()
 
 	deadline := time.Now().Add(10 * time.Second)
 	for {
-		err := run(context.Background(), []string{"healthcheck"}, getenv(env), nil, &bytes.Buffer{})
+		err := run(context.Background(), []string{"healthcheck"}, getenv(env), &bytes.Buffer{})
 		if err == nil {
 			break
 		}
@@ -221,16 +198,14 @@ func importFixture(t *testing.T, s *members.Store) {
 	memberstest.Import(t, s, "members_valid.xlsx")
 }
 
-// writeAccounts replaces the accounts file with one account per username.
-func writeAccounts(t *testing.T, path string, usernames ...string) {
+// addAccounts stores committee accounts whose password hashes to testHash.
+func addAccounts(t *testing.T, r *admins.Registry, usernames ...string) {
 	t.Helper()
-	var b strings.Builder
-	b.WriteString("admins:\n")
 	for _, u := range usernames {
-		b.WriteString("  - username: " + u + "\n    name: " + strings.ToUpper(u[:1]) + u[1:] +
-			"\n    role: Membre du comité\n    password_hash: \"" + testHash() + "\"\n")
+		require.NoError(t, r.Insert(context.Background(), admins.Account{
+			Username: u, Name: strings.ToUpper(u[:1]) + u[1:], Role: "Membre du comité", PasswordHash: testHash(),
+		}))
 	}
-	require.NoError(t, os.WriteFile(path, []byte(b.String()), 0o600))
 }
 
 // An account removed while the service was stopped must not keep requests:
@@ -238,12 +213,12 @@ func writeAccounts(t *testing.T, path string, usernames ...string) {
 func TestSetupReleasesRequestsOfAccountsRemovedWhileStopped(t *testing.T) {
 	ctx := context.Background()
 	env := devEnv(t, freePort(t))
-	writeAccounts(t, env["ADMINS_FILE"], "alice", "bob")
 	cfg, err := config.Load(getenv(env))
 	require.NoError(t, err)
 
 	a, err := setup(ctx, cfg, quietLogger())
 	require.NoError(t, err)
+	addAccounts(t, a.admins, "alice", "bob")
 	importFixture(t, a.members)
 	_, err = a.tickets.Submit(ctx, tickets.Submission{
 		FormKey:     "acceptance-form-key",
@@ -262,9 +237,11 @@ func TestSetupReleasesRequestsOfAccountsRemovedWhileStopped(t *testing.T) {
 	require.NoError(t, a.tickets.Apply(ctx, tickets.Command{
 		Action: tickets.ActionTake, TicketID: d.ID, Version: d.Version, Actor: "bob",
 	}))
+	// A restored backup can lack an account that held requests.
+	_, err = a.db.ExecContext(ctx, `DELETE FROM accounts WHERE username = 'bob'`)
+	require.NoError(t, err)
 	require.NoError(t, a.db.Close())
 
-	writeAccounts(t, env["ADMINS_FILE"], "alice")
 	again, err := setup(ctx, cfg, quietLogger())
 	require.NoError(t, err)
 	defer func() { assert.NoError(t, again.db.Close()) }()
@@ -276,7 +253,7 @@ func TestSetupReleasesRequestsOfAccountsRemovedWhileStopped(t *testing.T) {
 
 func TestValidateKBNeedsNoEnvironment(t *testing.T) {
 	var out bytes.Buffer
-	require.NoError(t, run(context.Background(), []string{"validate-kb"}, getenv(nil), nil, &out))
+	require.NoError(t, run(context.Background(), []string{"validate-kb"}, getenv(nil), &out))
 	// Shape only: the fiches and their marks change with the content.
 	assert.Regexp(t, `^(warning: kb/[a-z0-9-]+\.md: \d+ \[À COMPLÉTER\] mark\(s\) to fill in\n)*\d+ fiches are valid\n$`, out.String())
 }
@@ -285,7 +262,7 @@ func TestValidateKBNeedsNoEnvironment(t *testing.T) {
 func withVAPIDKeys(t *testing.T, env map[string]string) string {
 	t.Helper()
 	var out bytes.Buffer
-	require.NoError(t, run(context.Background(), []string{"vapid-keys"}, getenv(nil), nil, &out))
+	require.NoError(t, run(context.Background(), []string{"vapid-keys"}, getenv(nil), &out))
 	for line := range strings.SplitSeq(out.String(), "\n") {
 		if name, value, ok := strings.Cut(line, "="); ok && !strings.HasPrefix(name, "#") {
 			env[name] = value
@@ -346,5 +323,77 @@ func TestSetupRevokesSessionsOfAccountsChangedWhileStopped(t *testing.T) {
 	defer func() { assert.NoError(t, again.db.Close()) }()
 	var n int
 	require.NoError(t, again.db.QueryRowContext(ctx, `SELECT count(*) FROM sessions`).Scan(&n))
-	assert.Zero(t, n, "bob left the accounts file while the service was down")
+	assert.Zero(t, n, "bob is not an account")
+}
+
+var temporaryPattern = regexp.MustCompile(`[a-z2-9]{4}(?:-[a-z2-9]{4}){3}`)
+
+func TestResetPasswordCreatesThenResets(t *testing.T) {
+	ctx := context.Background()
+	env := devEnv(t, freePort(t))
+	var out bytes.Buffer
+	require.ErrorContains(t, run(ctx, []string{"reset-password", "carol"}, getenv(env), &out), "-name and -role")
+	// The username is trimmed and lowercased, like at sign-in.
+	require.NoError(t, run(ctx, []string{"reset-password", "-name", "Carol", "-role", "Secrétaire", " Carol "}, getenv(env), &out))
+	assert.Contains(t, out.String(), "Temporary password for carol:")
+	first := temporaryPattern.FindString(out.String())
+	require.NotEmpty(t, first, out.String())
+
+	out.Reset()
+	require.ErrorContains(t, run(ctx, []string{"reset-password", "-name", "Caro", "carol"}, getenv(env), &out), "never change")
+	require.NoError(t, run(ctx, []string{"reset-password", "carol"}, getenv(env), &out))
+	second := temporaryPattern.FindString(out.String())
+	require.NotEmpty(t, second)
+	assert.NotEqual(t, first, second)
+
+	cfg, err := config.Load(getenv(env))
+	require.NoError(t, err)
+	a, err := setup(ctx, cfg, quietLogger())
+	require.NoError(t, err)
+	defer func() { assert.NoError(t, a.db.Close()) }()
+	acc, ok := a.admins.Get("carol")
+	require.True(t, ok)
+	assert.Equal(t, "Carol", acc.Name)
+	assert.True(t, acc.MustChangePassword)
+	ok, err = admins.VerifyPassword(acc.PasswordHash, second)
+	require.NoError(t, err)
+	assert.True(t, ok)
+}
+
+// reset-password run while the service is stopped: the next start ends the
+// account's sessions.
+func TestResetPasswordWhileStoppedEndsSessions(t *testing.T) {
+	ctx := context.Background()
+	env := devEnv(t, freePort(t))
+	cfg, err := config.Load(getenv(env))
+	require.NoError(t, err)
+	a, err := setup(ctx, cfg, quietLogger())
+	require.NoError(t, err)
+	addAccounts(t, a.admins, "alice")
+	alice, _ := a.admins.Get("alice")
+	_, err = a.db.ExecContext(ctx, `INSERT INTO sessions (token_hash, username, credential_hash, created_at, expires_at) VALUES (x'01', 'alice', ?, 1, 9999999999)`,
+		alice.CredentialHash())
+	require.NoError(t, err)
+	require.NoError(t, a.db.Close())
+
+	require.NoError(t, run(ctx, []string{"reset-password", "alice"}, getenv(env), &bytes.Buffer{}))
+	again, err := setup(ctx, cfg, quietLogger())
+	require.NoError(t, err)
+	defer func() { assert.NoError(t, again.db.Close()) }()
+	var n int
+	require.NoError(t, again.db.QueryRowContext(ctx, `SELECT count(*) FROM sessions`).Scan(&n))
+	assert.Zero(t, n)
+}
+
+func TestSetupWarnsWhenTheOwnerAccountIsMissing(t *testing.T) {
+	env := devEnv(t, freePort(t))
+	env["OWNER_USERNAME"] = "alice"
+	cfg, err := config.Load(getenv(env))
+	require.NoError(t, err)
+	var logs bytes.Buffer
+	a, err := setup(context.Background(), cfg, slog.New(slog.NewTextHandler(&logs, nil)))
+	require.NoError(t, err)
+	defer func() { assert.NoError(t, a.db.Close()) }()
+	assert.Contains(t, logs.String(), "owner account missing")
+	assert.NotContains(t, logs.String(), "alice", "no username in logs")
 }

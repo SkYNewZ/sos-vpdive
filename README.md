@@ -22,15 +22,15 @@ You need Go (version in `go.mod`), `make` and `curl`.
 cp .env.example .env
 # In .env: APP_ENV=development, BASE_URL=http://sos.localhost:8080,
 # ADMIN_BASE_URL=http://comite.localhost:8080, SECRET_KEY=$(openssl rand -base64 32),
-# and empty TURNSTILE_* and S3_* values.
-go run ./cmd/sos-vpdive hash-password        # type a password twice
-mkdir -p admins && cp admins.example.yaml admins/admins.yaml   # paste the hash
+# OWNER_USERNAME=alice, and empty TURNSTILE_* and S3_* values.
+make account ARGS='-name Alice -role Présidente alice'   # prints a temporary password
 make run
 ```
 
-Sign in at http://comite.localhost:8080 and import the members list on the
-Imports page. The members site is http://sos.localhost:8080. Without `S3_*`,
-screenshots are stored under `DATA_DIR/captures`.
+Sign in at http://comite.localhost:8080 with that password: the first sign-in
+asks for a new one. Then import the members list on the Imports page. The
+members site is http://sos.localhost:8080. Without `S3_*`, screenshots are
+stored under `DATA_DIR/captures`.
 
 `make test`, `make lint` and `make css` run the tests, the linter and the
 stylesheet build.
@@ -40,19 +40,24 @@ stylesheet build.
 ```sh
 docker build --build-arg VERSION=$(git describe --tags --always) -t sos-vpdive:local .
 cp .env.example .env                                    # fill in every required value
-docker run --rm -it sos-vpdive:local hash-password      # once per committee account
-mkdir -p admins && cp admins.example.yaml admins/admins.yaml   # paste the hashes
 docker compose up -d --wait
+docker compose exec app /sos-vpdive reset-password -name "First name" -role "Function" <OWNER_USERNAME>
 ```
 
 `.env.example` lists every variable with a comment. The service refuses to
 start when a required one is missing or invalid, and names it.
 
 The image is distroless and runs as a non-root user on a read-only file
-system. The database lives in the `/data` volume. Compose mounts the
-`admins/` directory rather than the file: editors that save by renaming the
-file would otherwise go unnoticed. Changes to the accounts file apply at
-once.
+system. The database lives in the `/data` volume. The owner
+(`OWNER_USERNAME`) creates the other committee accounts on the « Comptes »
+page, each with a temporary password to change at the first sign-in. If the
+owner loses their password, this prints a new temporary one:
+
+```sh
+docker compose exec app /sos-vpdive reset-password <OWNER_USERNAME>
+```
+
+The image has no shell, so `exec` runs the binary itself.
 
 ### Reverse proxy
 
@@ -246,8 +251,8 @@ them in clear, like the club mailbox. An alert is sent once; if that fails,
 the mail still arrives.
 
 - Pushover: set `PUSHOVER_APP_TOKEN` to the token of an application created
-  on pushover.net, and give each resolver who wants alerts a
-  `pushover_user_key` in the accounts file.
+  on pushover.net. Each resolver who wants alerts sets their user key on the
+  « Notifications » page.
 - Web Push: run `sos-vpdive vapid-keys` once and copy both keys into `.env`.
   Keep them, because new keys end every subscription. Set `VAPID_SUBJECT` to
   the club's bare address, `mailto:club@example.org`: the service refuses
@@ -317,8 +322,7 @@ docker compose exec app /sos-vpdive backup /data/backup-$(date +%F).db
 docker compose cp app:/data/backup-$(date +%F).db .
 ```
 
-To restore on a blank machine, bring the same `.env` (same `SECRET_KEY`) and
-`admins/admins.yaml`, then:
+To restore on a blank machine, bring the same `.env` (same `SECRET_KEY`), then:
 
 ```sh
 docker compose stop app      # skip on a blank machine

@@ -16,7 +16,6 @@ import (
 	netmail "net/mail"
 	"net/netip"
 	"net/url"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -96,16 +95,15 @@ func (f *fakeSender) Send(_ context.Context, m mail.Message) error {
 }
 
 type testEnv struct {
-	srv        *Server
-	deps       Deps
-	db         *sql.DB
-	logs       *syncBuffer
-	clock      *testClock
-	adminsPath string
-	sender     *fakeSender
-	blobs      blobs.Store
-	sentry     *sentry.Client // every test env reports to Sentry, in memory
-	sentryOut  *sentry.MockTransport
+	srv       *Server
+	deps      Deps
+	db        *sql.DB
+	logs      *syncBuffer
+	clock     *testClock
+	sender    *fakeSender
+	blobs     blobs.Store
+	sentry    *sentry.Client // every test env reports to Sentry, in memory
+	sentryOut *sentry.MockTransport
 }
 
 // syncBuffer collects logs written from several goroutines.
@@ -133,16 +131,6 @@ func mustURL(t *testing.T, raw string) *url.URL {
 	return u
 }
 
-func accountsFile(accounts ...admins.Account) string {
-	var b strings.Builder
-	b.WriteString("admins:\n")
-	for _, a := range accounts {
-		b.WriteString("  - username: " + a.Username + "\n    name: " + a.Name + "\n    role: " + a.Role +
-			"\n    password_hash: \"" + a.PasswordHash + "\"\n")
-	}
-	return b.String()
-}
-
 func alice() admins.Account {
 	return admins.Account{Username: "alice", Name: "Alice", Role: "Présidente", PasswordHash: testHash()}
 }
@@ -158,18 +146,16 @@ func newTestEnv(t *testing.T, opts ...func(*Deps)) *testEnv {
 	require.NoError(t, err)
 	require.NoError(t, store.CheckKey(ctx, db, keys))
 
-	adminsPath := filepath.Join(dir, "admins.yaml")
-	require.NoError(t, os.WriteFile(adminsPath, []byte(accountsFile(alice())), 0o600))
 	logs := &syncBuffer{}
 	sentryTransport := &sentry.MockTransport{}
 	sentryClient, err := telemetry.NewSentry(telemetry.SentryOptions{DSN: "https://public@sentry.example.org/1", Transport: sentryTransport})
 	require.NoError(t, err)
 	t.Cleanup(sentryClient.Close)
 	logger := telemetry.WithSentry(ctx, telemetry.NewLogger(logs, slog.LevelDebug), sentryClient)
-	registry, err := admins.Load(adminsPath, logger)
-	require.NoError(t, err)
-
 	clock := &testClock{t: time.Date(2026, 9, 2, 10, 0, 0, 0, time.UTC)}
+	registry, err := admins.Open(ctx, db, keys, logger, clock.now)
+	require.NoError(t, err)
+	require.NoError(t, registry.Insert(ctx, alice()))
 	cfg := &config.Config{
 		Env:            config.EnvDevelopment,
 		BaseURL:        mustURL(t, "https://"+publicHost),
@@ -184,6 +170,7 @@ func newTestEnv(t *testing.T, opts ...func(*Deps)) *testEnv {
 		AgeAlertAfter:  168 * time.Hour,
 		RetentionDays:  365,
 		FormRateLimit:  20,
+		Owner:          "alice",
 	}
 	catalog, err := tickets.LoadCatalog(sosvpdive.Content)
 	require.NoError(t, err)
@@ -212,8 +199,9 @@ func newTestEnv(t *testing.T, opts ...func(*Deps)) *testEnv {
 	}
 	srv, err := New(deps)
 	require.NoError(t, err)
+	registry.OnChange = srv.AccountsChanged
 	return &testEnv{
-		srv: srv, deps: deps, db: db, logs: logs, clock: clock, adminsPath: adminsPath,
+		srv: srv, deps: deps, db: db, logs: logs, clock: clock,
 		sender: &fakeSender{}, blobs: blobStore, sentry: sentryClient, sentryOut: sentryTransport,
 	}
 }
@@ -293,6 +281,12 @@ func (e *testEnv) login(t *testing.T) *http.Cookie {
 	rec := e.postLogin(t, "alice", testPassword)
 	require.Equal(t, http.StatusSeeOther, rec.Code, rec.Body.String())
 	return sessionCookie(t, rec)
+}
+
+// postAs posts the form v to path on the committee site as cookie's session.
+func (e *testEnv) postAs(t *testing.T, cookie *http.Cookie, path string, v url.Values) *httptest.ResponseRecorder {
+	t.Helper()
+	return e.do(t, http.MethodPost, adminHost, path, formBody(v), formType, withCookie(cookie))
 }
 
 // csrf loads a committee page and returns its anti-CSRF token.

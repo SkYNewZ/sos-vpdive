@@ -33,17 +33,26 @@ func sessionFrom(ctx context.Context) (session, bool) {
 }
 
 // startSession stores a new session and sets its cookie. A new token is
-// drawn at each login.
-func (s *Server) startSession(ctx context.Context, w http.ResponseWriter, a admins.Account) error {
+// drawn at each login and each password change. replaces, when set, is the
+// session the new one takes over from: its push subscriptions move to the
+// new one, then it ends.
+func (s *Server) startSession(ctx context.Context, w http.ResponseWriter, a admins.Account, replaces []byte) error {
 	token, err := secure.NewToken()
 	if err != nil {
 		return err
 	}
-	now := s.now()
+	now, hash := s.now(), secure.TokenHash(token)
 	err = store.Tx(ctx, s.db, "session.create", func(ctx context.Context, tx *sql.Tx) error {
-		_, err := tx.ExecContext(ctx,
+		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO sessions (token_hash, username, credential_hash, created_at, expires_at) VALUES (?, ?, ?, ?, ?)`,
-			secure.TokenHash(token), a.Username, a.CredentialHash(), now.Unix(), now.Add(sessionTTL).Unix())
+			hash, a.Username, a.CredentialHash(), now.Unix(), now.Add(sessionTTL).Unix()); err != nil || replaces == nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE push_subscriptions SET session_token_hash = ? WHERE session_token_hash = ?`, hash, replaces); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE token_hash = ?`, replaces)
 		return err
 	})
 	if err != nil {
@@ -53,11 +62,19 @@ func (s *Server) startSession(ctx context.Context, w http.ResponseWriter, a admi
 		Name: sessionCookieName, Value: token, Path: "/", MaxAge: int(sessionTTL / time.Second),
 		Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode,
 	})
+	if replaces != nil {
+		s.disconnectSession(replaces)
+	}
 	return nil
 }
 
+// disconnectSession closes the event streams of a session that ended.
+func (s *Server) disconnectSession(hash []byte) {
+	s.broker.disconnect(func(sub *subscriber) bool { return sub.session == string(hash) })
+}
+
 // sessionOf returns the request's session. A session that expired, whose
-// account left the accounts file, or whose password changed is deleted.
+// account is gone, or whose password changed is deleted.
 func (s *Server) sessionOf(r *http.Request) (session, bool) {
 	c, err := r.Cookie(sessionCookieName)
 	if err != nil || c.Value == "" {
@@ -80,10 +97,29 @@ func (s *Server) sessionOf(r *http.Request) (session, bool) {
 	}
 	a, ok := s.admins.Current(username, credential)
 	if !ok || s.now().Unix() >= expires {
-		s.deleteSession(ctx, hash)
+		if _, err := deleteStaleSession(ctx, s.db, hash, credential); err != nil {
+			s.logger.ErrorContext(ctx, "delete session", "error", err)
+		}
 		return session{}, false
 	}
 	return session{account: a, hash: hash}, true
+}
+
+// deleteStaleSession deletes a session found stale or expired, only while it
+// still holds credential, the hash read to decide so: a password change may
+// have kept the session since. It reports whether the session was deleted.
+func deleteStaleSession(ctx context.Context, db execer, hash, credential []byte) (bool, error) {
+	res, err := db.ExecContext(ctx, `DELETE FROM sessions WHERE token_hash = ? AND credential_hash = ?`, hash, credential)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
+// execer is what *sql.DB and *sql.Tx share for writes.
+type execer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
 func (s *Server) deleteSession(ctx context.Context, hash []byte) {
@@ -93,7 +129,8 @@ func (s *Server) deleteSession(ctx context.Context, hash []byte) {
 }
 
 // signedIn lets only committee members through. A page request goes to the
-// login page; any other request is refused.
+// login page; any other request is refused. A temporary password leads every
+// page to « Mon compte » until it is changed.
 func (s *Server) signedIn(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		sess, ok := s.sessionOf(r)
@@ -103,6 +140,14 @@ func (s *Server) signedIn(next http.HandlerFunc) http.HandlerFunc {
 				return
 			}
 			s.writeText(w, r, http.StatusForbidden, "Session expirée : reconnecte-toi.\n")
+			return
+		}
+		if sess.account.MustChangePassword && r.URL.Path != accountPath && r.URL.Path != "/deconnexion" {
+			if r.Method == http.MethodGet {
+				http.Redirect(w, r, accountPath, http.StatusSeeOther)
+				return
+			}
+			s.writeText(w, r, http.StatusForbidden, "Choisis d'abord ton mot de passe.\n")
 			return
 		}
 		next(w, r.WithContext(context.WithValue(r.Context(), ctxSession, sess)))
@@ -115,28 +160,23 @@ func (s *Server) csrfValid(r *http.Request, token string) bool {
 	return ok && s.keys.CheckCSRF(sess.hash, token)
 }
 
-// RevokeSessions deletes the sessions of accounts removed from the accounts
-// file or whose password changed, and closes their event streams (spec §4.1).
-func (s *Server) RevokeSessions(ctx context.Context, usernames []string) error {
-	err := store.Tx(ctx, s.db, "sessions.revoke", func(ctx context.Context, tx *sql.Tx) error {
-		for _, u := range usernames {
-			if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE username = ?`, u); err != nil {
-				return fmt.Errorf("revoke sessions: %w", err)
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return err
+// AccountsChanged is the accounts registry's OnChange: it ends the sessions
+// of removed accounts and changed passwords, and returns the open requests
+// of removed accounts to « à traiter » (spec §4.1).
+func (s *Server) AccountsChanged(ctx context.Context) {
+	if err := s.RevokeStale(ctx); err != nil {
+		s.logger.ErrorContext(ctx, "revoke sessions", "error", err)
 	}
-	s.broker.disconnect(func(sub *subscriber) bool { return slices.Contains(usernames, sub.username) })
-	return nil
+	if err := s.tickets.ReleaseMissing(ctx, s.admins.Has); err != nil {
+		s.logger.ErrorContext(ctx, "release requests of removed accounts", "error", err)
+	}
 }
 
-// RevokeStale deletes the sessions whose account left the accounts file or
-// changed its password while the service was stopped (spec §4.1); the reload
-// watcher revokes those that change while it runs. Their push subscriptions
-// go with them (ON DELETE CASCADE).
+// RevokeStale deletes the sessions whose account is gone or whose password
+// changed, and closes their event streams. Their push subscriptions go with
+// them (ON DELETE CASCADE). It runs at startup, for changes made while the
+// service was stopped (reset-password, a restored backup), and after every
+// account change.
 func (s *Server) RevokeStale(ctx context.Context) error {
 	type stored struct {
 		hash       []byte
@@ -151,17 +191,28 @@ func (s *Server) RevokeStale(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("read sessions: %w", err)
 	}
-	return store.Tx(ctx, s.db, "sessions.revoke_stale", func(ctx context.Context, tx *sql.Tx) error {
+	var gone []string
+	err = store.Tx(ctx, s.db, "sessions.revoke_stale", func(ctx context.Context, tx *sql.Tx) error {
+		gone = gone[:0]
 		for _, st := range all {
 			if _, ok := s.admins.Current(st.username, st.credential); ok {
 				continue
 			}
-			if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE token_hash = ?`, st.hash); err != nil {
+			deleted, err := deleteStaleSession(ctx, tx, st.hash, st.credential)
+			if err != nil {
 				return fmt.Errorf("revoke stale session: %w", err)
+			}
+			if deleted {
+				gone = append(gone, string(st.hash))
 			}
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	s.broker.disconnect(func(sub *subscriber) bool { return slices.Contains(gone, sub.session) })
+	return nil
 }
 
 // Purge applies the retention of spec §8.3 to sessions (expired for a day)

@@ -8,10 +8,11 @@ import (
 	"crypto/elliptic"
 	"encoding/base64"
 	"errors"
+	"html"
 	"maps"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
-	"os"
 	"strings"
 	"testing"
 
@@ -70,18 +71,47 @@ func TestNotificationsPageStates(t *testing.T) {
 	body = e.do(t, http.MethodGet, adminHost, "/notifications", nil, withCookie(cookie)).Body.String()
 	assert.Contains(t, body, `data-vapid-key="`+e.deps.Config.VAPID.PublicKey+`"`)
 	assert.Contains(t, body, `data-subscribed="false"`)
-	assert.Contains(t, body, "dans le fichier des comptes", "alice has no Pushover key yet")
+	assert.Contains(t, body, "colle ici ta clé utilisateur", "alice has no Pushover key yet")
 	assert.Equal(t, http.StatusNotFound, e.do(t, http.MethodGet, publicHost, "/notifications", nil).Code, "committee host only")
 	assert.Equal(t, http.StatusNotFound, e.do(t, http.MethodPost, publicHost, "/push/abonnement", formBody(browserKeys(t)), formType).Code)
 
-	accounts, err := os.ReadFile(e.adminsPath)
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(e.adminsPath, append(accounts, []byte("    pushover_user_key: "+pushoverUserKey+"\n")...), 0o600))
-	_, err = e.deps.Admins.Reload()
-	require.NoError(t, err)
+	require.NoError(t, e.deps.Admins.SetPushoverKey(context.Background(), "alice", pushoverUserKey))
 	body = e.do(t, http.MethodGet, adminHost, "/notifications", nil, withCookie(cookie)).Body.String()
-	assert.Contains(t, body, "Actif pour ton compte")
+	assert.Contains(t, body, "Actif : chaque alerte arrive aussi dans ton appli Pushover.")
 	assert.NotContains(t, body, pushoverUserKey, "the key never reaches a page")
+}
+
+func TestPushoverKeyForm(t *testing.T) {
+	e := newTestEnv(t, func(d *Deps) { d.Config.PushoverToken = "app-token" })
+	cookie := e.login(t)
+	csrf := e.csrf(t, cookie, "/notifications")
+	post := func(v url.Values) *httptest.ResponseRecorder {
+		v.Set("csrf", csrf)
+		return e.postAs(t, cookie, "/notifications/pushover", v)
+	}
+
+	rec := post(url.Values{"cle": {"not a key"}, "action": {"enregistrer"}})
+	assert.Equal(t, http.StatusUnprocessableEntity, rec.Code)
+	body := html.UnescapeString(rec.Body.String())
+	assert.Contains(t, body, "Une clé Pushover fait 30 lettres et chiffres. Copie-la depuis pushover.net.")
+	assert.Contains(t, body, `aria-invalid="true"`)
+
+	rec = post(url.Values{"cle": {"  " + pushoverUserKey + " "}, "action": {"enregistrer"}})
+	require.Equal(t, http.StatusSeeOther, rec.Code)
+	a, _ := e.deps.Admins.Get("alice")
+	assert.Equal(t, pushoverUserKey, a.PushoverUserKey, "spaces around a pasted key are dropped")
+	page := e.do(t, http.MethodGet, adminHost, "/notifications", nil, withCookie(cookie)).Body.String()
+	assert.Contains(t, page, "Ne plus recevoir sur Pushover")
+	assert.NotContains(t, page, pushoverUserKey, "the key never reaches a page")
+
+	require.Equal(t, http.StatusSeeOther, post(url.Values{"action": {"retirer"}}).Code)
+	a, _ = e.deps.Admins.Get("alice")
+	assert.Empty(t, a.PushoverUserKey)
+
+	off := newTestEnv(t)
+	offCookie := off.login(t)
+	assert.Equal(t, http.StatusNotFound, off.postAs(t, offCookie, "/notifications/pushover",
+		url.Values{"csrf": {off.csrf(t, offCookie, "/notifications")}}).Code, "no Pushover token, no form")
 }
 
 // « M'envoyer une notification de test » pushes to this session's device
@@ -165,6 +195,6 @@ func TestPushSubscriptionRoutes(t *testing.T) {
 	require.Equal(t, http.StatusNoContent, e.pushPost(t, "/push/abonnement", third, valid))
 	assert.Equal(t, 1, e.count(t, "push_subscriptions"), "the same browser after a new login: one row")
 
-	require.NoError(t, e.srv.RevokeSessions(ctx, []string{"alice"}))
+	require.NoError(t, e.deps.Admins.Delete(ctx, "alice"))
 	assert.Zero(t, e.count(t, "push_subscriptions"), "removing an account deletes its subscriptions (spec §13)")
 }

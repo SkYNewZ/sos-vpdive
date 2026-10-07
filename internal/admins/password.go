@@ -18,7 +18,7 @@ const (
 	argonThreads = 4
 	argonKeyLen  = 32
 	argonSaltLen = 16
-	// Bounds accepted when reading a hash, so a malformed accounts file cannot
+	// Bounds accepted when reading a hash, so a malformed stored hash cannot
 	// make a login allocate gigabytes or loop for minutes.
 	maxMemory = 1024 * 1024 // KiB
 	maxTime   = 10
@@ -28,7 +28,7 @@ const (
 
 var b64 = base64.RawStdEncoding
 
-var errBadHash = errors.New("not an argon2id hash produced by hash-password")
+var errBadHash = errors.New("not an argon2id hash produced by HashPassword")
 
 type argonParams struct {
 	time    uint32

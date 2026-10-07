@@ -29,9 +29,22 @@
 </section>
 {{end}}
 {{if $d.Pushover}}
-<section class="mt-8" aria-labelledby="pushover">
+<section class="mt-8 max-w-xl" aria-labelledby="pushover">
 <h2 id="pushover" class="text-xl font-semibold">Pushover</h2>
-<p class="mt-3">{{if $d.PushoverOn}}Actif pour ton compte : chaque alerte arrive aussi dans ton application Pushover.{{else}}Pas configuré pour ton compte : ta clé Pushover se règle dans le fichier des comptes.{{end}}</p>
+<p class="mt-3">Pushover est une appli qui reçoit des notifications sur ton téléphone. Elle est payante après un essai gratuit. Si tu l'utilises, colle ici ta clé utilisateur : elle s'affiche sur <a class="link link-primary" href="https://pushover.net">pushover.net</a>, après connexion.</p>
+{{if $d.PushoverOn}}<p class="mt-3 font-semibold">Actif : chaque alerte arrive aussi dans ton appli Pushover.</p>{{end}}
+<form method="post" action="/notifications/pushover" class="mt-4 flex flex-col gap-4">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<div class="flex flex-col gap-1">
+<label class="font-semibold" for="cle">Ta clé utilisateur</label>
+<input class="input w-full" id="cle" name="cle" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="40" required{{if $d.PushoverError}} aria-invalid="true" aria-describedby="cle-erreur"{{end}}>
+{{with $d.PushoverError}}<p id="cle-erreur" class="font-semibold text-error">{{.}}</p>{{end}}
+</div>
+<div class="flex flex-wrap gap-3">
+<button class="btn btn-primary min-h-11" type="submit" name="action" value="enregistrer">Enregistrer</button>
+{{if $d.PushoverOn}}<button class="btn btn-outline min-h-11" type="submit" name="action" value="retirer" formnovalidate>Ne plus recevoir sur Pushover</button>{{end}}
+</div>
+</form>
 </section>
 {{end}}
 {{if not (or $d.VAPIDKey $d.Pushover)}}<p class="mt-6">Aucune notification sur téléphone n'est configurée sur ce serveur.</p>{{end}}

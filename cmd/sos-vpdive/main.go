@@ -14,7 +14,7 @@ const usage = `usage: sos-vpdive <command>
 
 commands:
   serve            run the web server for both domains
-  hash-password    read a password and print its argon2id hash for admins.yaml
+  reset-password   create an account or give it a temporary password ([-name N -role F] <user>)
   backup <file>    write a consistent copy of the database to <file>
   restore <file>   replace the database with <file> (stop the service first)
   healthcheck      exit 0 when the local server answers /healthz
@@ -32,7 +32,7 @@ type usageError struct{ msg string }
 func (e usageError) Error() string { return e.msg }
 
 func main() {
-	err := run(context.Background(), os.Args[1:], os.Getenv, os.Stdin, os.Stdout)
+	err := run(context.Background(), os.Args[1:], os.Getenv, os.Stdout)
 	if err == nil {
 		return
 	}
@@ -44,15 +44,15 @@ func main() {
 	os.Exit(1)
 }
 
-func run(ctx context.Context, args []string, getenv func(string) string, stdin io.Reader, stdout io.Writer) error {
+func run(ctx context.Context, args []string, getenv func(string) string, stdout io.Writer) error {
 	if len(args) == 0 {
 		return usageError{"missing command"}
 	}
 	switch args[0] {
 	case "serve":
 		return serve(ctx, getenv, stdout)
-	case "hash-password":
-		return hashPassword(stdin, stdout)
+	case "reset-password":
+		return resetPassword(ctx, getenv, args[1:], stdout)
 	case "backup":
 		if len(args) != 2 {
 			return usageError{"backup needs a destination file"}

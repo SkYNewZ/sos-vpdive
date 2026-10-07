@@ -18,7 +18,7 @@
 <div data-old-browser hidden>
 <p>Ton navigateur est trop ancien pour ce site. Mets-le à jour, ou écris au club : <a href="mailto:{{.ClubEmail}}">{{.ClubEmail}}</a>.</p>
 </div>
-{{if .Account}}{{template "committeeShell" .}}{{else}}{{template "plainShell" .}}{{end}}
+{{if and .Account (not .Bare)}}{{template "committeeShell" .}}{{else}}{{template "plainShell" .}}{{end}}
 </body>
 </html>{{end}}
 
@@ -30,7 +30,7 @@
 <span>Une nouvelle version du site est disponible.</span>
 <button class="btn btn-sm btn-primary min-h-11" type="button" data-update-reload>Recharger</button>
 </div>
-{{if .Account}}<div data-open-banner hidden role="status" class="alert alert-soft alert-info mb-4">
+{{if and .Account (not .Bare)}}<div data-open-banner hidden role="status" class="alert alert-soft alert-info mb-4">
 <span>Une notification est arrivée pendant ta saisie. Envoie d'abord ce que tu écris, puis <a class="link font-semibold" href="/" data-open-link>ouvre la demande</a>.</span>
 </div>
 {{end}}{{range .Notices}}{{template "notice" .}}{{end}}{{end}}
@@ -48,10 +48,10 @@
 <aside class="hidden border-r border-base-300 bg-base-300/40 lg:sticky lg:top-0 lg:flex lg:h-dvh lg:w-60 lg:flex-none lg:flex-col lg:px-3 lg:py-5">
 <a class="px-3 pb-5 text-lg font-bold text-primary" href="/">SOS CPP Comité</a>
 <nav aria-label="Navigation du comité">
-<ul class="flex flex-col gap-1 [&_svg]:size-5">{{range navItems}}{{if not .PhoneOnly}}<li><a class="flex min-h-11 items-center gap-3 rounded-field border-l-4 px-3 {{if eq .Section $.Section}}border-primary bg-base-100 font-bold text-primary{{else}}border-transparent hover:bg-base-100{{end}}" href="{{.Path}}"{{if eq .Section $.Section}} aria-current="page"{{end}}>{{template "icon" .Icon}}<span>{{.Label}}</span></a></li>{{end}}{{end}}</ul>
+<ul class="flex flex-col gap-1 [&_svg]:size-5">{{range $.Nav}}{{if not .PhoneOnly}}<li><a class="flex min-h-11 items-center gap-3 rounded-field border-l-4 px-3 {{if eq .Section $.Section}}border-primary bg-base-100 font-bold text-primary{{else}}border-transparent hover:bg-base-100{{end}}" href="{{.Path}}"{{if eq .Section $.Section}} aria-current="page"{{end}}>{{template "icon" .Icon}}<span>{{.Label}}</span></a></li>{{end}}{{end}}</ul>
 </nav>
 <div class="mt-auto border-t border-base-300 px-3 pt-4">
-<div class="flex items-center gap-3"><img src="{{.Account.Avatar}}" alt="" width="32" height="32" class="size-8"><span class="min-w-0 text-sm"><span class="block truncate font-semibold">{{.Account.Name}}</span><span class="block truncate">{{.Account.Role}}</span></span></div>
+<a class="flex min-h-11 items-center gap-3 rounded-field hover:bg-base-100" href="/compte"{{if eq $.Section "compte"}} aria-current="page"{{end}}><img src="{{.Account.Avatar}}" alt="" width="32" height="32" class="size-8"><span class="min-w-0 text-sm"><span class="block truncate font-semibold">{{.Account.Name}}</span><span class="block truncate">{{.Account.Role}}</span></span></a>
 <form method="post" action="/deconnexion" class="mt-2">
 <input type="hidden" name="csrf" value="{{.CSRF}}">
 <button class="btn btn-ghost btn-sm min-h-11 px-0" type="submit">Se déconnecter</button>
@@ -72,9 +72,13 @@
 </div>
 </div>
 <nav class="dock border-t border-base-300 lg:hidden" aria-label="Onglets du comité">
-{{range navItems}}{{if .Tab}}<a class="{{if eq .Section $.Tab}}font-bold text-primary{{else}}text-base-content/70{{end}}" href="{{.Path}}"{{if eq .Section $.Tab}} aria-current="page"{{end}}>{{template "icon" .Icon}}<span class="dock-label">{{.Label}}</span></a>
+{{range $.Nav}}{{if .Tab}}<a class="{{if eq .Section $.Tab}}font-bold text-primary{{else}}text-base-content/70{{end}}" href="{{.Path}}"{{if eq .Section $.Tab}} aria-current="page"{{end}}>{{template "icon" .Icon}}<span class="dock-label">{{.Label}}</span></a>
 {{end}}{{end}}</nav>
 <div data-toasts aria-live="polite" class="fixed right-6 bottom-6 z-20 hidden w-96 flex-col gap-2 lg:flex"></div>{{end}}
+
+{{/* The avatar, name, role and identifier of an account, in a panel of the caller. */}}
+{{define "identity"}}<img src="{{.Avatar}}" alt="" width="40" height="40" class="size-10">
+<p><span class="block font-semibold">{{.Name}}</span><span class="block text-sm">{{.Role}}</span><span class="block text-sm">Identifiant : {{.Username}}</span></p>{{end}}
 
 {{define "icon"}}<svg class="size-6 flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-{{.}}"></use></svg>{{end}}
 
@@ -86,7 +90,8 @@
 <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m17 8-5-5-5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></symbol>
 <symbol id="i-user-x" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="17" x2="22" y1="8" y2="13"/><line x1="22" x2="17" y1="8" y2="13"/></symbol>
 <symbol id="i-bell" viewBox="0 0 24 24"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></symbol>
-<symbol id="i-ellipsis" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></symbol>{{end}}
+<symbol id="i-ellipsis" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></symbol>
+<symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><path d="M16 3.128a4 4 0 0 1 0 7.744"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><circle cx="9" cy="7" r="4"/></symbol>{{end}}
 
 
 {{define "statusClass"}}{{if eq . "todo"}}badge-info{{else if eq . "in_progress"}}badge-primary{{else if eq . "waiting"}}badge-warning{{else}}badge-success{{end}}{{end}}

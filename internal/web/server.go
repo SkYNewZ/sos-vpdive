@@ -134,7 +134,6 @@ func New(d Deps) (*Server, error) {
 		"age": s.age, "accountOf": s.accountOf, "actor": s.actorName, "isoDate": isoDate,
 		"fieldName": tickets.FieldName, "categoryLabel": func(id string) string { return s.tickets.Catalog.CategoryLabel(id) }, "describe": s.tickets.Describe,
 		"formField": newFormField, "themeColor": func() string { return themeColor }, "methodLabel": methodLabel,
-		"navItems": func() []navItem { return adminNav },
 	}
 	if s.pages, err = parsePages(funcs); err != nil {
 		return nil, err
@@ -210,7 +209,17 @@ func (s *Server) adminRoutes() *http.ServeMux {
 	s.handle(mux, "POST /anomalies/masquer", s.signedIn(s.dismissCheck))
 	s.handle(mux, "GET /envois", s.signedIn(s.failedMails))
 	s.handle(mux, "GET /notifications", s.signedIn(s.notificationsPage))
+	if s.cfg.PushoverToken != "" {
+		s.handle(mux, "POST /notifications/pushover", s.signedIn(s.savePushover))
+	}
 	s.handle(mux, "GET /plus", s.signedIn(s.plusPage))
+	s.handle(mux, "GET "+accountPath, s.signedIn(s.accountPage))
+	s.handle(mux, "POST "+accountPath, s.signedIn(s.changePassword))
+	s.handle(mux, "GET "+accountsPath, s.ownerOnly(s.accountsPage))
+	s.handle(mux, "POST "+accountsPath, s.ownerOnly(s.createAccount))
+	s.handle(mux, "GET "+accountsPath+"/{identifiant}", s.ownerOnly(s.managedAccountPage))
+	s.handle(mux, "POST "+accountsPath+"/{identifiant}/mot-de-passe", s.ownerOnly(s.resetAccount))
+	s.handle(mux, "POST "+accountsPath+"/{identifiant}/suppression", s.ownerOnly(s.deleteAccount))
 	if s.cfg.VAPID != nil {
 		s.handle(mux, "POST /push/abonnement", s.signedIn(s.subscribePush))
 		s.handle(mux, "POST /push/desabonnement", s.signedIn(s.unsubscribePush))
