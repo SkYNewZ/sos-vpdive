@@ -1,6 +1,6 @@
 {{define "main"}}
 {{$d := .Data}}
-{{if $d.Forced}}
+{{if .Account.MustChangePassword}}
 <div class="panel mx-auto max-w-sm p-6">
 <h1 class="text-2xl font-bold text-primary">Choisis ton mot de passe</h1>
 <p class="mt-2">Le mot de passe que tu as reçu ne sert qu'une fois.</p>
@@ -24,8 +24,8 @@
 
 {{define "passwordForm"}}{{$d := .Data}}<form method="post" action="/compte" class="mt-4 flex flex-col gap-4">
 <input type="hidden" name="csrf" value="{{.CSRF}}">
-<input type="text" name="username" value="{{$d.Username}}" autocomplete="username" hidden>
-{{if not $d.Forced}}{{$err := index $d.Errors "actuel"}}<div class="flex flex-col gap-1">
+<input type="text" name="username" value="{{.Account.Username}}" autocomplete="username" hidden>
+{{if not .Account.MustChangePassword}}{{$err := index $d.Errors "actuel"}}<div class="flex flex-col gap-1">
 <label class="font-semibold" for="actuel">Mot de passe actuel</label>
 <input class="input w-full" id="actuel" name="actuel" type="password" autocomplete="current-password" required{{if $err}} aria-invalid="true" aria-describedby="actuel-erreur"{{end}}>
 {{with $err}}<p id="actuel-erreur" class="font-semibold text-error">{{.}}</p>{{end}}
@@ -41,5 +41,5 @@
 <input class="input w-full" id="confirmation" name="confirmation" type="password" autocomplete="new-password" required{{if $err}} aria-invalid="true" aria-describedby="confirmation-erreur"{{end}}>
 {{with $err}}<p id="confirmation-erreur" class="font-semibold text-error">{{.}}</p>{{end}}
 </div>
-<button class="btn btn-primary min-h-11 self-start" type="submit">{{if $d.Forced}}Enregistrer mon mot de passe{{else}}Changer mon mot de passe{{end}}</button>
+<button class="btn btn-primary min-h-11 self-start" type="submit">{{if .Account.MustChangePassword}}Enregistrer mon mot de passe{{else}}Changer mon mot de passe{{end}}</button>
 </form>{{end}}

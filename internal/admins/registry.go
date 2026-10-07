@@ -7,7 +7,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"html/template"
 	"log/slog"
 	"slices"
 	"strings"
@@ -46,8 +45,7 @@ type Registry struct {
 	// changed: sessions must be revoked (spec §4.1).
 	OnChange func(ctx context.Context)
 
-	syncMu  sync.Mutex // one Reload at a time: a slower one never undoes a newer one
-	avatars map[string]template.URL
+	syncMu sync.Mutex // one Reload at a time: a slower one never undoes a newer one
 
 	mu       sync.RWMutex
 	accounts map[string]Account
@@ -59,7 +57,7 @@ func Open(ctx context.Context, db *sql.DB, keys *secure.Keys, logger *slog.Logge
 	if err != nil {
 		return nil, fmt.Errorf("avatar style: %w", err)
 	}
-	r := &Registry{db: db, keys: keys, logger: logger, now: now, style: style, avatars: map[string]template.URL{}}
+	r := &Registry{db: db, keys: keys, logger: logger, now: now, style: style}
 	if _, err := r.Reload(ctx); err != nil {
 		return nil, err
 	}
@@ -249,7 +247,7 @@ func (r *Registry) ChangePassword(ctx context.Context, username, password string
 func (r *Registry) SetPushoverKey(ctx context.Context, username, key string) error {
 	var sealed any
 	if key != "" {
-		if !ValidPushoverKey(key) {
+		if !pushoverKeyPattern.MatchString(key) {
 			return ErrPushoverKey
 		}
 		sealed = r.keys.SealString(key)
@@ -281,11 +279,10 @@ func (r *Registry) poll(ctx context.Context, failure string) string {
 
 func (r *Registry) scan(rows *sql.Rows) (Account, error) {
 	var (
-		a          Account
-		name, key  []byte
-		mustChange int
+		a         Account
+		name, key []byte
 	)
-	if err := rows.Scan(&a.Username, &name, &a.Role, &a.PasswordHash, &mustChange, &key); err != nil {
+	if err := rows.Scan(&a.Username, &name, &a.Role, &a.PasswordHash, &a.MustChangePassword, &key); err != nil {
 		return Account{}, err
 	}
 	var err error
@@ -297,25 +294,10 @@ func (r *Registry) scan(rows *sql.Rows) (Account, error) {
 			return Account{}, fmt.Errorf("account pushover key: %w", err)
 		}
 	}
-	a.MustChangePassword = mustChange == 1
-	if a.Avatar, err = r.avatar(a.Username); err != nil {
+	if a.Avatar, err = avatarURI(r.style, a.Username); err != nil {
 		return Account{}, err
 	}
 	return a, nil
-}
-
-// avatar is cached: Reload runs every Watch interval. Called with syncMu
-// held.
-func (r *Registry) avatar(username string) (template.URL, error) {
-	if u, ok := r.avatars[username]; ok {
-		return u, nil
-	}
-	u, err := avatarURI(r.style, username)
-	if err != nil {
-		return "", err
-	}
-	r.avatars[username] = u
-	return u, nil
 }
 
 // sync reloads the accounts and runs OnChange when one was removed or its

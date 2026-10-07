@@ -283,13 +283,13 @@ func (e *testEnv) login(t *testing.T) *http.Cookie {
 	return sessionCookie(t, rec)
 }
 
-// csrf loads a committee page and returns its anti-CSRF token.
 // postAs posts the form v to path on the committee site as cookie's session.
 func (e *testEnv) postAs(t *testing.T, cookie *http.Cookie, path string, v url.Values) *httptest.ResponseRecorder {
 	t.Helper()
 	return e.do(t, http.MethodPost, adminHost, path, formBody(v), formType, withCookie(cookie))
 }
 
+// csrf loads a committee page and returns its anti-CSRF token.
 func (e *testEnv) csrf(t *testing.T, cookie *http.Cookie, path string) string {
 	t.Helper()
 	rec := e.do(t, http.MethodGet, adminHost, path, nil, withCookie(cookie))

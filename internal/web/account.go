@@ -14,10 +14,8 @@ const accountPath = "/compte"
 
 // accountData feeds templates/compte.html.
 type accountData struct {
-	Forced   bool              // a temporary password is in place: the page stands alone
-	Username string            // for password managers
-	MinLen   int               // shortest password accepted
-	Errors   map[string]string // by field: actuel, nouveau, confirmation
+	MinLen int               // shortest password accepted
+	Errors map[string]string // by field: actuel, nouveau, confirmation
 }
 
 func (s *Server) accountPage(w http.ResponseWriter, r *http.Request) {
@@ -30,9 +28,9 @@ func (s *Server) accountPage(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) renderAccount(w http.ResponseWriter, r *http.Request, status int, d accountData, n *notice) {
 	sess, _ := sessionFrom(r.Context())
-	d.Forced, d.Username, d.MinLen = sess.account.MustChangePassword, sess.account.Username, admins.MinPasswordLength
+	d.MinLen = admins.MinPasswordLength
 	var p page
-	if d.Forced {
+	if sess.account.MustChangePassword { // a temporary password is in place: the page stands alone
 		p = s.newPage(r, "Choisis ton mot de passe")
 		p.Bare = true // no navigation while every page leads here
 	} else {

@@ -12,16 +12,11 @@ import (
 // amended).
 const accountsPath = "/comptes"
 
-// newAccount is the creation form as typed.
-type newAccount struct {
-	Username, Name, Role string
-}
-
 // accountsData feeds templates/comptes.html.
 type accountsData struct {
 	Accounts []admins.Account
 	Owner    string
-	New      newAccount
+	New      admins.Account    // the creation form as typed
 	Errors   map[string]string // by field: identifiant, nom, fonction
 }
 
@@ -76,7 +71,7 @@ func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	f := r.PostForm
-	in := newAccount{
+	in := admins.Account{
 		Username: admins.NormalizeUsername(f.Get("identifiant")),
 		Name:     strings.TrimSpace(f.Get("nom")),
 		Role:     strings.TrimSpace(f.Get("fonction")),

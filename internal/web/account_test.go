@@ -114,8 +114,7 @@ func TestCurrentPasswordIsRateLimited(t *testing.T) {
 	cookie := e.login(t)
 	csrf := e.csrf(t, cookie, "/compte")
 	post := func(current string) (int, string) {
-		code, body := e.postAccount(t, cookie, url.Values{"csrf": {csrf}, "actuel": {current}, "nouveau": {newPassword}, "confirmation": {newPassword}})
-		return code, body
+		return e.postAccount(t, cookie, url.Values{"csrf": {csrf}, "actuel": {current}, "nouveau": {newPassword}, "confirmation": {newPassword}})
 	}
 	for range userFailureLimit {
 		code, _ := post("wrong password")

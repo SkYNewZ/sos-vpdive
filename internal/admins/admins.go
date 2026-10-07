@@ -53,11 +53,6 @@ func ValidUsername(u string) bool {
 	return usernamePattern.MatchString(u)
 }
 
-// ValidPushoverKey reports whether k looks like a Pushover user key.
-func ValidPushoverKey(k string) bool {
-	return pushoverKeyPattern.MatchString(k)
-}
-
 // temporaryAlphabet leaves out 0, 1, l and o, easily misread when the
 // password is read aloud or copied from a screen. 32 symbols: a random byte
 // masked to 5 bits picks one uniformly.
