@@ -453,6 +453,7 @@ the login username in `.github/workflows/ci.yml` and sets its own secret.
 | `github.com/stretchr/testify` | Tests only |
 | Tailwind CSS standalone CLI v4, daisyUI 5 (vendored `.mjs`) | Stylesheet built without Node or npm, checksums verified |
 | Atkinson Hyperlegible Next | Self-hosted font, SIL Open Font License (`internal/web/static/fonts/OFL.txt`) |
+| Lucide icons (1.52) | The eight committee navigation icons, copied as inline SVG symbols into `internal/web/templates/layout.html`; nothing is loaded from a third party. ISC license, with the MIT notice of the Feather icons they derive from (`third_party/lucide/LICENSE`) |
 
 ## License
 

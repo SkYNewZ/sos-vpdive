@@ -1,0 +1,15 @@
+{{define "main"}}
+<h1 class="text-2xl font-bold text-primary max-lg:sr-only">Plus</h1>
+<div class="panel flex items-center gap-3 p-4 lg:mt-6">
+<img src="{{.Account.Avatar}}" alt="" width="40" height="40" class="size-10">
+<p><span class="block font-semibold">{{.Account.Name}}</span><span class="block text-sm">{{.Account.Role}}</span></p>
+</div>
+<nav class="mt-4" aria-label="Autres pages du comité">
+<ul class="panel divide-y divide-base-300">{{range navItems}}{{if not .Tab}}<li><a class="flex min-h-14 items-center gap-3 px-4 text-lg [&_svg]:text-primary" href="{{.Path}}">{{template "icon" .Icon}}<span class="flex-1">{{.Label}}</span><span aria-hidden="true">›</span></a></li>
+{{end}}{{end}}</ul>
+</nav>
+<form method="post" action="/deconnexion" class="mt-6">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<button class="btn btn-outline btn-error min-h-11 w-full sm:w-auto" type="submit">Se déconnecter</button>
+</form>
+{{end}}

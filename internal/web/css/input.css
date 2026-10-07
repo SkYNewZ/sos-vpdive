@@ -1,6 +1,7 @@
 /* Club stylesheet: Tailwind CSS 4 and daisyUI 5, built by scripts/tailwind.sh.
-   Spec §12: one light theme "cpp", the club navy as the only accent, thin
-   borders, small radii, no depth, no noise, one self-hosted sans-serif face.
+   Spec §12: one light theme "cpp", the club navy as the only accent, warm
+   sand neutrals, thin borders, small radii, no depth, no noise, one
+   self-hosted sans-serif face.
    Templates use semantic colors only (primary, base-*, info, success,
    warning, error), never raw colors. */
 @import "tailwindcss" source(none);
@@ -19,16 +20,16 @@
   color-scheme: light;
 
   --color-base-100: #ffffff;
-  --color-base-200: #f3f5f7;
-  --color-base-300: #dfe5eb;
-  --color-base-content: #14181c;
+  --color-base-200: #f6f2ec;
+  --color-base-300: #e4dccf;
+  --color-base-content: #1b1d1f;
   --color-primary: #0b2e4a;
   --color-primary-content: #ffffff;
   --color-secondary: #0b2e4a;
   --color-secondary-content: #ffffff;
   --color-accent: #0b2e4a;
   --color-accent-content: #ffffff;
-  --color-neutral: #2b3640;
+  --color-neutral: #3a3631;
   --color-neutral-content: #ffffff;
   --color-info: #1d5c8c;
   --color-info-content: #ffffff;
@@ -41,7 +42,7 @@
 
   --radius-selector: 0.25rem;
   --radius-field: 0.25rem;
-  --radius-box: 0.25rem;
+  --radius-box: 0.375rem;
   --size-selector: 0.25rem;
   --size-field: 0.275rem;
   --border: 1px;
@@ -67,6 +68,15 @@
 .select,
 .textarea {
   --font-size-min: 1rem;
+}
+
+@layer components {
+  /* A white block on the committee's sand page: sections, lists, tables. */
+  .panel {
+    border: var(--border) solid var(--color-base-300);
+    border-radius: var(--radius-box);
+    background-color: var(--color-base-100);
+  }
 }
 
 /* Live board: a row changed since its request was last opened (app.js). */

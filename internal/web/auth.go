@@ -166,7 +166,7 @@ func (s *Server) adminNotices(ctx context.Context) ([]notice, error) {
 	}
 	if !has {
 		out = append(out, notice{Kind: noticeWarning, Text: "Le formulaire est fermé : aucune liste des membres n'est importée.",
-			Link: "/imports", LinkText: "Importer la liste"})
+			Link: importsPath, LinkText: "Importer la liste"})
 	}
 	stale, err := s.staleImports(ctx)
 	if err != nil {

@@ -35,6 +35,8 @@ type notice struct {
 type page struct {
 	Title     string
 	Admin     bool            // committee domain
+	Section   string          // committee sidebar entry of this page (nav.go)
+	Tab       string          // committee phone tab of this page (nav.go)
 	Account   *admins.Account // signed-in committee member
 	CSRF      string
 	Notices   []notice
@@ -72,6 +74,9 @@ func (s *Server) newPage(r *http.Request, title string) page {
 		ClubEmail: s.cfg.NotifyEmail.Address,
 	}
 	p.Umami = s.umamiPage(r.Pattern, p.Admin)
+	if p.Admin {
+		p.Section, p.Tab = navSection(r.URL.Path)
+	}
 	if sess, ok := sessionFrom(r.Context()); ok {
 		a := sess.account
 		p.Account = &a
