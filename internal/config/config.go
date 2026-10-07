@@ -142,6 +142,7 @@ type Config struct {
 	SentryDSN          string        // "" turns Sentry off; always "" in development
 	SentryEnvironment  string
 	Umami              *Umami  // nil turns Umami off
+	WebMCPOriginTrial  string  // Chrome origin-trial token for the WebMCP form tool; "" sends none
 	Warnings           []error // optional tools turned off by an invalid value
 }
 
@@ -180,6 +181,7 @@ func Load(getenv func(string) string) (*Config, error) {
 		AgeAlertAfter:      p.duration("AGE_ALERT_AFTER", "168h"),
 		RetentionDays:      p.int("RETENTION_DAYS", "365", 15, 3650),
 		FormRateLimit:      p.perHour("FORM_RATE_LIMIT", "20/h", 1, 10000),
+		WebMCPOriginTrial:  p.optional("WEBMCP_ORIGIN_TRIAL", ""),
 		VPDiveBaseURL:      p.url("VPDIVE_BASE_URL", p.optional("VPDIVE_BASE_URL", "https://plongee-pradet.fr")),
 	}
 	c.BaseURL = p.url("BASE_URL", p.required("BASE_URL"))

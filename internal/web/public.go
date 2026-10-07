@@ -48,11 +48,12 @@ type formField struct {
 	Name  string
 	Value string
 	Error string
+	Shown bool // its category is the chosen one
 }
 
 func newFormField(categoryID string, f tickets.Field, d formData) formField {
 	name := tickets.FieldName(categoryID, f.ID)
-	return formField{Field: f, Name: name, Value: d.Values.Get(name), Error: d.Errors[name]}
+	return formField{Field: f, Name: name, Value: d.Values.Get(name), Error: d.Errors[name], Shown: categoryID == d.Category}
 }
 
 func (s *Server) formPage(w http.ResponseWriter, r *http.Request) {
@@ -83,6 +84,9 @@ func (s *Server) renderForm(w http.ResponseWriter, r *http.Request, status int, 
 	}
 	if n != nil {
 		p.Notices = append(p.Notices, *n)
+	}
+	if t := s.cfg.WebMCPOriginTrial; t != "" {
+		w.Header().Set("Origin-Trial", t) // turns on the form's WebMCP tool in Chrome
 	}
 	p.Data = d
 	s.render(w, r, status, "form", p)
