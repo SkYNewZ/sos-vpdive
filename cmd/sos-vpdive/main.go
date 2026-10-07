@@ -14,7 +14,7 @@ const usage = `usage: sos-vpdive <command>
 
 commands:
   serve            run the web server for both domains
-  reset-password   [-name N -role F] <user>  create an account or give it a temporary password
+  reset-password   create an account or give it a temporary password ([-name N -role F] <user>)
   backup <file>    write a consistent copy of the database to <file>
   restore <file>   replace the database with <file> (stop the service first)
   healthcheck      exit 0 when the local server answers /healthz

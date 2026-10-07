@@ -44,7 +44,7 @@ func vapidKeys(stdout io.Writer) error {
 
 // resetPassword creates an account or puts a temporary password in place,
 // and prints that password (spec §4.1 as amended). It runs next to the
-// server, without a shell: docker exec -it <container> /sos-vpdive
+// server, without a shell: docker exec <container> /sos-vpdive
 // reset-password <username>.
 func resetPassword(ctx context.Context, getenv func(string) string, args []string, stdout io.Writer) (err error) {
 	flags := flag.NewFlagSet("reset-password", flag.ContinueOnError)

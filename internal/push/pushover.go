@@ -22,10 +22,10 @@ import (
 // pushoverEndpoint is Pushover's message endpoint.
 const pushoverEndpoint = "https://api.pushover.net/1/messages.json"
 
-// Pushover delivers a committee alert to each resolver who put a user key in
-// the accounts file (spec §6, as amended): the outbox's sender for
-// mail.ChannelPushover. Accounts are read at each alert, so a reload of the
-// file applies at once.
+// Pushover delivers a committee alert to each resolver who set a user key on
+// their account (spec §6, as amended): the outbox's sender for
+// mail.ChannelPushover. Accounts are read at each alert, so a change applies
+// at once.
 type Pushover struct {
 	http     *http.Client
 	api      string

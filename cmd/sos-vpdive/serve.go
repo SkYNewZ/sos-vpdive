@@ -81,8 +81,10 @@ func setup(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*app, 
 	if err != nil {
 		return fail(err)
 	}
-	if _, ok := registry.Get(cfg.Owner); cfg.Owner != "" && !ok {
-		logger.WarnContext(ctx, "owner account missing: create it with reset-password -name NAME -role ROLE and the OWNER_USERNAME value")
+	if cfg.Owner != "" {
+		if _, ok := registry.Get(cfg.Owner); !ok {
+			logger.WarnContext(ctx, "owner account missing: create it with reset-password -name NAME -role ROLE and the OWNER_USERNAME value")
+		}
 	}
 	catalog, err := tickets.LoadCatalog(sosvpdive.Content)
 	if err != nil {
