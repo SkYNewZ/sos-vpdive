@@ -202,6 +202,16 @@ func (s *Store) Named(ctx context.Context, nameHash []byte) (name string, member
 	return strings.TrimSpace(firstName + " " + lastName), members, nil
 }
 
+// NameCount returns how many members bear nameHash, decrypting nothing: a
+// count above one is a homonym (spec §7.3).
+func (s *Store) NameCount(ctx context.Context, nameHash []byte) (int, error) {
+	var n int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM members WHERE name_hash = ?`, nameHash).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count members of a name: %w", err)
+	}
+	return n, nil
+}
+
 // EraseTx deletes the member of email inside tx and returns its name hash
 // and names, ok false when there was none (erasure, spec §4.5): the caller
 // erases the payment lines and calendar participations of that name. The

@@ -1,0 +1,82 @@
+{
+  "from": "2026-06-04",
+  "to": "2027-09-02",
+  "events": [
+    {"id": "evt-nuit", "url": "https://club.example/agenda/evt-nuit", "title": "PLONGÉE DE NUIT ANNULÉE (météo)",
+     "description": "", "starts_at": "2026-05-08T20:00:00+02:00", "ends_at": "2026-05-08T23:00:00+02:00", "all_day": false,
+     "category": "diving leisure", "color": "#0505f0", "text_color": "#ffffff", "activity": "outing", "environment": "natural sea",
+     "location": "Port du club", "max_participants": 10, "boats": [],
+     "participants": [
+       {"vpdive_id": 102, "name": "BERNARD Hugo", "last_name": "Bernard", "first_name": "Hugo", "registered": true, "waiting_list": false,
+        "status": "accepted", "people": 1, "guest": false, "tariff": "Plongée unitaire", "qualifications": ["N2"], "roles": [],
+        "payment": {"status": "paid", "due_cents": 3500, "paid_cents": 3500}}
+     ]},
+    {"id": "evt-levant", "url": "https://club.example/agenda/evt-levant", "title": "SORTIE ANNULÉE - Île du Levant",
+     "description": "<p>Météo défavorable.</p>", "starts_at": "2026-05-10T09:00:00+02:00", "ends_at": "2026-05-10T13:00:00+02:00", "all_day": false,
+     "category": "diving leisure", "color": "#0505f0", "text_color": "#ffffff", "activity": "outing", "environment": "natural sea",
+     "location": "Port du club", "max_participants": 12, "boats": ["Bateau A"],
+     "participants": [
+       {"vpdive_id": 101, "name": "MARTIN Léa", "last_name": "Martin", "first_name": "Léa", "registered": true, "waiting_list": false,
+        "status": "accepted", "people": 1, "guest": false, "tariff": "Plongée unitaire", "qualifications": [], "roles": [], "payment": null},
+       {"vpdive_id": 102, "name": "BERNARD Hugo", "last_name": "Bernard", "first_name": "Hugo", "registered": true, "waiting_list": false,
+        "status": "accepted", "people": 1, "guest": false, "tariff": "Plongée unitaire", "qualifications": ["N2"], "roles": [], "payment": null},
+       {"vpdive_id": 105, "name": "DURAND Noé", "last_name": "Durand", "first_name": "Noé", "registered": true, "waiting_list": false,
+        "status": "accepted", "people": 1, "guest": false, "tariff": "Plongée unitaire", "qualifications": [], "roles": [], "payment": null}
+     ]},
+    {"id": "evt-porquerolles", "url": "https://club.example/agenda/evt-porquerolles", "title": "Sortie Porquerolles",
+     "description": "", "starts_at": "2026-08-15T08:30:00+02:00", "ends_at": "2026-08-15T12:30:00+02:00", "all_day": false,
+     "category": "diving leisure", "color": "#0505f0", "text_color": "#ffffff", "activity": "outing", "environment": "natural sea",
+     "location": "Port du club", "max_participants": 24, "boats": ["Bateau A"],
+     "participants": [
+       {"vpdive_id": 102, "name": "BERNARD Hugo", "last_name": "Bernard", "first_name": "Hugo", "registered": true, "waiting_list": false,
+        "status": "accepted", "people": 1, "guest": false, "tariff": "Plongée unitaire", "qualifications": ["N2"],
+        "roles": [{"name": "Pilote", "boat": "Bateau A", "confirmed": true}],
+        "payment": {"status": "partial", "due_cents": 6000, "paid_cents": 4000}},
+       {"vpdive_id": 103, "name": "PETIT Chloé", "last_name": "Petit", "first_name": "Chloé", "registered": true, "waiting_list": false,
+        "status": "accepted", "people": 1, "guest": true, "tariff": "Plongée invité", "qualifications": [], "roles": [],
+        "payment": {"status": "unpaid", "due_cents": 3500, "paid_cents": 0}},
+       {"vpdive_id": 305, "name": "Famille Roux", "last_name": "", "first_name": "", "registered": false, "waiting_list": false,
+        "status": "", "people": 0, "guest": false, "tariff": "", "qualifications": null, "roles": null,
+        "payment": {"status": "paid", "due_cents": 7000, "paid_cents": 7000}}
+     ]},
+    {"id": "evt-inverse", "url": "https://club.example/agenda/evt-inverse", "title": "Sortie fin aberrante",
+     "description": "", "starts_at": "2026-09-05T14:00:00+02:00", "ends_at": "2026-09-05T10:00:00+02:00", "all_day": false,
+     "category": "diving leisure", "color": "#0505f0", "text_color": "#ffffff", "activity": "outing", "environment": "natural sea",
+     "location": "Port du club", "max_participants": 12, "boats": ["Bateau A"],
+     "participants": [
+       {"vpdive_id": 105, "name": "DURAND Noé", "last_name": "Durand", "first_name": "Noé", "registered": true, "waiting_list": false,
+        "status": "accepted", "people": 1, "guest": false, "tariff": "Plongée unitaire", "qualifications": [], "roles": [], "payment": null}
+     ]},
+    {"id": "evt-cap", "url": "https://club.example/agenda/evt-cap", "title": "Sortie Cap Garonne",
+     "description": "<p>Rendez-vous au port à 7&nbsp;h&nbsp;30.</p><script>x()</script>", "starts_at": "2026-09-06T08:00:00+02:00",
+     "ends_at": "2026-09-06T12:00:00+02:00", "all_day": false,
+     "category": "diving leisure", "color": "#0505f0", "text_color": "#ffffff", "activity": "outing", "environment": "natural sea",
+     "location": "Port du club", "max_participants": 12, "boats": ["Bateau A", "Bateau B"],
+     "participants": [
+       {"vpdive_id": 101, "name": "MARTIN Léa", "last_name": "Martin", "first_name": "Léa", "registered": true, "waiting_list": false,
+        "status": "accepted", "people": 1, "guest": false, "tariff": "Plongée unitaire", "qualifications": ["E3"],
+        "roles": [{"name": "Directeur de plongée", "confirmed": true}], "payment": {"status": "paid", "due_cents": 0, "paid_cents": 0}},
+       {"vpdive_id": 102, "name": "BERNARD Hugo", "last_name": "", "first_name": "", "registered": false, "waiting_list": false,
+        "status": "", "people": 0, "guest": false, "tariff": "", "qualifications": [],
+        "roles": [{"name": "Pilote", "boat": "Bateau A", "confirmed": false}], "payment": null},
+       {"vpdive_id": 304, "name": "GARNIER Paul", "last_name": "", "first_name": "", "registered": false, "waiting_list": false,
+        "status": "", "people": 0, "guest": false, "tariff": "", "qualifications": [],
+        "roles": [{"name": "Pilote", "boat": "Bateau B", "confirmed": true}], "payment": null}
+     ]},
+    {"id": "evt-ag", "url": "https://club.example/agenda/evt-ag", "title": "Assemblée générale",
+     "description": "", "starts_at": "2026-09-12T00:00:00+02:00", "ends_at": "2026-09-12T23:59:00+02:00", "all_day": true,
+     "category": "association life", "color": "#05a540", "text_color": "#ffffff", "activity": "meeting", "environment": "room",
+     "location": "Local du club", "max_participants": null, "boats": null, "participants": []},
+    {"id": "evt-corse", "url": "https://club.example/agenda/evt-corse", "title": "Séjour Corse",
+     "description": "", "starts_at": "2026-09-20T08:00:00+02:00", "ends_at": "2026-09-24T18:00:00+02:00", "all_day": false,
+     "category": "diving leisure", "color": "#0505f0", "text_color": "#ffffff", "activity": "outing", "environment": "natural sea",
+     "location": "Ajaccio", "max_participants": 8, "boats": [],
+     "participants": [
+       {"vpdive_id": 102, "name": "BERNARD Hugo", "last_name": "Bernard", "first_name": "Hugo", "registered": true, "waiting_list": true,
+        "status": "waiting", "people": 2, "guest": false, "tariff": "Séjour", "qualifications": ["N2"], "roles": [], "payment": null},
+       {"vpdive_id": 105, "name": "DURAND Noé", "last_name": "Durand", "first_name": "Noé", "registered": true, "waiting_list": false,
+        "status": "accepted", "people": 1, "guest": false, "tariff": "Séjour", "qualifications": [], "roles": [],
+        "payment": {"status": "paid", "due_cents": 120000, "paid_cents": 120000}}
+     ]}
+  ]
+}

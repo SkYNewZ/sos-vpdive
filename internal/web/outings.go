@@ -1,10 +1,13 @@
 package web
 
 import (
+	"context"
 	"strings"
 	"time"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/calendar"
+	"github.com/SkYNewZ/sos-vpdive/internal/imports"
+	"github.com/SkYNewZ/sos-vpdive/internal/members"
 	"github.com/SkYNewZ/sos-vpdive/internal/payments"
 )
 
@@ -117,4 +120,73 @@ func signals(o outing) []string {
 		out = append(out, signalMollie)
 	}
 	return out
+}
+
+// outingsState says what the « Sorties VPDive » block shows, checked in
+// this order.
+type outingsState string
+
+const (
+	outingsNoCalendar outingsState = "no_calendar"
+	outingsNoMember   outingsState = "no_member"
+	outingsAmbiguous  outingsState = "ambiguous"
+	outingsEmpty      outingsState = "empty"
+	outingsList       outingsState = "list"
+)
+
+// outingsWindow is how far before a request its outings show unfolded.
+const outingsWindow = 90 * 24 * time.Hour
+
+// outingsBlock is the « Sorties VPDive » block of a request page (lot 8
+// part 2): the requester's outings with their lines, never shown to members.
+type outingsBlock struct {
+	State    outingsState
+	Received time.Time // when the calendar in place was pushed
+	Since    time.Time // the request's submission less outingsWindow
+	Recent   []outing  // ending since Since, upcoming ones included, newest first
+	Older    []outing
+}
+
+// outingsBlock follows the requester's member (found by address, never by
+// the typed name) to their participations, then attaches their lines.
+func (s *Server) outingsBlock(ctx context.Context, submitted time.Time, profile members.Profile, found bool,
+	pay payments.Block, mollie payments.MollieBlock) (outingsBlock, error) {
+	info, received, err := imports.Last(ctx, s.db, imports.Calendar)
+	if err != nil || !received {
+		return outingsBlock{State: outingsNoCalendar}, err
+	}
+	b := outingsBlock{Received: info.ImportedAt, Since: submitted.Add(-outingsWindow)}
+	if !found {
+		b.State = outingsNoMember
+		return b, nil
+	}
+	n, err := s.members.NameCount(ctx, profile.NameHash)
+	if err != nil {
+		return outingsBlock{}, err
+	}
+	if n > 1 {
+		b.State = outingsAmbiguous
+		return b, nil
+	}
+	ps, err := s.calendar.Participations(ctx, profile.NameHash)
+	if err != nil {
+		return outingsBlock{}, err
+	}
+	if len(ps) == 0 {
+		b.State = outingsEmpty
+		return b, nil
+	}
+	var collected []payments.CollectedLine
+	for _, p := range mollie.Payments {
+		collected = append(collected, p.Lines...)
+	}
+	b.State = outingsList
+	for _, o := range attach(ps, pay.Lines, collected, s.paris) {
+		if o.Event.Until().Before(b.Since) {
+			b.Older = append(b.Older, o)
+		} else {
+			b.Recent = append(b.Recent, o)
+		}
+	}
+	return b, nil
 }

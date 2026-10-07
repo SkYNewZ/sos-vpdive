@@ -1,6 +1,7 @@
 package web
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -78,4 +79,46 @@ func TestOutingSignals(t *testing.T) {
 	} {
 		assert.Equal(t, c.want, signals(c.o), name)
 	}
+}
+
+// Lot 8 part 2: the « Sorties VPDive » block of a request page, in each of
+// its cases, and never on the member's tracking page.
+func TestRequestPageOutingsBlock(t *testing.T) {
+	e := newTestEnv(t)
+	e.importMembers(t, "members_valid.xlsx")
+	cookie := e.login(t)
+	hugo := e.submitTicket(t, "hugo.bernard@example.org")
+	lea := e.submitTicket(t, "lea.martin@example.org")
+	ines := e.submitTicket(t, "ines.leroy@example.org")
+	noe := e.submitTicket(t, "noe.durand@example.org")
+
+	assert.Contains(t, e.openTicket(t, cookie, hugo.ID).body, "Aucun calendrier reçu pour l'instant.")
+
+	e.importCalendar(t, "calendar_view.json")
+	e.importPayments(t)
+	e.importMollie(t)
+	page := e.openTicket(t, cookie, hugo.ID).body
+	for _, want := range []string{
+		"Sorties VPDive",
+		"Calendrier reçu le 02/09/2026 à 12:00 : vérifie dans VPDive avant d'agir.",
+		"sam. 15/08/2026, 8 h 30", `href="/calendrier/evt-porquerolles"`, "Sortie Porquerolles",
+		"Inscrit · Pilote (Bateau A)", "Panier : partiel, 40,00\u00a0€ sur 60,00\u00a0€",
+		"Mollie : Calendrier, 40,00\u00a0€, soldé dans VPDive",
+		"Non inscrit · Pilote (Bateau A, proposé)", "Panier : aucun",
+		"Liste d'attente, 2 personnes",
+		"Voir les 2 sorties plus anciennes",
+		"VPDive : SORTIE ANNULÉE - Île du Levant, Payé, Prépayé, 30,00\u00a0€",
+		signalCarnet, signalMoney,
+	} {
+		assert.Contains(t, page, want)
+	}
+	assert.Less(t, strings.Index(page, "Séjour Corse"), strings.Index(page, "Sortie Porquerolles"), "newest first")
+
+	assert.Contains(t, e.openTicket(t, cookie, lea.ID).body, "Plusieurs membres portent ce nom : aucune sortie affichée.")
+	assert.Contains(t, e.openTicket(t, cookie, ines.ID).body, "Aucune sortie dans le calendrier pour ce membre.")
+	e.importMembers(t, "members_minimal.xlsx")
+	assert.Contains(t, e.openTicket(t, cookie, noe.ID).body, "Demandeur absent de la liste des membres : aucune sortie rapprochée.")
+
+	_, tracking := e.tracking(t, hugo.Token)
+	assert.NotContains(t, tracking, "Sorties VPDive")
 }
