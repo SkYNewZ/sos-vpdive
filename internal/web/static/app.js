@@ -3,9 +3,8 @@
 "use strict";
 
 // Member form: show the fields of the chosen category only, and require
-// theirs only. Hidden fieldsets stay enabled until sending, so that a browser
-// agent (WebMCP) sees every field and fills a category's fields in one call;
-// on sending they are disabled, so their values never leave.
+// theirs only. Hidden fieldsets stay enabled, so that a browser agent (WebMCP)
+// sees every field and fills a category's fields in one call.
 (() => {
   const select = document.querySelector("[data-category-select]");
   if (!select) return;
@@ -19,10 +18,15 @@
     }
   };
   select.addEventListener("change", sync);
-  select.form.addEventListener("submit", () => {
+  // Native validation runs between the click and the submit event: hidden
+  // fieldsets are disabled before it, so that a value left in another category
+  // neither blocks sending nor leaves. Enter in a field clicks this button too.
+  select.form.querySelector("[type=submit]").addEventListener("click", () => {
     for (const fieldset of fieldsets) fieldset.disabled = fieldset.hidden;
+    setTimeout(() => {
+      for (const fieldset of fieldsets) fieldset.disabled = false;
+    });
   });
-  window.addEventListener("pageshow", (event) => event.persisted && sync());
   sync();
 })();
 
