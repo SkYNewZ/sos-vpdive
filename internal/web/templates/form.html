@@ -11,11 +11,11 @@
 <p class="mt-2">En attendant, écris au club : <a class="link link-primary break-words" href="mailto:{{.ClubEmail}}">{{.ClubEmail}}</a>.</p>
 </div>
 {{else}}
-<form method="post" action="/demandes" enctype="multipart/form-data" class="mt-6 flex flex-col gap-5" data-draft>
+<form method="post" action="/demandes" toolname="envoyerDemandeVPDive" tooldescription="Prépare la demande d'un adhérent du club au sujet de VPDive : carnet, paiement, inscription à une sortie, compte ou adhésion. L'adhérent relit, passe le contrôle anti-robot et envoie lui-même." enctype="multipart/form-data" class="mt-6 flex flex-col gap-5" data-draft>
 <input type="hidden" name="cle" value="{{$d.FormKey}}" autocomplete="off">
 <div class="hidden" aria-hidden="true">
 <label for="site_web">Laisse ce champ vide</label>
-<input id="site_web" name="site_web" type="text" tabindex="-1" autocomplete="off">
+<input id="site_web" name="site_web" type="text" tabindex="-1" autocomplete="off" toolparamdescription="Toujours vide.">
 </div>
 
 <div class="flex flex-col gap-1">
@@ -33,7 +33,7 @@
 <div class="flex flex-col gap-1">
 <label class="font-semibold" for="email">Adresse mail</label>
 <p class="text-sm" id="email-aide">Celle de ton compte VPDive.</p>
-<input class="input w-full" id="email" name="email" type="email" autocomplete="email" inputmode="email" maxlength="254" required value="{{$d.Values.Get "email"}}" aria-describedby="email-aide{{if index $d.Errors "email"}} err-email{{end}}"{{if index $d.Errors "email"}} aria-invalid="true"{{end}}>
+<input class="input w-full" id="email" name="email" type="email" autocomplete="email" inputmode="email" maxlength="254" required toolparamdescription="Adresse mail du compte VPDive de l'adhérent." value="{{$d.Values.Get "email"}}" aria-describedby="email-aide{{if index $d.Errors "email"}} err-email{{end}}"{{if index $d.Errors "email"}} aria-invalid="true"{{end}}>
 {{with index $d.Errors "email"}}<p id="err-email" class="font-semibold text-error">{{.}}</p>{{end}}
 </div>
 
@@ -58,7 +58,7 @@
 <label class="font-semibold" for="description">Description</label>
 <p class="text-sm" id="description-aide">Explique ce qui se passe, ce que tu as déjà essayé et ce que tu attends du club : 20 caractères au moins.</p>
 {{if $d.Suggestions}}<p class="text-sm" id="description-ia">Pour te proposer des fiches d'aide, ta description et les champs de ta catégorie sont envoyés à un service d'IA, sans ton nom, ton adresse ni tes captures, sauf si tu les écris dans le texte.</p>{{end}}
-<textarea class="textarea w-full" id="description" name="description" rows="6" minlength="20" maxlength="4000" required aria-describedby="description-aide{{if $d.Suggestions}} description-ia{{end}}{{if index $d.Errors "description"}} err-description{{end}}"{{if index $d.Errors "description"}} aria-invalid="true"{{end}}>{{$d.Values.Get "description"}}</textarea>
+<textarea class="textarea w-full" id="description" name="description" rows="6" minlength="20" maxlength="4000" required toolparamdescription="Ce qui se passe, ce qui a déjà été essayé et ce qui est attendu du club : 20 caractères au moins." aria-describedby="description-aide{{if $d.Suggestions}} description-ia{{end}}{{if index $d.Errors "description"}} err-description{{end}}"{{if index $d.Errors "description"}} aria-invalid="true"{{end}}>{{$d.Values.Get "description"}}</textarea>
 {{with index $d.Errors "description"}}<p id="err-description" class="font-semibold text-error">{{.}}</p>{{end}}
 </div>
 

@@ -308,3 +308,25 @@ func TestDuplicateOfFiledRequestIsNotRateLimited(t *testing.T) {
 	assert.Equal(t, http.StatusSeeOther, dup.Code)
 	assert.Equal(t, first.Header().Get("Location"), dup.Header().Get("Location"))
 }
+
+func TestWebMCPOnTheMemberForm(t *testing.T) {
+	e := newTestEnv(t)
+	e.importMembers(t, "members_valid.xlsx")
+	rec := e.do(t, http.MethodGet, publicHost, "/", nil)
+	body := html.UnescapeString(rec.Body.String())
+	assert.Contains(t, body, `toolname="envoyerDemandeVPDive"`)
+	assert.Contains(t, body, "tooldescription=")
+	assert.NotContains(t, body, "toolautosubmit", "the member checks the form and sends it")
+	assert.Contains(t, body, `name="site_web" type="text" tabindex="-1" autocomplete="off" toolparamdescription="Toujours vide.`, "an agent filling the trap would have the request refused")
+	assert.Empty(t, rec.Header().Get("Origin-Trial"), "no token, no header")
+
+	e = newTestEnv(t, func(d *Deps) { d.Config.WebMCPOriginTrial = "token-abc" })
+	e.importMembers(t, "members_valid.xlsx")
+	assert.Equal(t, "token-abc", e.do(t, http.MethodGet, publicHost, "/", nil).Header().Get("Origin-Trial"))
+	short := validRequest(e.formKey(t))
+	short.Set("description", "trop court")
+	back := e.sendRequest(t, short)
+	require.Equal(t, http.StatusUnprocessableEntity, back.Code)
+	assert.Equal(t, "token-abc", back.Header().Get("Origin-Trial"), "the form coming back keeps its tool")
+	assert.Empty(t, e.do(t, http.MethodGet, adminHost, "/connexion", nil).Header().Get("Origin-Trial"), "the committee site exposes no tool")
+}

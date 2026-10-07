@@ -84,6 +84,9 @@ func (s *Server) renderForm(w http.ResponseWriter, r *http.Request, status int, 
 	if n != nil {
 		p.Notices = append(p.Notices, *n)
 	}
+	if t := s.cfg.WebMCPOriginTrial; t != "" {
+		w.Header().Set("Origin-Trial", t) // turns on the form's WebMCP tool in Chrome
+	}
 	p.Data = d
 	s.render(w, r, status, "form", p)
 }
