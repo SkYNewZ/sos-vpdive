@@ -21,10 +21,11 @@ const (
 
 // Erasure counts what an erasure removes.
 type Erasure struct {
-	Tickets      int
-	Member       bool
-	PaymentLines int // every line of the member's name, a homonym's included
-	MollieLines  int // same rule for the Mollie lines
+	Tickets        int
+	Member         bool
+	PaymentLines   int // every line of the member's name, a homonym's included
+	MollieLines    int // same rule for the Mollie lines
+	Participations int // calendar participations of the member's name and of the same people (lot 8)
 }
 
 // deleteCapture removes one screenshot, a CACI sent by mistake for instance.
@@ -135,6 +136,9 @@ func (s *Store) PreviewErasure(ctx context.Context, email string) (Erasure, erro
 	if e.MollieLines, err = s.Mollie.Count(ctx, p.NameHash); err != nil {
 		return Erasure{}, err
 	}
+	if e.Participations, err = s.Calendar.Count(ctx, p.NameHash, p.LastName, p.FirstName); err != nil {
+		return Erasure{}, err
+	}
 	return e, nil
 }
 
@@ -161,15 +165,18 @@ func (s *Store) Erase(ctx context.Context, email, actor string) (Erasure, error)
 		if keys, err = s.drop(ctx, tx, list); err != nil {
 			return err
 		}
-		nameHash, err := s.Members.EraseTx(ctx, tx, normalized)
+		p, member, err := s.Members.EraseTx(ctx, tx, normalized)
 		if err != nil {
 			return err
 		}
-		e.Member = nameHash != nil
-		if e.PaymentLines, err = s.Payments.EraseTx(ctx, tx, nameHash); err != nil {
+		e.Member = member
+		if e.PaymentLines, err = s.Payments.EraseTx(ctx, tx, p.NameHash); err != nil {
 			return err
 		}
-		if e.MollieLines, err = s.Mollie.EraseTx(ctx, tx, nameHash); err != nil {
+		if e.MollieLines, err = s.Mollie.EraseTx(ctx, tx, p.NameHash); err != nil {
+			return err
+		}
+		if e.Participations, err = s.Calendar.EraseTx(ctx, tx, p.NameHash, p.LastName, p.FirstName); err != nil {
 			return err
 		}
 		return s.Outbox.DeleteRecipient(ctx, tx, normalized)
@@ -183,7 +190,7 @@ func (s *Store) Erase(ctx context.Context, email, actor string) (Erasure, error)
 		s.changed(ChangeDeleted, d.id, actor)
 	}
 	s.Logger.InfoContext(ctx, "person erased", "actor", actor, "tickets", e.Tickets, "member", e.Member,
-		"payment_lines", e.PaymentLines, "mollie_lines", e.MollieLines)
+		"payment_lines", e.PaymentLines, "mollie_lines", e.MollieLines, "participations", e.Participations)
 	return e, nil
 }
 

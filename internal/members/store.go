@@ -209,24 +209,34 @@ func (s *Store) Named(ctx context.Context, nameHash []byte) (name string, member
 	return strings.TrimSpace(firstName + " " + lastName), members, nil
 }
 
-// EraseTx deletes the member of email inside tx and returns its name hash,
-// nil when there was none (erasure, spec §4.5): the caller erases the payment
-// lines of that name. The next import lists it again if VPDive does.
-func (s *Store) EraseTx(ctx context.Context, tx *sql.Tx, email string) ([]byte, error) {
+// EraseTx deletes the member of email inside tx and returns its name hash
+// and names, ok false when there was none (erasure, spec §4.5): the caller
+// erases the payment lines and calendar participations of that name. The
+// next import lists it again if VPDive does.
+func (s *Store) EraseTx(ctx context.Context, tx *sql.Tx, email string) (Profile, bool, error) {
 	normalized, err := secure.NormalizeEmail(email)
 	if err != nil {
-		return nil, err
+		return Profile{}, false, err
 	}
-	var nameHash []byte
-	err = tx.QueryRowContext(ctx, `DELETE FROM members WHERE email_hash = ? RETURNING name_hash`,
-		s.keys.Hash(normalized)).Scan(&nameHash)
+	var (
+		p           Profile
+		first, last []byte
+	)
+	err = tx.QueryRowContext(ctx, `DELETE FROM members WHERE email_hash = ? RETURNING name_hash, first_name, last_name`,
+		s.keys.Hash(normalized)).Scan(&p.NameHash, &first, &last)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
+		return Profile{}, false, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("erase member: %w", err)
+		return Profile{}, false, fmt.Errorf("erase member: %w", err)
 	}
-	return nameHash, nil
+	if p.FirstName, err = s.keys.OpenString(first); err != nil {
+		return Profile{}, false, fmt.Errorf("decrypt member: %w", err)
+	}
+	if p.LastName, err = s.keys.OpenString(last); err != nil {
+		return Profile{}, false, fmt.Errorf("decrypt member: %w", err)
+	}
+	return p, true, nil
 }
 
 // HasList reports whether a list is in place. Without one the form is closed.
