@@ -49,9 +49,6 @@ type Registry struct {
 	syncMu  sync.Mutex // one Reload at a time: a slower one never undoes a newer one
 	avatars map[string]template.URL
 
-	logMu   sync.Mutex
-	lastErr string // the last failed reload, logged once while it persists
-
 	mu       sync.RWMutex
 	accounts map[string]Account
 }
@@ -75,6 +72,12 @@ func (r *Registry) Get(username string) (Account, bool) {
 	defer r.mu.RUnlock()
 	a, ok := r.accounts[username]
 	return a, ok
+}
+
+// Has reports whether an account of that username exists.
+func (r *Registry) Has(username string) bool {
+	_, ok := r.Get(username)
+	return ok
 }
 
 // Current returns the account behind a session while the session is still
@@ -135,13 +138,14 @@ func (r *Registry) Reload(ctx context.Context) ([]string, error) {
 func (r *Registry) Watch(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+	var failure string
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
 		}
-		r.sync(ctx)
+		failure = r.poll(ctx, failure)
 	}
 }
 
@@ -155,33 +159,23 @@ func (r *Registry) Insert(ctx context.Context, a Account) error {
 	if a.PushoverUserKey != "" {
 		key = r.keys.SealString(a.PushoverUserKey)
 	}
-	var inserted int64
-	err := store.Tx(ctx, r.db, "accounts.insert", func(ctx context.Context, tx *sql.Tx) error {
-		res, err := tx.ExecContext(ctx,
-			`INSERT INTO accounts (username, name, role, password_hash, must_change_password, pushover_user_key, created_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (username) DO NOTHING`,
-			a.Username, r.keys.SealString(a.Name), a.Role, a.PasswordHash, a.MustChangePassword, key, r.now().Unix())
-		if err != nil {
-			return err
-		}
-		inserted, err = res.RowsAffected()
-		return err
-	})
-	if err != nil {
-		return fmt.Errorf("insert account: %w", err)
-	}
-	if inserted == 0 {
-		return ErrTaken
-	}
-	r.sync(ctx)
-	return nil
+	return r.update(ctx, "accounts.insert", ErrTaken,
+		`INSERT INTO accounts (username, name, role, password_hash, must_change_password, pushover_user_key, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (username) DO NOTHING`,
+		a.Username, r.keys.SealString(a.Name), a.Role, a.PasswordHash, a.MustChangePassword, key, r.now().Unix())
+}
+
+// newTemporary draws a temporary password and its hash.
+func newTemporary() (password, hash string, err error) {
+	password = TemporaryPassword()
+	hash, err = HashPassword(password)
+	return password, hash, err
 }
 
 // Create adds an account with a temporary password, which it returns: it is
 // shown once and never stored in clear.
 func (r *Registry) Create(ctx context.Context, username, name, role string) (string, error) {
-	password := TemporaryPassword()
-	hash, err := HashPassword(password)
+	password, hash, err := newTemporary()
 	if err != nil {
 		return "", err
 	}
@@ -195,12 +189,11 @@ func (r *Registry) Create(ctx context.Context, username, name, role string) (str
 // ResetPassword puts a new temporary password in place, which it returns.
 // The account's sessions end.
 func (r *Registry) ResetPassword(ctx context.Context, username string) (string, error) {
-	password := TemporaryPassword()
-	hash, err := HashPassword(password)
+	password, hash, err := newTemporary()
 	if err != nil {
 		return "", err
 	}
-	if err := r.update(ctx, "accounts.reset_password",
+	if err := r.update(ctx, "accounts.reset_password", ErrNotFound,
 		`UPDATE accounts SET password_hash = ?, must_change_password = 1 WHERE username = ?`, hash, username); err != nil {
 		return "", err
 	}
@@ -248,7 +241,7 @@ func (r *Registry) ChangePassword(ctx context.Context, username, password string
 	if err != nil {
 		return "", fmt.Errorf("change password: %w", err)
 	}
-	r.sync(ctx)
+	r.reloadAfterWrite(ctx)
 	return hash, nil
 }
 
@@ -261,14 +254,29 @@ func (r *Registry) SetPushoverKey(ctx context.Context, username, key string) err
 		}
 		sealed = r.keys.SealString(key)
 	}
-	return r.update(ctx, "accounts.set_pushover_key",
+	return r.update(ctx, "accounts.set_pushover_key", ErrNotFound,
 		`UPDATE accounts SET pushover_user_key = ? WHERE username = ?`, sealed, username)
 }
 
 // Delete removes the account. Its sessions end and its open requests return
 // to « à traiter » through OnChange.
 func (r *Registry) Delete(ctx context.Context, username string) error {
-	return r.update(ctx, "accounts.delete", `DELETE FROM accounts WHERE username = ?`, username)
+	return r.update(ctx, "accounts.delete", ErrNotFound, `DELETE FROM accounts WHERE username = ?`, username)
+}
+
+// poll is one Watch tick. A failed read is logged once while the same error
+// persists: failure is the previous tick's error text, and poll returns this
+// tick's, empty on success.
+func (r *Registry) poll(ctx context.Context, failure string) string {
+	err := r.sync(ctx)
+	if err == nil {
+		return ""
+	}
+	if msg := err.Error(); msg != failure {
+		r.logger.ErrorContext(ctx, "reload accounts", "error", err)
+		return msg
+	}
+	return failure
 }
 
 func (r *Registry) scan(rows *sql.Rows) (Account, error) {
@@ -313,29 +321,30 @@ func (r *Registry) avatar(username string) (template.URL, error) {
 // sync reloads the accounts and runs OnChange when one was removed or its
 // password changed. It ignores the caller's cancellation: the change it
 // follows is committed, and its sessions must end even if the request that
-// made it is gone. A failed read is only logged, once while the same error
-// persists: the next Watch tick reads again.
-func (r *Registry) sync(ctx context.Context) {
+// made it is gone. It returns the read error: the next Watch tick reads again.
+func (r *Registry) sync(ctx context.Context) error {
 	ctx = context.WithoutCancel(ctx)
 	changed, err := r.Reload(ctx)
-	r.logMu.Lock()
-	if err == nil {
-		r.lastErr = ""
-	} else if msg := err.Error(); msg != r.lastErr {
-		r.lastErr = msg
-		r.logger.ErrorContext(ctx, "reload accounts", "error", err)
-	}
-	r.logMu.Unlock()
 	if err != nil {
-		return
+		return err
 	}
 	if len(changed) > 0 && r.OnChange != nil {
 		r.OnChange(ctx)
 	}
+	return nil
 }
 
-// update runs one statement on one account, then reloads.
-func (r *Registry) update(ctx context.Context, op, query string, args ...any) error {
+// reloadAfterWrite is sync for the end of a change that is committed: a
+// failed read is logged, not returned.
+func (r *Registry) reloadAfterWrite(ctx context.Context) {
+	if err := r.sync(ctx); err != nil {
+		r.logger.ErrorContext(ctx, "reload accounts", "error", err)
+	}
+}
+
+// update runs one statement on one account, then reloads. A statement that
+// changes no row fails with zeroRows.
+func (r *Registry) update(ctx context.Context, op string, zeroRows error, query string, args ...any) error {
 	err := store.Tx(ctx, r.db, op, func(ctx context.Context, tx *sql.Tx) error {
 		res, err := tx.ExecContext(ctx, query, args...)
 		if err != nil {
@@ -343,13 +352,13 @@ func (r *Registry) update(ctx context.Context, op, query string, args ...any) er
 		}
 		n, err := res.RowsAffected()
 		if err == nil && n == 0 {
-			err = ErrNotFound
+			err = zeroRows
 		}
 		return err
 	})
 	if err != nil {
 		return fmt.Errorf("%s: %w", op, err)
 	}
-	r.sync(ctx)
+	r.reloadAfterWrite(ctx)
 	return nil
 }

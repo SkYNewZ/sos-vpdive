@@ -127,7 +127,7 @@ func setup(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*app, 
 		tickets: ticketStore, outbox: outbox,
 		senders: senders, push: pushStore, broker: broker,
 	}
-	if err := ticketStore.ReleaseMissing(ctx, a.knownAccount); err != nil {
+	if err := ticketStore.ReleaseMissing(ctx, registry.Has); err != nil {
 		return fail(fmt.Errorf("release requests of removed accounts: %w", err))
 	}
 	var turnstile *web.Turnstile
@@ -184,11 +184,6 @@ func validateKB(stdout io.Writer) error {
 	}
 	_, err = fmt.Fprintf(stdout, "%d fiches are valid\n", len(base.Fiches))
 	return err
-}
-
-func (a *app) knownAccount(username string) bool {
-	_, ok := a.admins.Get(username)
-	return ok
 }
 
 // serve runs until SIGTERM, SIGINT or ctx ends, then finishes the requests in

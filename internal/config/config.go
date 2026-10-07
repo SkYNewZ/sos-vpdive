@@ -19,6 +19,8 @@ import (
 	"time"
 
 	"github.com/getsentry/sentry-go"
+
+	"github.com/SkYNewZ/sos-vpdive/internal/admins"
 )
 
 const (
@@ -283,17 +285,14 @@ func (p *parser) int(name, def string, minimum, maximum int) int {
 	return n
 }
 
-// ownerPattern is admins.ValidUsername's: config does not import admins.
-var ownerPattern = regexp.MustCompile(`^[a-z0-9._-]{1,32}$`)
-
 // owner reads OWNER_USERNAME, required in production (spec §10 as amended).
 func (p *parser) owner(env Env) string {
 	v := p.value("OWNER_USERNAME")
 	switch {
 	case v == "" && env == EnvProduction:
 		p.fail("OWNER_USERNAME", ErrMissing)
-	case v != "" && !ownerPattern.MatchString(v):
-		p.fail("OWNER_USERNAME", errors.New("must match "+ownerPattern.String()))
+	case v != "" && !admins.ValidUsername(v):
+		p.fail("OWNER_USERNAME", errors.New("must be 1 to 32 characters among a-z, 0-9, '.', '_' and '-'"))
 	}
 	return v
 }

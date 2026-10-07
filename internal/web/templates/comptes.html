@@ -1,7 +1,6 @@
 {{define "main"}}
 {{$d := .Data}}
 <h1 class="text-2xl font-bold text-primary max-lg:sr-only">Comptes</h1>
-{{if $d.Deleted}}<div role="status" class="alert alert-soft alert-success mt-6 lg:mt-6"><span>Compte supprimé.</span></div>{{end}}
 <ul class="panel mt-6 max-w-2xl divide-y divide-base-300">
 {{range $d.Accounts}}<li>{{if eq .Username $d.Owner}}<div class="flex min-h-14 items-center gap-3 px-4 py-2">{{template "accountRow" .}}<span class="badge badge-outline whitespace-nowrap">Toi</span></div>
 {{else}}<a class="flex min-h-14 items-center gap-3 px-4 py-2 hover:bg-base-200" href="/comptes/{{.Username}}">{{template "accountRow" .}}<span aria-hidden="true">›</span></a>{{end}}</li>

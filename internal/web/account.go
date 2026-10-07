@@ -16,6 +16,7 @@ const accountPath = "/compte"
 type accountData struct {
 	Forced   bool              // a temporary password is in place: the page stands alone
 	Username string            // for password managers
+	MinLen   int               // shortest password accepted
 	Errors   map[string]string // by field: actuel, nouveau, confirmation
 }
 
@@ -29,11 +30,11 @@ func (s *Server) accountPage(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) renderAccount(w http.ResponseWriter, r *http.Request, status int, d accountData, n *notice) {
 	sess, _ := sessionFrom(r.Context())
-	d.Forced, d.Username = sess.account.MustChangePassword, sess.account.Username
+	d.Forced, d.Username, d.MinLen = sess.account.MustChangePassword, sess.account.Username, admins.MinPasswordLength
 	var p page
 	if d.Forced {
 		p = s.newPage(r, "Choisis ton mot de passe")
-		p.Account = nil // the plain shell: no navigation while every page leads here
+		p.Bare = true // no navigation while every page leads here
 	} else {
 		var err error
 		if p, err = s.adminPage(r, "Mon compte"); err != nil {
@@ -67,17 +68,17 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
 	s.loginMu.Lock()
 	defer s.loginMu.Unlock()
 	if !a.MustChangePassword {
-		msg, status, err := s.checkCurrentPassword(r, a, f.Get("actuel"))
-		if err != nil {
+		limited, ok, err := s.checkPassword(r, a.Username, a.PasswordHash, f.Get("actuel"), true)
+		switch {
+		case err != nil:
 			s.serverError(w, r, err)
 			return
-		}
-		if msg != "" {
-			d.Errors["actuel"] = msg
-		}
-		if status == http.StatusTooManyRequests {
-			s.renderAccount(w, r, status, d, nil)
+		case limited != "":
+			d.Errors["actuel"] = limited
+			s.renderAccount(w, r, http.StatusTooManyRequests, d, nil)
 			return
+		case !ok:
+			d.Errors["actuel"] = "Ce n'est pas ton mot de passe actuel."
 		}
 	}
 	var hash string
@@ -117,27 +118,4 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, accountPath+"?change=1", http.StatusSeeOther)
-}
-
-// checkCurrentPassword verifies the current password under the login's rate
-// limits. It returns the field's error message, empty when the password is
-// right, and 429 as the status when the limiter says to wait. The caller holds
-// loginMu.
-func (s *Server) checkCurrentPassword(r *http.Request, a admins.Account, current string) (msg string, status int, err error) {
-	ctx, ip := r.Context(), s.clientIP(r)
-	wait, err := s.limiter.retryAfter(ctx, ip, a.Username)
-	if err != nil {
-		return "", 0, err
-	}
-	if wait > 0 {
-		return "Trop d'essais. Réessaie dans " + humanDuration(wait) + ".", http.StatusTooManyRequests, nil
-	}
-	ok, err := admins.VerifyPassword(a.PasswordHash, current)
-	if err != nil || ok {
-		return "", 0, err
-	}
-	if err := s.limiter.fail(ctx, ip, a.Username); err != nil {
-		return "", 0, err
-	}
-	return "Ce n'est pas ton mot de passe actuel.", 0, nil
 }

@@ -3,8 +3,7 @@
 <p><a class="link link-primary inline-flex min-h-11 items-center" href="/comptes">Retour aux comptes</a></p>
 <h1 class="text-2xl font-bold text-primary max-lg:sr-only">{{$a.Name}}</h1>
 <div class="panel mt-4 flex max-w-xl items-center gap-3 p-4">
-<img src="{{$a.Avatar}}" alt="" width="40" height="40" class="size-10">
-<p><span class="block font-semibold">{{$a.Name}}</span><span class="block text-sm">{{$a.Role}}</span><span class="block text-sm">Identifiant : {{$a.Username}}</span></p>
+{{template "identity" $a}}
 </div>
 <section class="mt-8 max-w-xl" aria-labelledby="temporaire">
 <h2 id="temporaire" class="text-xl font-semibold">Nouveau mot de passe temporaire</h2>

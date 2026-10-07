@@ -63,9 +63,14 @@ func (s *Server) startSession(ctx context.Context, w http.ResponseWriter, a admi
 		Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode,
 	})
 	if replaces != nil {
-		s.broker.disconnect(func(sub *subscriber) bool { return sub.session == string(replaces) })
+		s.disconnectSession(replaces)
 	}
 	return nil
+}
+
+// disconnectSession closes the event streams of a session that ended.
+func (s *Server) disconnectSession(hash []byte) {
+	s.broker.disconnect(func(sub *subscriber) bool { return sub.session == string(hash) })
 }
 
 // sessionOf returns the request's session. A session that expired, whose
@@ -143,8 +148,7 @@ func (s *Server) AccountsChanged(ctx context.Context) {
 	if err := s.RevokeStale(ctx); err != nil {
 		s.logger.ErrorContext(ctx, "revoke sessions", "error", err)
 	}
-	known := func(username string) bool { _, ok := s.admins.Get(username); return ok }
-	if err := s.tickets.ReleaseMissing(ctx, known); err != nil {
+	if err := s.tickets.ReleaseMissing(ctx, s.admins.Has); err != nil {
 		s.logger.ErrorContext(ctx, "release requests of removed accounts", "error", err)
 	}
 }

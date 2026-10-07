@@ -41,6 +41,13 @@ func (a Account) CredentialHash() []byte {
 	return sum[:]
 }
 
+// NormalizeUsername is the form a username typed by a person is looked up
+// in: a phone keyboard that capitalizes the first letter or adds a space must
+// not matter.
+func NormalizeUsername(s string) string {
+	return strings.ToLower(strings.TrimSpace(s))
+}
+
 // ValidUsername reports whether u can identify an account.
 func ValidUsername(u string) bool {
 	return usernamePattern.MatchString(u)

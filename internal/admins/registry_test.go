@@ -270,7 +270,7 @@ func TestSyncIgnoresTheCallersCancellation(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	r.sync(ctx)
+	require.NoError(t, r.sync(ctx))
 	require.NoError(t, got, "OnChange ran with a live context")
 	_, ok := r.Get("bob")
 	assert.False(t, ok)
@@ -290,7 +290,7 @@ func TestChangePasswordRefusesAPasswordChangedMeanwhile(t *testing.T) {
 
 // A reload that keeps failing (every Watch tick) logs once, not every tick;
 // it logs again after a successful reload.
-func TestSyncLogsAPersistentErrorOnce(t *testing.T) {
+func TestWatchLogsAPersistentErrorOnce(t *testing.T) {
 	ctx := context.Background()
 	db, err := store.Open(ctx, filepath.Join(t.TempDir(), store.FileName))
 	require.NoError(t, err)
@@ -305,14 +305,15 @@ func TestSyncLogsAPersistentErrorOnce(t *testing.T) {
 	}
 
 	corrupt()
-	r.sync(ctx)
-	r.sync(ctx)
+	failure := r.poll(ctx, "")
+	failure = r.poll(ctx, failure)
 	assert.Equal(t, 1, strings.Count(logs.String(), "reload accounts"))
 	_, err = db.ExecContext(ctx, `DELETE FROM accounts`)
 	require.NoError(t, err)
-	r.sync(ctx)
+	failure = r.poll(ctx, failure)
+	assert.Empty(t, failure)
 	require.NoError(t, r.Insert(ctx, alice()))
 	corrupt()
-	r.sync(ctx)
+	r.poll(ctx, failure)
 	assert.Equal(t, 2, strings.Count(logs.String(), "reload accounts"))
 }

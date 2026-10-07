@@ -32,7 +32,7 @@ type usageError struct{ msg string }
 func (e usageError) Error() string { return e.msg }
 
 func main() {
-	err := run(context.Background(), os.Args[1:], os.Getenv, os.Stdin, os.Stdout)
+	err := run(context.Background(), os.Args[1:], os.Getenv, os.Stdout)
 	if err == nil {
 		return
 	}
@@ -44,7 +44,7 @@ func main() {
 	os.Exit(1)
 }
 
-func run(ctx context.Context, args []string, getenv func(string) string, _ io.Reader, stdout io.Writer) error {
+func run(ctx context.Context, args []string, getenv func(string) string, stdout io.Writer) error {
 	if len(args) == 0 {
 		return usageError{"missing command"}
 	}

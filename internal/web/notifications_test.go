@@ -87,7 +87,7 @@ func TestPushoverKeyForm(t *testing.T) {
 	csrf := e.csrf(t, cookie, "/notifications")
 	post := func(v url.Values) *httptest.ResponseRecorder {
 		v.Set("csrf", csrf)
-		return e.do(t, http.MethodPost, adminHost, "/notifications/pushover", formBody(v), formType, withCookie(cookie))
+		return e.postAs(t, cookie, "/notifications/pushover", v)
 	}
 
 	rec := post(url.Values{"cle": {"not a key"}, "action": {"enregistrer"}})
@@ -110,8 +110,8 @@ func TestPushoverKeyForm(t *testing.T) {
 
 	off := newTestEnv(t)
 	offCookie := off.login(t)
-	assert.Equal(t, http.StatusNotFound, off.do(t, http.MethodPost, adminHost, "/notifications/pushover",
-		formBody(url.Values{"csrf": {off.csrf(t, offCookie, "/notifications")}}), formType, withCookie(offCookie)).Code, "no Pushover token, no form")
+	assert.Equal(t, http.StatusNotFound, off.postAs(t, offCookie, "/notifications/pushover",
+		url.Values{"csrf": {off.csrf(t, offCookie, "/notifications")}}).Code, "no Pushover token, no form")
 }
 
 // « M'envoyer une notification de test » pushes to this session's device

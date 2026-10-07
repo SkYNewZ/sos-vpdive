@@ -4,7 +4,6 @@ import (
 	"context"
 	"html"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"regexp"
 	"testing"
@@ -17,11 +16,6 @@ import (
 
 var temporaryPattern = regexp.MustCompile(`[a-z2-9]{4}(?:-[a-z2-9]{4}){3}`)
 
-func (e *testEnv) ownerPost(t *testing.T, cookie *http.Cookie, path string, v url.Values) *httptest.ResponseRecorder {
-	t.Helper()
-	return e.do(t, http.MethodPost, adminHost, path, formBody(v), formType, withCookie(cookie))
-}
-
 func TestOwnerCreatesResetsAndDeletesAccounts(t *testing.T) {
 	e := newTestEnv(t)
 	cookie := e.login(t) // alice is OWNER_USERNAME
@@ -31,14 +25,14 @@ func TestOwnerCreatesResetsAndDeletesAccounts(t *testing.T) {
 	assert.NotContains(t, list, `href="/comptes/alice"`, "the owner's own row has no page")
 	csrf := e.csrf(t, cookie, "/comptes")
 
-	rec := e.ownerPost(t, cookie, "/comptes", url.Values{"csrf": {csrf}, "identifiant": {"bob smith"}, "nom": {" "}, "fonction": {""}})
+	rec := e.postAs(t, cookie, "/comptes", url.Values{"csrf": {csrf}, "identifiant": {"bob smith"}, "nom": {" "}, "fonction": {""}})
 	assert.Equal(t, http.StatusUnprocessableEntity, rec.Code)
 	body := html.UnescapeString(rec.Body.String())
 	for _, want := range []string{"Lettres minuscules sans accent", "Indique le nom affiché.", "Indique la fonction.", `value="bob smith"`} {
 		assert.Contains(t, body, want)
 	}
 
-	rec = e.ownerPost(t, cookie, "/comptes", url.Values{"csrf": {csrf}, "identifiant": {" Bob "}, "nom": {"Bob"}, "fonction": {"Trésorier"}})
+	rec = e.postAs(t, cookie, "/comptes", url.Values{"csrf": {csrf}, "identifiant": {" Bob "}, "nom": {"Bob"}, "fonction": {"Trésorier"}})
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "no-store", rec.Header().Get("Cache-Control"))
 	body = html.UnescapeString(rec.Body.String())
@@ -49,7 +43,7 @@ func TestOwnerCreatesResetsAndDeletesAccounts(t *testing.T) {
 	_, ok := e.deps.Admins.Get("bob")
 	require.True(t, ok, "the username was trimmed and lowercased")
 
-	rec = e.ownerPost(t, cookie, "/comptes", url.Values{"csrf": {csrf}, "identifiant": {"bob"}, "nom": {"Bob"}, "fonction": {"Trésorier"}})
+	rec = e.postAs(t, cookie, "/comptes", url.Values{"csrf": {csrf}, "identifiant": {"bob"}, "nom": {"Bob"}, "fonction": {"Trésorier"}})
 	assert.Contains(t, html.UnescapeString(rec.Body.String()), "Cet identifiant est déjà pris.")
 
 	login := e.postLogin(t, "bob", first)
@@ -57,7 +51,7 @@ func TestOwnerCreatesResetsAndDeletesAccounts(t *testing.T) {
 	bobCookie := sessionCookie(t, login)
 	assert.Contains(t, html.UnescapeString(e.do(t, http.MethodGet, adminHost, "/comptes", nil, withCookie(cookie)).Body.String()), "Mot de passe temporaire")
 
-	rec = e.ownerPost(t, cookie, "/comptes/bob/mot-de-passe", url.Values{"csrf": {csrf}})
+	rec = e.postAs(t, cookie, "/comptes/bob/mot-de-passe", url.Values{"csrf": {csrf}})
 	require.Equal(t, http.StatusOK, rec.Code)
 	body = html.UnescapeString(rec.Body.String())
 	assert.Contains(t, body, "Nouveau mot de passe temporaire pour Bob")
@@ -65,13 +59,13 @@ func TestOwnerCreatesResetsAndDeletesAccounts(t *testing.T) {
 	assert.Equal(t, http.StatusSeeOther, e.do(t, http.MethodGet, adminHost, "/compte", nil, withCookie(bobCookie)).Code, "bob's sessions ended")
 
 	assert.Equal(t, http.StatusNotFound, e.do(t, http.MethodGet, adminHost, "/comptes/alice", nil, withCookie(cookie)).Code)
-	assert.Equal(t, http.StatusNotFound, e.ownerPost(t, cookie, "/comptes/alice/mot-de-passe", url.Values{"csrf": {csrf}}).Code)
-	assert.Equal(t, http.StatusNotFound, e.ownerPost(t, cookie, "/comptes/alice/suppression", url.Values{"csrf": {csrf}, "confirmer": {"oui"}}).Code)
+	assert.Equal(t, http.StatusNotFound, e.postAs(t, cookie, "/comptes/alice/mot-de-passe", url.Values{"csrf": {csrf}}).Code)
+	assert.Equal(t, http.StatusNotFound, e.postAs(t, cookie, "/comptes/alice/suppression", url.Values{"csrf": {csrf}, "confirmer": {"oui"}}).Code)
 
 	detail := html.UnescapeString(e.do(t, http.MethodGet, adminHost, "/comptes/bob", nil, withCookie(cookie)).Body.String())
 	assert.Contains(t, detail, "Je supprime le compte de Bob")
-	assert.Equal(t, http.StatusBadRequest, e.ownerPost(t, cookie, "/comptes/bob/suppression", url.Values{"csrf": {csrf}}).Code)
-	rec = e.ownerPost(t, cookie, "/comptes/bob/suppression", url.Values{"csrf": {csrf}, "confirmer": {"oui"}})
+	assert.Equal(t, http.StatusBadRequest, e.postAs(t, cookie, "/comptes/bob/suppression", url.Values{"csrf": {csrf}}).Code)
+	rec = e.postAs(t, cookie, "/comptes/bob/suppression", url.Values{"csrf": {csrf}, "confirmer": {"oui"}})
 	require.Equal(t, http.StatusSeeOther, rec.Code)
 	assert.Equal(t, "/comptes?supprime=1", rec.Header().Get("Location"))
 	_, ok = e.deps.Admins.Get("bob")
@@ -93,7 +87,7 @@ func TestAccountsAreTheOwnersOnly(t *testing.T) {
 		assert.Equal(t, http.StatusNotFound, e.do(t, http.MethodGet, adminHost, path, nil, withCookie(cookie)).Code, path)
 	}
 	csrf := e.csrf(t, cookie, "/plus")
-	assert.Equal(t, http.StatusNotFound, e.do(t, http.MethodPost, adminHost, "/comptes", formBody(url.Values{"csrf": {csrf}, "identifiant": {"eve"}, "nom": {"Eve"}, "fonction": {"X"}}), formType, withCookie(cookie)).Code)
+	assert.Equal(t, http.StatusNotFound, e.postAs(t, cookie, "/comptes", url.Values{"csrf": {csrf}, "identifiant": {"eve"}, "nom": {"Eve"}, "fonction": {"X"}}).Code)
 	assert.Equal(t, http.StatusNotFound, e.do(t, http.MethodGet, publicHost, "/comptes", nil).Code)
 }
 
@@ -105,7 +99,7 @@ func TestDeletingAnAccountReturnsItsRequests(t *testing.T) {
 	require.NoError(t, e.deps.Tickets.Apply(context.Background(),
 		tickets.Command{Action: tickets.ActionTake, TicketID: tk.ID, Version: e.detail(t, tk.ID).Version, Actor: "bob"}))
 
-	rec := e.ownerPost(t, cookie, "/comptes/bob/suppression", url.Values{"csrf": {e.csrf(t, cookie, "/comptes")}, "confirmer": {"oui"}})
+	rec := e.postAs(t, cookie, "/comptes/bob/suppression", url.Values{"csrf": {e.csrf(t, cookie, "/comptes")}, "confirmer": {"oui"}})
 	require.Equal(t, http.StatusSeeOther, rec.Code)
 	d := e.detail(t, tk.ID)
 	assert.Equal(t, tickets.StatusTodo, d.Status)

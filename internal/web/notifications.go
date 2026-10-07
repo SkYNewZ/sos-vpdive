@@ -22,10 +22,11 @@ type notificationsData struct {
 // notificationsPage lets a resolver turn push on for this device, and tells
 // whether Pushover reaches them (spec §9.6, §6 as amended).
 func (s *Server) notificationsPage(w http.ResponseWriter, r *http.Request) {
-	s.renderNotifications(w, r, http.StatusOK, nil, "")
+	s.renderNotifications(w, r, nil, "")
 }
 
-func (s *Server) renderNotifications(w http.ResponseWriter, r *http.Request, status int, n *notice, pushoverError string) {
+// renderNotifications answers 422 when pushoverError is set.
+func (s *Server) renderNotifications(w http.ResponseWriter, r *http.Request, n *notice, pushoverError string) {
 	sess, _ := sessionFrom(r.Context())
 	d := notificationsData{Pushover: s.cfg.PushoverToken != "", PushoverOn: sess.account.PushoverUserKey != "", PushoverError: pushoverError}
 	if s.cfg.VAPID != nil {
@@ -44,6 +45,10 @@ func (s *Server) renderNotifications(w http.ResponseWriter, r *http.Request, sta
 	p.Data = d
 	if n != nil {
 		p.Notices = append(p.Notices, *n)
+	}
+	status := http.StatusOK
+	if pushoverError != "" {
+		status = http.StatusUnprocessableEntity
 	}
 	s.render(w, r, status, "notifications", p)
 }
@@ -64,7 +69,7 @@ func (s *Server) testPush(w http.ResponseWriter, r *http.Request) {
 		s.logger.WarnContext(r.Context(), "test push not delivered", "error", err)
 		n = notice{Kind: noticeError, Text: "Le service de notification a refusé l'envoi. Détail technique : " + err.Error() + "."}
 	}
-	s.renderNotifications(w, r, http.StatusOK, &n, "")
+	s.renderNotifications(w, r, &n, "")
 }
 
 // savePushover sets or removes the resolver's Pushover user key (spec §6 as
@@ -80,7 +85,7 @@ func (s *Server) savePushover(w http.ResponseWriter, r *http.Request) {
 	}
 	switch err := s.admins.SetPushoverKey(r.Context(), sess.account.Username, key); {
 	case errors.Is(err, admins.ErrPushoverKey):
-		s.renderNotifications(w, r, http.StatusUnprocessableEntity, nil,
+		s.renderNotifications(w, r, nil,
 			"Une clé Pushover fait 30 lettres et chiffres. Copie-la depuis pushover.net.")
 	case err != nil:
 		s.serverError(w, r, err)

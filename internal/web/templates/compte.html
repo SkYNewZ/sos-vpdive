@@ -13,8 +13,7 @@
 {{else}}
 <h1 class="text-2xl font-bold text-primary max-lg:sr-only">Mon compte</h1>
 <div class="panel flex items-center gap-3 p-4 lg:mt-6">
-<img src="{{.Account.Avatar}}" alt="" width="40" height="40" class="size-10">
-<p><span class="block font-semibold">{{.Account.Name}}</span><span class="block text-sm">{{.Account.Role}}</span><span class="block text-sm">Identifiant : {{.Account.Username}}</span></p>
+{{template "identity" .Account}}
 </div>
 <section class="mt-8 max-w-md" aria-labelledby="mot-de-passe">
 <h2 id="mot-de-passe" class="text-xl font-semibold">Changer de mot de passe</h2>
@@ -33,8 +32,8 @@
 </div>
 {{end}}{{$err := index $d.Errors "nouveau"}}<div class="flex flex-col gap-1">
 <label class="font-semibold" for="nouveau">Nouveau mot de passe</label>
-<p id="nouveau-aide" class="text-sm">12 caractères minimum. Une phrase de quelques mots marche bien.</p>
-<input class="input w-full" id="nouveau" name="nouveau" type="password" autocomplete="new-password" minlength="12" required aria-describedby="nouveau-aide{{if $err}} nouveau-erreur{{end}}"{{if $err}} aria-invalid="true"{{end}}>
+<p id="nouveau-aide" class="text-sm">{{$d.MinLen}} caractères minimum. Une phrase de quelques mots marche bien.</p>
+<input class="input w-full" id="nouveau" name="nouveau" type="password" autocomplete="new-password" minlength="{{$d.MinLen}}" required aria-describedby="nouveau-aide{{if $err}} nouveau-erreur{{end}}"{{if $err}} aria-invalid="true"{{end}}>
 {{with $err}}<p id="nouveau-erreur" class="font-semibold text-error">{{.}}</p>{{end}}
 </div>
 {{$err = index $d.Errors "confirmation"}}<div class="flex flex-col gap-1">

@@ -23,7 +23,6 @@ type accountsData struct {
 	Owner    string
 	New      newAccount
 	Errors   map[string]string // by field: identifiant, nom, fonction
-	Deleted  bool
 }
 
 // temporaryData feeds templates/mot_de_passe_temporaire.html.
@@ -31,12 +30,17 @@ type temporaryData struct {
 	Heading, Username, Password, SignInURL string
 }
 
+// isOwner reports whether username is OWNER_USERNAME.
+func (s *Server) isOwner(username string) bool {
+	return s.cfg.Owner != "" && username == s.cfg.Owner
+}
+
 // ownerOnly lets only OWNER_USERNAME through; anyone else gets the 404 of an
 // unknown page.
 func (s *Server) ownerOnly(next http.HandlerFunc) http.HandlerFunc {
 	return s.signedIn(func(w http.ResponseWriter, r *http.Request) {
 		sess, _ := sessionFrom(r.Context())
-		if s.cfg.Owner == "" || sess.account.Username != s.cfg.Owner {
+		if !s.isOwner(sess.account.Username) {
 			s.notFound(w, r)
 			return
 		}
@@ -45,14 +49,21 @@ func (s *Server) ownerOnly(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func (s *Server) accountsPage(w http.ResponseWriter, r *http.Request) {
-	s.renderAccounts(w, r, http.StatusOK, accountsData{Deleted: r.URL.Query().Get("supprime") == "1"})
+	var n *notice
+	if r.URL.Query().Get("supprime") == "1" {
+		n = &notice{Kind: noticeSuccess, Text: "Compte supprimé."}
+	}
+	s.renderAccounts(w, r, http.StatusOK, accountsData{}, n)
 }
 
-func (s *Server) renderAccounts(w http.ResponseWriter, r *http.Request, status int, d accountsData) {
+func (s *Server) renderAccounts(w http.ResponseWriter, r *http.Request, status int, d accountsData, n *notice) {
 	p, err := s.adminPage(r, "Comptes")
 	if err != nil {
 		s.serverError(w, r, err)
 		return
+	}
+	if n != nil {
+		p.Notices = append(p.Notices, *n)
 	}
 	d.Accounts, d.Owner = s.admins.Accounts(), s.cfg.Owner
 	p.Data = d
@@ -66,7 +77,7 @@ func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	f := r.PostForm
 	in := newAccount{
-		Username: strings.ToLower(strings.TrimSpace(f.Get("identifiant"))),
+		Username: admins.NormalizeUsername(f.Get("identifiant")),
 		Name:     strings.TrimSpace(f.Get("nom")),
 		Role:     strings.TrimSpace(f.Get("fonction")),
 	}
@@ -93,7 +104,7 @@ func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	s.renderAccounts(w, r, http.StatusUnprocessableEntity, accountsData{New: in, Errors: errs})
+	s.renderAccounts(w, r, http.StatusUnprocessableEntity, accountsData{New: in, Errors: errs}, nil)
 }
 
 // managedAccount is the account of the path, which the owner manages: never
@@ -101,7 +112,7 @@ func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 func (s *Server) managedAccount(w http.ResponseWriter, r *http.Request) (admins.Account, bool) {
 	username := r.PathValue("identifiant")
 	a, ok := s.admins.Get(username)
-	if !ok || username == s.cfg.Owner {
+	if !ok || s.isOwner(username) {
 		s.notFound(w, r)
 		return admins.Account{}, false
 	}

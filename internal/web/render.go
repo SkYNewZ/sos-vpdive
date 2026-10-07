@@ -38,7 +38,8 @@ type page struct {
 	Section   string          // committee sidebar entry of this page (nav.go)
 	Tab       string          // committee phone tab of this page (nav.go)
 	Account   *admins.Account // signed-in committee member
-	Owner     bool            // the signed-in account is OWNER_USERNAME
+	Nav       []navItem       // committee navigation of the signed-in account
+	Bare      bool            // the plain shell, even when signed in
 	CSRF      string
 	Notices   []notice
 	ClubEmail string
@@ -81,7 +82,7 @@ func (s *Server) newPage(r *http.Request, title string) page {
 	if sess, ok := sessionFrom(r.Context()); ok {
 		a := sess.account
 		p.Account = &a
-		p.Owner = s.cfg.Owner != "" && a.Username == s.cfg.Owner
+		p.Nav = navFor(s.isOwner(a.Username))
 		p.CSRF = s.keys.CSRFToken(sess.hash)
 	}
 	return p

@@ -56,10 +56,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	// Usernames are [a-z0-9._-]: a phone keyboard capitalizing the first
-	// letter must not lock anyone out.
-	username := strings.ToLower(strings.TrimSpace(r.PostForm.Get("username")))
-	ip := s.clientIP(r)
+	username := admins.NormalizeUsername(r.PostForm.Get("username"))
 
 	if status, n := s.checkBot(r, r.PostForm.Get(turnstileField), s.cfg.AdminBaseURL.Hostname(), turnstileAction); n != nil {
 		s.renderLogin(w, r, status, username, *n)
@@ -70,32 +67,20 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	s.loginMu.Lock()
 	defer s.loginMu.Unlock()
 
-	wait, err := s.limiter.retryAfter(ctx, ip, username)
-	if err != nil {
-		s.serverError(w, r, err)
-		return
-	}
-	if wait > 0 {
-		s.renderLogin(w, r, http.StatusTooManyRequests, username, notice{Kind: noticeError,
-			Text: "Trop d'essais. Réessaie dans " + humanDuration(wait) + "."})
-		return
-	}
-
 	account, known := s.admins.Get(username)
 	hash := s.dummyHash
 	if known {
 		hash = account.PasswordHash
 	}
-	ok, err := admins.VerifyPassword(hash, r.PostForm.Get("password"))
-	if err != nil {
+	limited, ok, err := s.checkPassword(r, username, hash, r.PostForm.Get("password"), known)
+	switch {
+	case err != nil:
 		s.serverError(w, r, err)
 		return
-	}
-	if !known || !ok {
-		if err := s.limiter.fail(ctx, ip, username); err != nil {
-			s.serverError(w, r, err)
-			return
-		}
+	case limited != "":
+		s.renderLogin(w, r, http.StatusTooManyRequests, username, notice{Kind: noticeError, Text: limited})
+		return
+	case !ok:
 		s.renderLogin(w, r, http.StatusUnauthorized, username, notice{Kind: noticeError, Text: "Identifiant ou mot de passe incorrect."})
 		return
 	}
@@ -108,6 +93,30 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// checkPassword verifies password against hash under the login's rate
+// limits and counts a mismatch as a failure. limited is the message to show
+// when the limiter says to wait: nothing was checked then. genuine false
+// means hash is the dummy of an unknown username: the check takes as long
+// but never succeeds. The caller holds loginMu.
+func (s *Server) checkPassword(r *http.Request, username, hash, password string, genuine bool) (limited string, ok bool, err error) {
+	ctx, ip := r.Context(), s.clientIP(r)
+	wait, err := s.limiter.retryAfter(ctx, ip, username)
+	if err != nil {
+		return "", false, err
+	}
+	if wait > 0 {
+		return "Trop d'essais. Réessaie dans " + humanDuration(wait) + ".", false, nil
+	}
+	ok, err = admins.VerifyPassword(hash, password)
+	if err != nil {
+		return "", false, err
+	}
+	if ok && genuine {
+		return "", true, nil
+	}
+	return "", false, s.limiter.fail(ctx, ip, username)
 }
 
 // forbidCSRF refuses a form whose anti-CSRF token is missing or invalid.
@@ -132,7 +141,7 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	}
 	sess, _ := sessionFrom(r.Context())
 	s.deleteSession(r.Context(), sess.hash)
-	s.broker.disconnect(func(sub *subscriber) bool { return sub.session == string(sess.hash) })
+	s.disconnectSession(sess.hash)
 	http.SetCookie(w, &http.Cookie{
 		Name: sessionCookieName, Value: "", Path: "/", MaxAge: -1,
 		Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode,

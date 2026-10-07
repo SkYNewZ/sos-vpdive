@@ -18,7 +18,7 @@ const newPassword = "a brand new long password"
 
 func (e *testEnv) postAccount(t *testing.T, cookie *http.Cookie, v url.Values) (int, string) {
 	t.Helper()
-	rec := e.do(t, http.MethodPost, adminHost, "/compte", formBody(v), formType, withCookie(cookie))
+	rec := e.postAs(t, cookie, "/compte", v)
 	return rec.Code, html.UnescapeString(rec.Body.String())
 }
 
@@ -26,7 +26,7 @@ func (e *testEnv) postAccount(t *testing.T, cookie *http.Cookie, v url.Values) (
 // session's cookie, after checking that the old one ended.
 func (e *testEnv) changeOK(t *testing.T, old *http.Cookie, v url.Values, location string) *http.Cookie {
 	t.Helper()
-	rec := e.do(t, http.MethodPost, adminHost, "/compte", formBody(v), formType, withCookie(old))
+	rec := e.postAs(t, old, "/compte", v)
 	require.Equal(t, http.StatusSeeOther, rec.Code, rec.Body.String())
 	assert.Equal(t, location, rec.Header().Get("Location"))
 	cookie := sessionCookie(t, rec)

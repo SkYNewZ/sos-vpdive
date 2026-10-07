@@ -134,7 +134,6 @@ func New(d Deps) (*Server, error) {
 		"age": s.age, "accountOf": s.accountOf, "actor": s.actorName, "isoDate": isoDate,
 		"fieldName": tickets.FieldName, "categoryLabel": func(id string) string { return s.tickets.Catalog.CategoryLabel(id) }, "describe": s.tickets.Describe,
 		"formField": newFormField, "themeColor": func() string { return themeColor }, "methodLabel": methodLabel,
-		"navItems": navFor,
 	}
 	if s.pages, err = parsePages(funcs); err != nil {
 		return nil, err
