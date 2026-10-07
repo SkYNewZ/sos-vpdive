@@ -30,8 +30,12 @@ func NewStore(db *sql.DB, keys *secure.Keys, now func() time.Time) *Store {
 	return &Store{db: db, keys: keys, now: now}
 }
 
-// errUnreadable reports a subscription List could not decrypt.
-var errUnreadable = errors.New("push subscription unreadable")
+var (
+	// ErrNoSubscription reports a session without a push subscription.
+	ErrNoSubscription = errors.New("no push subscription on this device")
+	// errUnreadable reports a subscription that could not be decrypted.
+	errUnreadable = errors.New("push subscription unreadable")
+)
 
 type sealedKeys struct {
 	P256DH string `json:"p256dh"`
@@ -87,6 +91,28 @@ func (s *Store) HasSession(ctx context.Context, sessionHash []byte) (bool, error
 		return false, fmt.Errorf("find push subscription: %w", err)
 	}
 	return true, nil
+}
+
+// Session returns the subscription of a session, decrypted, or
+// ErrNoSubscription.
+func (s *Store) Session(ctx context.Context, sessionHash []byte) (Subscription, error) {
+	var (
+		id             int64
+		endpoint, keys []byte
+	)
+	err := s.db.QueryRowContext(ctx, `SELECT id, endpoint, keys FROM push_subscriptions WHERE session_token_hash = ?`,
+		sessionHash).Scan(&id, &endpoint, &keys)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Subscription{}, ErrNoSubscription
+	}
+	if err != nil {
+		return Subscription{}, fmt.Errorf("find push subscription: %w", err)
+	}
+	sub, err := s.open(id, endpoint, keys)
+	if err != nil {
+		return Subscription{}, fmt.Errorf("%w: %w", errUnreadable, err)
+	}
+	return sub, nil
 }
 
 // List returns the subscriptions of live sessions, decrypted, for one alert.

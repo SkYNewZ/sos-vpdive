@@ -25,18 +25,28 @@ func NewWebPush(client *Client, store *Store, logger *slog.Logger) *WebPush {
 	return &WebPush{client: client, store: store, logger: logger}
 }
 
+// alertPayload is what the service worker shows: a title, a body, and the
+// page a tap opens.
+func alertPayload(title, body, url string) ([]byte, error) {
+	payload, err := json.Marshal(struct {
+		Title string `json:"title"`
+		Body  string `json:"body"`
+		URL   string `json:"url"`
+	}{title, body, url})
+	if err != nil {
+		return nil, fmt.Errorf("encode push payload: %w", err)
+	}
+	return payload, nil
+}
+
 // Send pushes m to the subscriptions of the moment. A subscription that
 // cannot be used again (unreadable, unknown to the push service, or on a host
 // that left PUSH_ALLOWED_HOSTS) is deleted; other failures are logged. The
 // alert fails only when no browser got it.
 func (w *WebPush) Send(ctx context.Context, m mail.Message) error {
-	payload, err := json.Marshal(struct {
-		Title string `json:"title"`
-		Body  string `json:"body"`
-		URL   string `json:"url"`
-	}{m.Subject, m.Text, "/demandes/" + strconv.FormatInt(m.TicketID, 10)})
+	payload, err := alertPayload(m.Subject, m.Text, "/demandes/"+strconv.FormatInt(m.TicketID, 10))
 	if err != nil {
-		return fmt.Errorf("encode push payload: %w", err)
+		return err
 	}
 	subs, unreadable, err := w.store.List(ctx)
 	if err != nil {
@@ -64,6 +74,31 @@ func (w *WebPush) Send(ctx context.Context, m mail.Message) error {
 		return fmt.Errorf("push alert reached none of %d subscriptions", len(subs))
 	}
 	return nil
+}
+
+// Test pushes a test notification to the subscription of one session, at
+// once and outside the outbox (« M'envoyer une notification de test »). It
+// returns ErrNoSubscription when the session has none. As for an alert, a
+// subscription the push service no longer knows is deleted.
+func (w *WebPush) Test(ctx context.Context, sessionHash []byte) error {
+	sub, err := w.store.Session(ctx, sessionHash)
+	if err != nil {
+		return err
+	}
+	payload, err := alertPayload("Notification de test", "Les notifications marchent sur cet appareil.", "/notifications")
+	if err != nil {
+		return err
+	}
+	err = w.client.Send(ctx, sub, payload)
+	switch {
+	case err == nil:
+		if err := w.store.Touch(ctx, sub.ID); err != nil {
+			w.logger.ErrorContext(ctx, "push subscription update", "subscription_id", sub.ID, "error", err)
+		}
+	case errors.Is(err, errGone), errors.Is(err, errEndpointRefused):
+		w.drop(ctx, sub.ID, err)
+	}
+	return err
 }
 
 // drop deletes a subscription that cannot be used again.

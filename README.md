@@ -295,7 +295,8 @@ Google's or Pushover's servers.
   notifications on, device by device, on the « Notifications » page. On
   iPhone that works only from the installed app (iOS 16.4 or later). A
   subscription ends with its session: after signing in again, turn it back
-  on there.
+  on there. « M'envoyer une notification de test » on that page pushes to
+  the device at once and shows the push service's answer when it refuses.
 
 An alert is sent once, within the hour. If that fails, the log says so and
 the mail still arrives. Alerts never show on the « Envois » page.

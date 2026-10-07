@@ -101,7 +101,15 @@ func setup(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*app, 
 	mollieStore := payments.NewMollieStore(db, keys, time.Now)
 	outbox := mail.NewOutbox(db, keys, time.Now)
 	pushStore := push.NewStore(db, keys, time.Now)
-	senders, alerts := alertSenders(cfg, registry, pushStore, logger)
+	var (
+		webPush  *push.WebPush
+		pushTest func(context.Context, []byte) error
+	)
+	if cfg.VAPID != nil {
+		webPush = push.NewWebPush(push.NewClient(cfg.VAPID, cfg.PushAllowedHosts, time.Now), pushStore, logger)
+		pushTest = webPush.Test
+	}
+	senders, alerts := alertSenders(cfg, registry, webPush, logger)
 	broker := web.NewBroker()
 	ticketStore := tickets.NewStore(tickets.Deps{
 		DB: db, Keys: keys, Catalog: catalog, Members: memberStore, Payments: paymentStore, Mollie: mollieStore, Outbox: outbox,
@@ -124,7 +132,7 @@ func setup(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*app, 
 	a.web, err = web.New(web.Deps{
 		Config: cfg, DB: db, Keys: keys, Members: memberStore, Payments: paymentStore, Mollie: mollieStore, Admins: registry,
 		Content: sosvpdive.Content, Logger: logger, Now: time.Now, Turnstile: turnstile,
-		Tickets: ticketStore, Outbox: outbox, Push: pushStore, Broker: broker, KB: base,
+		Tickets: ticketStore, Outbox: outbox, Push: pushStore, PushTest: pushTest, Broker: broker, KB: base,
 	})
 	if err != nil {
 		return fail(err)
@@ -137,17 +145,16 @@ func setup(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*app, 
 
 // alertSenders returns the outbox senders and the alert channels that the
 // configuration turns on: the mail always, Pushover with its token, Web Push
-// with the VAPID keys (spec §6, §9.6).
-func alertSenders(cfg *config.Config, registry *admins.Registry, subs *push.Store, logger *slog.Logger) (mail.Router, []mail.Channel) {
+// with the VAPID keys, built by the caller as webPush (spec §6, §9.6).
+func alertSenders(cfg *config.Config, registry *admins.Registry, webPush *push.WebPush, logger *slog.Logger) (mail.Router, []mail.Channel) {
 	senders := mail.Router{mail.ChannelEmail: mail.NewSMTP(cfg.SMTP, cfg.MailFrom)}
 	var alerts []mail.Channel
 	if cfg.PushoverToken != "" {
 		senders[mail.ChannelPushover] = push.NewPushover(cfg.PushoverToken, cfg.AdminBaseURL, registry.Accounts, logger)
 		alerts = append(alerts, mail.ChannelPushover)
 	}
-	if cfg.VAPID != nil {
-		client := push.NewClient(cfg.VAPID, cfg.PushAllowedHosts, time.Now)
-		senders[mail.ChannelWebPush] = push.NewWebPush(client, subs, logger)
+	if webPush != nil {
+		senders[mail.ChannelWebPush] = webPush
 		alerts = append(alerts, mail.ChannelWebPush)
 	}
 	return senders, alerts
