@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -58,6 +59,14 @@ func TestTemporaryPasswordLeadsToTheAccountPage(t *testing.T) {
 	assert.NotContains(t, body, `name="actuel"`, "the temporary password was just typed")
 	assert.Contains(t, body, `action="/deconnexion"`)
 
+	// A stream that opens would run until the context ends: bound it.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	committee := func(r *http.Request) { *r = *r.WithContext(ctx); r.Header.Set("Origin", "https://"+adminHost) }
+	stream := e.do(t, http.MethodGet, adminHost, "/evenements", nil, withCookie(cookie), committee)
+	assert.Equal(t, http.StatusForbidden, stream.Code, "no live board before the password is chosen")
+	assert.Contains(t, stream.Body.String(), "Session expirée")
+
 	csrf := e.csrf(t, cookie, "/compte")
 	assert.Equal(t, http.StatusForbidden,
 		e.do(t, http.MethodPost, adminHost, "/anomalies/masquer", formBody(url.Values{"csrf": {csrf}}), formType, withCookie(cookie)).Code)
@@ -98,6 +107,25 @@ func TestChangePasswordKeepsThisDeviceOnly(t *testing.T) {
 		`SELECT count(*) FROM push_subscriptions WHERE session_token_hash = ?`, secure.TokenHash(renewed.Value)).Scan(&follows))
 	assert.Equal(t, 1, e.count(t, "push_subscriptions"), "this device keeps its notifications")
 	assert.Equal(t, 1, follows, "they follow the new session")
+}
+
+func TestCurrentPasswordIsRateLimited(t *testing.T) {
+	e := newTestEnv(t)
+	cookie := e.login(t)
+	csrf := e.csrf(t, cookie, "/compte")
+	post := func(current string) (int, string) {
+		code, body := e.postAccount(t, cookie, url.Values{"csrf": {csrf}, "actuel": {current}, "nouveau": {newPassword}, "confirmation": {newPassword}})
+		return code, body
+	}
+	for range userFailureLimit {
+		code, _ := post("wrong password")
+		require.Equal(t, http.StatusUnprocessableEntity, code)
+	}
+	code, body := post("wrong password")
+	assert.Equal(t, http.StatusTooManyRequests, code)
+	assert.Contains(t, body, "Trop d'essais")
+	code, _ = post(testPassword)
+	assert.Equal(t, http.StatusTooManyRequests, code, "even the right password waits")
 }
 
 // The owner resets the password while the form is open: the change does not

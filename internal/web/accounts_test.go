@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"html"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/SkYNewZ/sos-vpdive/internal/tickets"
 )
 
 var temporaryPattern = regexp.MustCompile(`[a-z2-9]{4}(?:-[a-z2-9]{4}){3}`)
@@ -92,4 +95,19 @@ func TestAccountsAreTheOwnersOnly(t *testing.T) {
 	csrf := e.csrf(t, cookie, "/plus")
 	assert.Equal(t, http.StatusNotFound, e.do(t, http.MethodPost, adminHost, "/comptes", formBody(url.Values{"csrf": {csrf}, "identifiant": {"eve"}, "nom": {"Eve"}, "fonction": {"X"}}), formType, withCookie(cookie)).Code)
 	assert.Equal(t, http.StatusNotFound, e.do(t, http.MethodGet, publicHost, "/comptes", nil).Code)
+}
+
+func TestDeletingAnAccountReturnsItsRequests(t *testing.T) {
+	e := newTestEnv(t)
+	e.addBob(t)
+	cookie := e.login(t)
+	tk := e.submitTicket(t, "lea.martin@example.org")
+	require.NoError(t, e.deps.Tickets.Apply(context.Background(),
+		tickets.Command{Action: tickets.ActionTake, TicketID: tk.ID, Version: e.detail(t, tk.ID).Version, Actor: "bob"}))
+
+	rec := e.ownerPost(t, cookie, "/comptes/bob/suppression", url.Values{"csrf": {e.csrf(t, cookie, "/comptes")}, "confirmer": {"oui"}})
+	require.Equal(t, http.StatusSeeOther, rec.Code)
+	d := e.detail(t, tk.ID)
+	assert.Equal(t, tickets.StatusTodo, d.Status)
+	assert.Empty(t, d.Assignee)
 }
