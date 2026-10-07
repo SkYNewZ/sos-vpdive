@@ -58,6 +58,8 @@ validated: it wins over this file, over existing code, and over preference.
   - Desktop committee pages show a toast for a change made by someone else;
     the SSE event carries `self` for the resolver's own changes (§4.2).
   - The suggestion call sends `"thinking": {"type": "disabled"}` (§5.2).
+- The README has no dependency list (§9.1, §9.3): the commit that adds a
+  dependency says why.
 
 ## Private material: `.local/` is gitignored
 
@@ -82,7 +84,7 @@ validated: it wins over this file, over existing code, and over preference.
 - Distroless image, non-root. One binary serves two hostnames.
 - Config through environment variables only (§10). Business content in
   versioned YAML and Markdown (§9.7).
-- Every new dependency is justified in the README.
+- Few dependencies; a new one is justified in the commit that adds it.
 
 ## Language
 

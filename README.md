@@ -342,25 +342,6 @@ allowed). Once those pass, a push to `develop` publishes
 `skynewz/sos-vpdive:X.Y.Z`. A fork changes `IMAGE` and the login user in
 `.github/workflows/ci.yml` and sets its own `DOCKERHUB_TOKEN` secret.
 
-## Dependencies
-
-| Dependency | Why |
-| --- | --- |
-| `modernc.org/sqlite` | SQLite without CGO, so the binary is static and the image distroless |
-| `golang.org/x/crypto` | argon2id password hashing |
-| `golang.org/x/text` | Unicode normalization for name matching and spreadsheet headers |
-| `golang.org/x/term` | `hash-password` reads a password without echo |
-| `golang.org/x/image` | WebP decoding: screenshots are re-encoded to drop their metadata, and the standard library reads no WebP |
-| `go.yaml.in/yaml/v3` | YAML content and accounts files (maintained successor of `gopkg.in/yaml.v3`) |
-| `go.opentelemetry.io/otel`, `otel/trace`, `otel/sdk`, `otlptracehttp` | Traces over OTLP/HTTP, exported only when configured |
-| `github.com/getsentry/sentry-go`, `sentry-go/otel`, `sentry-go/slog` | Optional reporting to Sentry: the official SDK, the link between its errors and the existing spans, and its `log/slog` handler |
-| `github.com/dicebear/dicebear-go/v10`, `github.com/dicebear/styles/v10` | Committee avatars generated offline (Voxel Art style, CC0); they pull `github.com/dicebear/schema` and `github.com/santhosh-tekuri/jsonschema/v6` |
-| `github.com/minio/minio-go/v7` | S3 client for the private screenshot bucket; it pulls `klauspost/compress`, `klauspost/cpuid`, `klauspost/crc32`, `minio/crc64nvme`, `minio/md5-simd`, `philhofer/fwd`, `rs/xid`, `tinylib/msgp`, `zeebo/xxh3` and `gopkg.in/ini.v1` |
-| `github.com/stretchr/testify` | Tests only |
-| Tailwind CSS standalone CLI v4, daisyUI 5 (vendored `.mjs`) | Stylesheet built without Node or npm, checksums verified |
-| Atkinson Hyperlegible Next | Self-hosted font, SIL Open Font License (`internal/web/static/fonts/OFL.txt`) |
-| Lucide icons (1.52) | The committee navigation icons, copied as inline SVG into `internal/web/templates/layout.html`. ISC license, with the MIT notice of the Feather icons they derive from (`third_party/lucide/LICENSE`) |
-
 ## License
 
 MIT
