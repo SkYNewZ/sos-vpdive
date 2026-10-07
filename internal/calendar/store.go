@@ -96,7 +96,7 @@ func (s *Store) saveEvent(ctx context.Context, tx *sql.Tx, insert *sql.Stmt, imp
 		`INSERT INTO calendar_events (id, import_id, starts_at, ends_at, data) VALUES (?, ?, ?, ?, ?)
 		 ON CONFLICT (id) DO UPDATE SET import_id = excluded.import_id, starts_at = excluded.starts_at,
 		   ends_at = excluded.ends_at, data = excluded.data`,
-		ev.ID, importID, ev.start.Unix(), ev.end.Unix(), s.keys.Seal(data)); err != nil {
+		ev.ID, importID, ev.Start.Unix(), ev.End.Unix(), s.keys.Seal(data)); err != nil {
 		return fmt.Errorf("store calendar event %s: %w", ev.ID, err)
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM calendar_participants WHERE event_id = ?`, ev.ID); err != nil {
