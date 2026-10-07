@@ -276,6 +276,36 @@ func TestClientOutcomes(t *testing.T) {
 	}
 }
 
+// A refusal names the service's reason, so a misconfiguration shows in the
+// logs (Apple answers 403 {"reason":"BadJwtToken"} to a bad VAPID subject);
+// the subscription's address never does.
+func TestClientReportsTheServiceReason(t *testing.T) {
+	v := newTestVAPID(t)
+	for name, tc := range map[string]struct{ body, want string }{
+		"apple json":   {`{"reason":"BadJwtToken"}`, "status 403 (BadJwtToken)"},
+		"mozilla json": {`{"code":403,"errno":109,"message":"Request did not validate"}`, "status 403 (Request did not validate)"},
+		"text":         {"the key in the authorization header does not match\nsecond line", "status 403 (the key in the authorization header does not match)"},
+		"long text":    {strings.Repeat("é", 300), "status 403 (" + strings.Repeat("é", 200) + ")"},
+		"empty":        {"", "status 403"},
+		"json without": {`{"errno":1}`, "status 403"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ps := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusForbidden)
+				_, _ = io.WriteString(w, tc.body)
+			}))
+			t.Cleanup(ps.Close)
+			c := NewClient(v.cfg, []string{"127.0.0.1"}, v.clock.now)
+			c.http.Transport = ps.Client().Transport
+			sub, _ := testSubscription(t, ps.URL+"/wpush/secret-capability")
+			err := c.Send(context.Background(), sub, []byte("{}"))
+			require.ErrorIs(t, err, errRejected)
+			assert.True(t, strings.HasSuffix(err.Error(), tc.want), err.Error())
+			assert.NotContains(t, err.Error(), "secret-capability")
+		})
+	}
+}
+
 func TestClientRefusesEndpointsOutsideTheList(t *testing.T) {
 	v := newTestVAPID(t)
 	ps := newPushService(t, http.StatusCreated)
