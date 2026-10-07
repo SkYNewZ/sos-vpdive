@@ -1,6 +1,6 @@
 {{define "main"}}
 {{$d := .Data}}
-<h1 class="text-2xl font-bold text-primary">Paiements à vérifier</h1>
+<h1 class="text-2xl font-bold text-primary max-lg:sr-only">Paiements à vérifier</h1>
 <p class="mt-4">Sur ces lignes des exports, l'argent reçu et l'état dans VPDive ne concordent pas. L'outil ne corrige rien : vérifie dans VPDive, puis masque la ligne.</p>
 <ul class="mt-3 flex flex-wrap gap-3">{{range $d.Links}}<li><a class="btn btn-outline min-h-11" href="{{.URL}}" target="_blank" rel="noopener">{{.Label}}</a></li>{{end}}</ul>
 {{if and (not $d.Payments) (not $d.Mollie)}}
@@ -23,14 +23,14 @@
 {{end}}
 {{end}}
 
-{{define "checks"}}<div class="overflow-x-auto"><table class="table mt-2 max-md:[&_thead]:hidden max-md:[&_tr]:block max-md:[&_tr]:py-2 max-md:[&_td]:block max-md:[&_td]:px-0 max-md:[&_td]:py-0.5">
+{{define "checks"}}<div class="panel mt-2 overflow-x-auto max-md:px-4"><table class="table max-md:[&_thead]:hidden max-md:[&_tr]:block max-md:[&_tr]:py-2 max-md:[&_td]:block max-md:[&_td]:px-0 max-md:[&_td]:py-0.5">
 <thead><tr><th scope="col">Personne</th><th scope="col">Date</th><th scope="col">Produit</th><th scope="col" class="text-right">Montant</th><th scope="col">Signal</th><th scope="col">Ancienneté</th><th scope="col"><span class="sr-only">Masquage</span></th></tr></thead>
 <tbody>{{range .Rows}}<tr>
-<td class="break-words">{{with .Person.Name}}{{.}}{{else}}absent de la liste des membres{{end}}{{if .Person.Shared}} <span class="text-sm">(plusieurs membres portent ce nom)</span>{{end}}</td>
+<td class="break-words xl:whitespace-nowrap">{{with .Person.Name}}{{.}}{{else}}absent de la liste des membres{{end}}{{if .Person.Shared}} <span class="text-sm">(plusieurs membres portent ce nom)</span>{{end}}</td>
 <td class="whitespace-nowrap">{{formatTime .Date}}</td>
 <td class="break-words">{{.Product}}{{with .Service}} · {{.}}{{end}}</td>
 <td class="md:text-right">{{if eq .Signal "partial"}}{{.Amount.Euros}} payés, prix {{.UnitPrice.Euros}}{{else}}<span class="whitespace-nowrap">{{.Amount.Euros}}</span>{{end}}</td>
-<td>{{if eq .Signal "partial"}}paiement partiel{{else}}encaissé par Mollie, non soldé dans VPDive{{end}}</td>
+<td class="xl:whitespace-nowrap">{{if eq .Signal "partial"}}paiement partiel{{else}}encaissé par Mollie, non soldé dans VPDive{{end}}</td>
 <td class="whitespace-nowrap">{{template "age" .Age}}</td>
 <td>{{with .Dismissal}}masquée par {{author .By}} le {{formatDate .At}}{{else}}<form method="post" action="/anomalies/masquer">
 <input type="hidden" name="csrf" value="{{$.CSRF}}">

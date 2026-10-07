@@ -81,6 +81,7 @@ const (
 type Change struct {
 	Type     ChangeType
 	TicketID int64
+	Actor    string // the resolver who made the change; "" for the member or the system
 }
 
 // Errors returned by the store.
@@ -289,10 +290,11 @@ func (s *Store) addEvent(ctx context.Context, tx *sql.Tx, ticketID int64, typ ev
 	return nil
 }
 
-// changed runs after a commit: it tells the live board.
-func (s *Store) changed(typ ChangeType, id int64) {
+// changed runs after a commit: it tells the live board. actor is the
+// resolver who made the change, "" for the member or the system.
+func (s *Store) changed(typ ChangeType, id int64, actor string) {
 	if s.OnChange != nil {
-		s.OnChange(Change{Type: typ, TicketID: id})
+		s.OnChange(Change{Type: typ, TicketID: id, Actor: actor})
 	}
 }
 

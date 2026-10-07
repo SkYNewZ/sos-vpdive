@@ -1,6 +1,7 @@
 package web
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/push"
@@ -17,6 +18,10 @@ type notificationsData struct {
 // notificationsPage lets a resolver turn push on for this device, and tells
 // whether Pushover reaches them (spec §9.6, §6 as amended).
 func (s *Server) notificationsPage(w http.ResponseWriter, r *http.Request) {
+	s.renderNotifications(w, r, nil)
+}
+
+func (s *Server) renderNotifications(w http.ResponseWriter, r *http.Request, n *notice) {
 	sess, _ := sessionFrom(r.Context())
 	d := notificationsData{Pushover: s.cfg.PushoverToken != "", PushoverOn: sess.account.PushoverUserKey != ""}
 	if s.cfg.VAPID != nil {
@@ -33,7 +38,29 @@ func (s *Server) notificationsPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p.Data = d
+	if n != nil {
+		p.Notices = append(p.Notices, *n)
+	}
 	s.render(w, r, http.StatusOK, "notifications", p)
+}
+
+// testPush sends a test notification to this device and says how it went,
+// the push service's reason included (« M'envoyer une notification de test »).
+func (s *Server) testPush(w http.ResponseWriter, r *http.Request) {
+	if !s.postForm(w, r) {
+		return
+	}
+	sess, _ := sessionFrom(r.Context())
+	n := notice{Kind: noticeSuccess, Text: "Notification envoyée : elle doit s'afficher sur cet appareil dans quelques secondes."}
+	switch err := s.pushTest(r.Context(), sess.hash); {
+	case err == nil:
+	case errors.Is(err, push.ErrNoSubscription):
+		n = notice{Kind: noticeWarning, Text: "Les notifications ne sont pas activées sur cet appareil."}
+	default:
+		s.logger.WarnContext(r.Context(), "test push not delivered", "error", err)
+		n = notice{Kind: noticeError, Text: "Le service de notification a refusé l'envoi. Détail technique : " + err.Error() + "."}
+	}
+	s.renderNotifications(w, r, &n)
 }
 
 // subscribePush stores this device's subscription, tied to its session.

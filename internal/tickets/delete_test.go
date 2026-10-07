@@ -64,7 +64,7 @@ func TestDeleteTicket(t *testing.T) {
 	assert.Empty(t, e.objects(t))
 	_, err := e.store.ByToken(ctx, token)
 	require.ErrorIs(t, err, ErrNotFound, "the tracking link stops working")
-	assert.Equal(t, Change{Type: ChangeDeleted, TicketID: id}, e.recorded()[len(e.recorded())-1])
+	assert.Equal(t, Change{Type: ChangeDeleted, TicketID: id, Actor: "bob"}, e.recorded()[len(e.recorded())-1])
 	logs := e.logs.String()
 	assert.Contains(t, logs, `"msg":"ticket deleted"`)
 	assert.Contains(t, logs, `"actor":"bob"`)

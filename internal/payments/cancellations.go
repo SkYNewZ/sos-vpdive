@@ -25,7 +25,7 @@ type Cancellations struct {
 	Imported bool         // an import is in place, possibly with no line
 	Purged   bool         // its lines were deleted after 90 days without an import
 	Import   imports.Info // the latest payments import
-	Outings  []Outing     // oldest first, unknown dates last
+	Outings  []Outing     // newest first, unknown dates last
 	Lines    int
 	Persons  int // inscriptions: distinct payers per outing, summed
 }
@@ -90,7 +90,7 @@ func (s *Store) Cancellations(ctx context.Context) (Cancellations, error) {
 			}
 			return -1
 		case !a.Starts.Equal(b.Starts):
-			return a.Starts.Compare(b.Starts)
+			return b.Starts.Compare(a.Starts) // newest first (spec §7.4 as amended)
 		}
 		return strings.Compare(a.Title, b.Title)
 	})

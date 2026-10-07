@@ -1,6 +1,6 @@
 {{define "main"}}
 {{$d := .Data}}
-<h1 class="text-2xl font-bold text-primary">Notifications</h1>
+<h1 class="text-2xl font-bold text-primary max-lg:sr-only">Notifications</h1>
 <p class="mt-4">Les mails à la boîte du club arrivent dans tous les cas. Ici, tu choisis ce qui arrive en plus sur ton téléphone : une alerte pour chaque nouvelle demande et chaque réponse d'adhérent.</p>
 {{if $d.VAPIDKey}}
 <section class="mt-8" aria-labelledby="appareil">
@@ -11,7 +11,13 @@
 <p data-push-state="denied" hidden>Les notifications sont bloquées pour SOS CPP Comité. Autorise-les dans les réglages du téléphone, puis recharge cette page.</p>
 <div data-push-state="on" hidden>
 <p>Activées sur cet appareil.</p>
-<button class="btn btn-outline mt-3 min-h-11" type="button" data-push-off>Désactiver sur cet appareil</button>
+<div class="mt-3 flex flex-wrap gap-3">
+<form method="post" action="/push/test">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<button class="btn btn-primary min-h-11" type="submit">M'envoyer une notification de test</button>
+</form>
+<button class="btn btn-outline min-h-11" type="button" data-push-off>Désactiver sur cet appareil</button>
+</div>
 </div>
 <div data-push-state="off" hidden>
 <p>Pas encore activées sur cet appareil.</p>

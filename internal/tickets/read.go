@@ -129,6 +129,23 @@ func (s *Store) Board(ctx context.Context, f Filter) ([]Row, error) {
 	return s.scanRows(rows)
 }
 
+// Row returns one confirmed request as a list shows it, for a live toast;
+// ErrNotFound for a draft or a request that is gone.
+func (s *Store) Row(ctx context.Context, id int64) (Row, error) {
+	rows, err := s.DB.QueryContext(ctx, `SELECT `+rowColumns+` FROM submitted_tickets t WHERE t.id = ?`, id)
+	if err != nil {
+		return Row{}, fmt.Errorf("ticket row: %w", err)
+	}
+	out, err := s.scanRows(rows)
+	if err != nil {
+		return Row{}, err
+	}
+	if len(out) == 0 {
+		return Row{}, ErrNotFound
+	}
+	return out[0], nil
+}
+
 // Others lists the other requests of the same address: open first, then newest.
 func (s *Store) Others(ctx context.Context, id int64) ([]Row, error) {
 	rows, err := s.DB.QueryContext(ctx, `SELECT `+rowColumns+` FROM submitted_tickets t

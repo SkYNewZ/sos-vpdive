@@ -30,28 +30,51 @@ type manifestIcon struct {
 	Purpose string `json:"purpose"`
 }
 
+// manifestScreenshot feeds Chrome's richer install dialog: one without
+// form_factor for phones, one "wide" for desktops.
+type manifestScreenshot struct {
+	Src        string `json:"src"`
+	Sizes      string `json:"sizes"`
+	Type       string `json:"type"`
+	FormFactor string `json:"form_factor,omitempty"`
+	Label      string `json:"label"`
+}
+
 type manifest struct {
-	ID              string         `json:"id"`
-	Name            string         `json:"name"`
-	ShortName       string         `json:"short_name"`
-	Lang            string         `json:"lang"`
-	StartURL        string         `json:"start_url"`
-	Scope           string         `json:"scope"`
-	Display         string         `json:"display"`
-	BackgroundColor string         `json:"background_color"`
-	ThemeColor      string         `json:"theme_color"`
-	Icons           []manifestIcon `json:"icons"`
+	ID              string               `json:"id"`
+	Name            string               `json:"name"`
+	ShortName       string               `json:"short_name"`
+	Description     string               `json:"description"`
+	Lang            string               `json:"lang"`
+	StartURL        string               `json:"start_url"`
+	Scope           string               `json:"scope"`
+	Display         string               `json:"display"`
+	BackgroundColor string               `json:"background_color"`
+	ThemeColor      string               `json:"theme_color"`
+	Icons           []manifestIcon       `json:"icons"`
+	Screenshots     []manifestScreenshot `json:"screenshots"`
 }
 
 // apps tell the two installable apps apart (spec §9.6, §14.1); the layout
 // picks the same icon folders.
+// The screenshots are made with synthetic data from testdata/fixtures
+// (README, "Installable apps"), never with real requests.
 var apps = []struct {
-	admin bool
-	name  string
-	icons string
+	admin       bool
+	name        string
+	icons       string
+	description string
+	screenshots string // folder of etroite.png (824x1830) and large.png (1280x800)
+	label       string // what the screenshots show
 }{
-	{admin: false, name: "SOS CPP", icons: "icons/membres/"},
-	{admin: true, name: "SOS CPP Comité", icons: "icons/comite/"},
+	{
+		admin: false, name: "SOS CPP", icons: "icons/membres/", screenshots: "screenshots/membres/",
+		description: "Pose ta question au comité sur VPDive et suis sa réponse.", label: "Le formulaire de demande",
+	},
+	{
+		admin: true, name: "SOS CPP Comité", icons: "icons/comite/", screenshots: "screenshots/comite/",
+		description: "Traite les demandes des adhérents au sujet de VPDive.", label: "Le tableau des demandes",
+	},
 }
 
 // newInstallables builds the manifest and the service worker of each site.
@@ -73,6 +96,8 @@ func newInstallables(a *assets) (map[bool]installable, error) {
 			switch {
 			case strings.HasPrefix(name, "icons/") && !strings.HasPrefix(name, app.icons):
 				// the other app's icons
+			case strings.HasPrefix(name, "screenshots/"):
+				// for the install dialog only
 			case strings.HasPrefix(name, "fonts/"):
 				precache = append(precache, "/static/"+name) // the stylesheet asks for the plain path
 			default:
@@ -87,14 +112,18 @@ func newInstallables(a *assets) (map[bool]installable, error) {
 		icon := func(file, sizes, purpose string) manifestIcon {
 			return manifestIcon{Src: a.URL(app.icons + file), Sizes: sizes, Type: "image/png", Purpose: purpose}
 		}
+		shot := func(file, sizes, formFactor string) manifestScreenshot {
+			return manifestScreenshot{Src: a.URL(app.screenshots + file), Sizes: sizes, Type: "image/png", FormFactor: formFactor, Label: app.label}
+		}
 		m, err := json.Marshal(manifest{
-			ID: "/", Name: app.name, ShortName: app.name, Lang: "fr",
+			ID: "/", Name: app.name, ShortName: app.name, Description: app.description, Lang: "fr",
 			StartURL: "/", Scope: "/", Display: "standalone", BackgroundColor: "#ffffff", ThemeColor: themeColor,
 			Icons: []manifestIcon{
 				icon("icon-192.png", "192x192", "any"),
 				icon("icon-512.png", "512x512", "any"),
 				icon("maskable-512.png", "512x512", "maskable"),
 			},
+			Screenshots: []manifestScreenshot{shot("etroite.png", "824x1830", ""), shot("large.png", "1280x800", "wide")},
 		})
 		if err != nil {
 			return nil, err

@@ -7,6 +7,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"encoding/base64"
+	"errors"
 	"maps"
 	"net/http"
 	"net/url"
@@ -18,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/config"
+	"github.com/SkYNewZ/sos-vpdive/internal/push"
 )
 
 const pushoverUserKey = "uQiRzpo4DXghDmr9QzzfQu27cmVRsG"
@@ -61,6 +63,7 @@ func TestNotificationsPageStates(t *testing.T) {
 	assert.NotContains(t, body, "data-push")
 	assert.Contains(t, e.do(t, http.MethodGet, adminHost, "/", nil, withCookie(cookie)).Body.String(), `href="/notifications"`, "in the nav")
 	assert.Equal(t, http.StatusNotFound, e.pushPost(t, "/push/abonnement", cookie, browserKeys(t)), "no Web Push without VAPID")
+	assert.Equal(t, http.StatusNotFound, e.pushPost(t, "/push/test", cookie, url.Values{}), "no test without VAPID")
 
 	e = newTestEnv(t, withPush(t))
 	cookie = e.login(t)
@@ -79,6 +82,42 @@ func TestNotificationsPageStates(t *testing.T) {
 	body = e.do(t, http.MethodGet, adminHost, "/notifications", nil, withCookie(cookie)).Body.String()
 	assert.Contains(t, body, "Actif pour ton compte")
 	assert.NotContains(t, body, pushoverUserKey, "the key never reaches a page")
+}
+
+// « M'envoyer une notification de test » pushes to this session's device
+// and tells how it went, the push service's reason included.
+func TestPushTestRoute(t *testing.T) {
+	var (
+		sessions [][]byte
+		result   error
+	)
+	e := newTestEnv(t, withPush(t), func(d *Deps) {
+		d.PushTest = func(_ context.Context, session []byte) error {
+			sessions = append(sessions, session)
+			return result
+		}
+	})
+	cookie := e.login(t)
+	valid := url.Values{"csrf": {e.csrf(t, cookie, "/notifications")}}
+	assert.Equal(t, http.StatusForbidden, e.pushPost(t, "/push/test", cookie, url.Values{}), "no CSRF token")
+	assert.Equal(t, http.StatusForbidden, e.do(t, http.MethodPost, adminHost, "/push/test", formBody(valid), formType).Code, "no session")
+	assert.Empty(t, sessions)
+
+	send := func() string {
+		t.Helper()
+		r := e.do(t, http.MethodPost, adminHost, "/push/test", formBody(valid), formType, withCookie(cookie))
+		require.Equal(t, http.StatusOK, r.Code)
+		return r.Body.String()
+	}
+	assert.Contains(t, send(), "Notification envoyée")
+	require.Len(t, sessions, 1)
+
+	result = push.ErrNoSubscription
+	assert.Contains(t, send(), "ne sont pas activées sur cet appareil")
+
+	result = errors.New("push service refused the message: status 403 (BadJwtToken)")
+	assert.Contains(t, send(), "status 403 (BadJwtToken)")
+	assert.Contains(t, e.logs.String(), "test push not delivered")
 }
 
 func TestPushSubscriptionRoutes(t *testing.T) {

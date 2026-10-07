@@ -6,7 +6,7 @@
 <p class="mt-2">Avant d'écrire, regarde la {{with $d.FAQ.URL}}<a class="link link-primary" href="{{.}}" target="_blank" rel="noopener">FAQ</a>{{else}}FAQ{{end}} et les {{with $d.Tarifs.URL}}<a class="link link-primary" href="{{.}}" target="_blank" rel="noopener">tarifs</a>{{else}}tarifs{{end}} du club.</p>
 <p class="mt-2">Pas encore adhérent, pour un baptême ou un renseignement ? Écris au club : <a class="link link-primary break-words" href="mailto:{{.ClubEmail}}">{{.ClubEmail}}</a>.</p>
 {{if not $d.Open}}
-<div class="mt-6 border border-base-300 p-4">
+<div class="panel mt-6 p-4">
 <p class="font-semibold">Le formulaire de demande n'est pas encore ouvert.</p>
 <p class="mt-2">En attendant, écris au club : <a class="link link-primary break-words" href="mailto:{{.ClubEmail}}">{{.ClubEmail}}</a>.</p>
 </div>
@@ -47,7 +47,7 @@
 </div>
 
 {{range $c := $d.Categories}}{{if or $c.Help $c.Fields}}
-<fieldset class="flex flex-col gap-4 border border-base-300 p-4" data-category="{{$c.ID}}"{{if ne $c.ID $d.Category}} hidden disabled{{end}}>
+<fieldset class="panel flex flex-col gap-4 bg-base-200 p-4" data-category="{{$c.ID}}"{{if ne $c.ID $d.Category}} hidden disabled{{end}}>
 <legend class="px-1 font-semibold">{{$c.Label}}</legend>
 {{with $c.Help}}<p class="whitespace-pre-line">{{.}}</p>{{end}}
 {{range $f := $c.Fields}}{{template "categoryField" (formField $c.ID $f $d)}}{{end}}

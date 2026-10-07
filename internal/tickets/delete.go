@@ -180,7 +180,7 @@ func (s *Store) Erase(ctx context.Context, email, actor string) (Erasure, error)
 	e.Tickets = len(list)
 	s.deleteObjects(ctx, keys)
 	for _, d := range list {
-		s.changed(ChangeDeleted, d.id)
+		s.changed(ChangeDeleted, d.id, actor)
 	}
 	s.Logger.InfoContext(ctx, "person erased", "actor", actor, "tickets", e.Tickets, "member", e.Member,
 		"payment_lines", e.PaymentLines, "mollie_lines", e.MollieLines)
@@ -230,7 +230,7 @@ func (s *Store) release(ctx context.Context, id int64, known func(string) bool) 
 	}
 	if released {
 		s.Logger.InfoContext(ctx, "ticket released, its resolver left the accounts file", "ticket_id", id)
-		s.changed(ChangeUpdated, id)
+		s.changed(ChangeUpdated, id, "")
 	}
 	return nil
 }

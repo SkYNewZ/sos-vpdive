@@ -44,7 +44,7 @@ func (s *Store) Purge(ctx context.Context) error {
 	s.deleteObjects(ctx, keys)
 	for _, d := range list {
 		if d.status == StatusDone {
-			s.changed(ChangeDeleted, d.id)
+			s.changed(ChangeDeleted, d.id, "")
 		}
 	}
 	return nil

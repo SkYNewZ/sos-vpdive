@@ -40,8 +40,9 @@ type Deps struct {
 	Admins   *admins.Registry
 	Tickets  *tickets.Store
 	Outbox   *mail.Outbox
-	Push     *push.Store // committee devices subscribed to Web Push
-	Broker   *Broker     // shared with tickets.Deps.OnChange
+	Push     *push.Store                                         // committee devices subscribed to Web Push
+	PushTest func(ctx context.Context, sessionHash []byte) error // test notification to a session's device; nil without VAPID keys
+	Broker   *Broker                                             // shared with tickets.Deps.OnChange
 	KB       *kb.Base
 	Content  fs.FS
 	Logger   *slog.Logger
@@ -63,6 +64,7 @@ type Server struct {
 	tickets   *tickets.Store
 	outbox    *mail.Outbox
 	push      *push.Store
+	pushTest  func(ctx context.Context, sessionHash []byte) error
 	broker    *Broker
 	kb        *kb.Base
 	suggest   *suggest.Client // nil without LLM_API_KEY: no screen 2
@@ -111,7 +113,7 @@ func New(d Deps) (*Server, error) {
 	s := &Server{
 		cfg: d.Config, db: d.DB, keys: d.Keys, members: d.Members, payments: d.Payments, mollie: d.Mollie,
 		checks: payments.NewCheckStore(d.DB, d.Keys, d.Members, d.Now), admins: d.Admins,
-		tickets: d.Tickets, outbox: d.Outbox, push: d.Push, broker: d.Broker, kb: d.KB, suggest: suggest.New(d.Config.LLM),
+		tickets: d.Tickets, outbox: d.Outbox, push: d.Push, pushTest: d.PushTest, broker: d.Broker, kb: d.KB, suggest: suggest.New(d.Config.LLM),
 		keepAlive: keepAliveInterval,
 		logger:    d.Logger, now: d.Now, paris: paris, tracer: otel.Tracer(tracerName),
 		turnstile: d.Turnstile,
@@ -132,6 +134,7 @@ func New(d Deps) (*Server, error) {
 		"age": s.age, "accountOf": s.accountOf, "actor": s.actorName, "isoDate": isoDate,
 		"fieldName": tickets.FieldName, "categoryLabel": func(id string) string { return s.tickets.Catalog.CategoryLabel(id) }, "describe": s.tickets.Describe,
 		"formField": newFormField, "themeColor": func() string { return themeColor }, "methodLabel": methodLabel,
+		"navItems": func() []navItem { return adminNav },
 	}
 	if s.pages, err = parsePages(funcs); err != nil {
 		return nil, err
@@ -198,6 +201,7 @@ func (s *Server) adminRoutes() *http.ServeMux {
 	s.handle(mux, "GET /demandes/{id}", s.signedIn(s.ticketPage))
 	s.handle(mux, "POST /demandes/{id}/actions", s.signedIn(s.ticketAction))
 	s.handle(mux, "GET /demandes/{id}/captures/{cid}", s.signedIn(s.adminCapture))
+	s.handle(mux, "GET /demandes/{id}/toast", s.signedIn(s.toast))
 	s.handle(mux, "GET /effacement", s.signedIn(s.erasurePage))
 	s.handle(mux, "POST /effacement", s.signedIn(s.erase))
 	s.handle(mux, "GET /fiches", s.signedIn(s.fichesPage))
@@ -206,9 +210,11 @@ func (s *Server) adminRoutes() *http.ServeMux {
 	s.handle(mux, "POST /anomalies/masquer", s.signedIn(s.dismissCheck))
 	s.handle(mux, "GET /envois", s.signedIn(s.failedMails))
 	s.handle(mux, "GET /notifications", s.signedIn(s.notificationsPage))
+	s.handle(mux, "GET /plus", s.signedIn(s.plusPage))
 	if s.cfg.VAPID != nil {
 		s.handle(mux, "POST /push/abonnement", s.signedIn(s.subscribePush))
 		s.handle(mux, "POST /push/desabonnement", s.signedIn(s.unsubscribePush))
+		s.handle(mux, "POST /push/test", s.signedIn(s.testPush))
 	}
 	s.handle(mux, "POST /envois/{id}/relancer", s.signedIn(s.retryMail))
 	// The event stream is neither traced nor logged (spec §9.9).

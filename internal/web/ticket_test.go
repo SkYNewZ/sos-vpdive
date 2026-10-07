@@ -308,4 +308,5 @@ func TestStaleReplyOnClosedRequestShowsTheText(t *testing.T) {
 	assert.Contains(t, body, "Voici ma réponse détaillée.")
 	assert.Contains(t, body, "copie-le ci-dessous")
 	assert.NotContains(t, body, "Ton texte est conservé")
+	assert.Contains(t, body, `aria-labelledby="texte-perdu" data-unsent>`, "a tap on a notification must not leave this text (app.js)")
 }

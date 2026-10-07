@@ -7,8 +7,8 @@ import (
 	"time"
 )
 
-// Live board (spec §4.2): Server-Sent Events that carry a change type and a
-// request id, nothing else. Like /healthz, the stream is neither traced nor
+// Live board (spec §4.2): Server-Sent Events that carry a change type, a
+// request id and whether the stream's resolver made the change, nothing else. Like /healthz, the stream is neither traced nor
 // logged (spec §9.9).
 const (
 	keepAliveInterval = 25 * time.Second // default of Server.keepAlive
@@ -59,7 +59,9 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 		case <-sub.done:
 			return
 		case c := <-sub.ch:
-			_, err = fmt.Fprintf(w, "event: %s\ndata: {\"id\":%d}\n\n", c.Type, c.TicketID)
+			// self spares a resolver the toast of their own change.
+			self := c.Actor != "" && c.Actor == sub.username
+			_, err = fmt.Fprintf(w, "event: %s\ndata: {\"id\":%d,\"self\":%t}\n\n", c.Type, c.TicketID, self)
 		case <-ticker.C:
 			// An expired or deleted session, or a changed password, ends the
 			// stream within one keepalive.

@@ -35,6 +35,8 @@ type notice struct {
 type page struct {
 	Title     string
 	Admin     bool            // committee domain
+	Section   string          // committee sidebar entry of this page (nav.go)
+	Tab       string          // committee phone tab of this page (nav.go)
 	Account   *admins.Account // signed-in committee member
 	CSRF      string
 	Notices   []notice
@@ -72,6 +74,9 @@ func (s *Server) newPage(r *http.Request, title string) page {
 		ClubEmail: s.cfg.NotifyEmail.Address,
 	}
 	p.Umami = s.umamiPage(r.Pattern, p.Admin)
+	if p.Admin {
+		p.Section, p.Tab = navSection(r.URL.Path)
+	}
 	if sess, ok := sessionFrom(r.Context()); ok {
 		a := sess.account
 		p.Account = &a
@@ -80,26 +85,37 @@ func (s *Server) newPage(r *http.Request, title string) page {
 	return p
 }
 
-// render executes a page into a buffer first, so a template error never
-// sends half a page.
+// render executes a page and sends it.
 func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, name string, p page) {
+	if body, ok := s.execute(w, r, name, "layout", p); ok {
+		s.write(w, r, status, "text/html; charset=utf-8", body)
+	}
+}
+
+// renderFragment sends the template name of the page file name.html alone:
+// a piece of page that a script fetches.
+func (s *Server) renderFragment(w http.ResponseWriter, r *http.Request, name string, data any) {
+	if body, ok := s.execute(w, r, name, name, data); ok {
+		s.write(w, r, http.StatusOK, "text/html; charset=utf-8", body)
+	}
+}
+
+// execute runs template tmpl of the page file name.html into a buffer, so a
+// template error never sends half a page; on failure it answers 500.
+func (s *Server) execute(w http.ResponseWriter, r *http.Request, name, tmpl string, data any) ([]byte, bool) {
 	t, ok := s.pages[name]
 	if !ok {
 		s.logger.ErrorContext(r.Context(), "unknown page", "page", name)
 		http.Error(w, "Erreur interne.", http.StatusInternalServerError)
-		return
+		return nil, false
 	}
 	var buf bytes.Buffer
-	if err := t.ExecuteTemplate(&buf, "layout", p); err != nil {
-		s.logger.ErrorContext(r.Context(), "render page", "page", name, "error", err)
+	if err := t.ExecuteTemplate(&buf, tmpl, data); err != nil {
+		s.logger.ErrorContext(r.Context(), "render page", "page", name, "template", tmpl, "error", err)
 		http.Error(w, "Erreur interne.", http.StatusInternalServerError)
-		return
+		return nil, false
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(status)
-	if _, err := buf.WriteTo(w); err != nil {
-		s.logger.DebugContext(r.Context(), "write response", "error", err)
-	}
+	return buf.Bytes(), true
 }
 
 // writeText sends a short plain-text response.

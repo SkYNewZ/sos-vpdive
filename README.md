@@ -81,9 +81,11 @@ picked up by the hot reload).
   carries up to three 5 MB screenshots plus its fields, and the committee host
   takes import uploads (5 MiB plus fields), above nginx's 1 MB default
   (nginx: `client_max_body_size 16m;` in both server blocks).
-- Serve HTTP/2 to browsers (nginx: `http2 on;`). The board and each request
-  page hold a live stream open; over HTTP/1.1 six open tabs exhaust the
-  browser's connection limit per host name.
+- Serve HTTP/2 to browsers (nginx: `http2 on;`). On a computer every
+  committee page holds a live stream open (it shows a toast when someone else
+  files, answers or changes a request); on a phone the board and each request
+  page do. Over HTTP/1.1 six open tabs exhaust the browser's connection limit
+  per host name.
 
 ## Configuration
 
@@ -124,8 +126,9 @@ previous import stored.
   payments import, even when a members import keeps only one of them.
 - A request page shows carnet and training balances as VPDive reports them,
   never recomputed, the lines left to pay, the cancelled outings waiting for
-  deletion and the ten latest lines. « Annulations » lists the outings whose
-  title contains « annul », in any case, that still hold paid lines: the club
+  deletion and the ten latest lines. « Annulations » lists, newest first, the
+  outings whose title contains « annul », in any case, that still hold paid
+  lines: the club
   renames a cancelled outing, refunds real-money payments, then deletes it in
   VPDive, which credits the carnets back.
 - The VPayDive export (VPayDive page, « Exporter (Excel) » button, over the
@@ -229,6 +232,10 @@ Any provider that speaks Anthropic's Messages API works:
 | Anthropic (default) | `https://api.anthropic.com` | `claude-haiku-4-5-20251001` |
 | DeepSeek | `https://api.deepseek.com/anthropic` | `deepseek-flash` |
 
+Each call turns reasoning off (`"thinking": {"type": "disabled"}`). DeepSeek
+reasons by default and would spend the 400 tokens before writing the answer;
+Anthropic's models already answer without reasoning unless asked.
+
 The model receives the category, the dedicated fields and the description,
 never the name, the email address or the screenshots; the form says so next
 to the description. Costs stay bounded: the anti-robot check, the rate limits
@@ -269,6 +276,12 @@ site est disponible » and reload only when asked.
 - The members' icons add the [SOS icon by Freepik from
   Flaticon](https://www.flaticon.com/free-icons/sos) to the club logo; its
   free licence asks for this credit.
+- Chrome shows a richer install dialog with each manifest's description and
+  screenshots: `internal/web/static/screenshots/membres/` and `comite/`, one
+  for phones (`etroite.png`, 824 × 1830, a 412 × 915 page at twice the
+  density) and one for desktops (`large.png`, 1280 × 800). Make them on a
+  local instance filled with the synthetic files of `testdata/fixtures/`,
+  never with real requests, and keep those sizes: a test checks them.
 - Browsers older than Chrome 111, Safari 16.4 or Firefox 128 get a short
   notice with the club's address instead of the page.
 - The request form keeps what a member types in the browser's storage until
@@ -278,22 +291,27 @@ site est disponible » and reload only when asked.
 ## Committee alerts
 
 Besides the mail to the club mailbox, a new request and a member's reply can
-reach the committee's phones. An alert carries the request reference and its
-category, never a name or what the member wrote: it travels through Apple's,
-Google's or Pushover's servers.
+reach the committee's phones. An alert reads « CPP-0042 · Léa Martin ·
+Carnet, solde de plongées », then the model's summary of the request when
+there is one; never what the member wrote. A Web Push alert is encrypted for
+the device: Apple's and Google's servers cannot read it. Pushover receives
+it in clear, as the club mailbox receives the committee mail.
 
 - Pushover: set `PUSHOVER_APP_TOKEN` to the token of an application created
   on pushover.net, and give each resolver who wants the alerts a
   `pushover_user_key` in the accounts file. Editing the file applies at once.
 - Web Push, to the installed committee app: run `sos-vpdive vapid-keys`
   (`docker run --rm sos-vpdive:local vapid-keys`) once, copy both keys into
-  `.env` and set `VAPID_SUBJECT=mailto:<club address>`. Keep the keys: new
+  `.env` and set `VAPID_SUBJECT` to the club's address, bare:
+  `mailto:club@example.org`, never `mailto:<club@example.org>` (Apple answers
+  403 `BadJwtToken`, and the server refuses to start). Keep the keys: new
   ones break every existing subscription. `PUSH_ALLOWED_HOSTS` lists the push
   services a phone may subscribe through. Each resolver then turns
   notifications on, device by device, on the « Notifications » page. On
   iPhone that works only from the installed app (iOS 16.4 or later). A
   subscription ends with its session: after signing in again, turn it back
-  on there.
+  on there. « M'envoyer une notification de test » on that page pushes to
+  the device at once and shows the push service's answer when it refuses.
 
 An alert is sent once, within the hour. If that fails, the log says so and
 the mail still arrives. Alerts never show on the « Envois » page.
@@ -302,8 +320,9 @@ Before going live, check on a real Android phone and a real iPhone:
 
 1. Install both apps; each opens on its own page, without the browser bar.
 2. Turn notifications on in the committee app, file a request from the
-   members app: the phone shows « Nouvelle demande » with the reference and
-   the category only.
+   members app: the phone shows « Nouvelle demande » with the reference, the
+   requester and the category; a tap opens the request, even when the app
+   was already open on another page.
 3. Refuse the permission on another device: the « Notifications » page says
    how to allow it.
 4. Turn notifications off on the « Notifications » page, then on again;
@@ -440,6 +459,7 @@ the login username in `.github/workflows/ci.yml` and sets its own secret.
 | `github.com/stretchr/testify` | Tests only |
 | Tailwind CSS standalone CLI v4, daisyUI 5 (vendored `.mjs`) | Stylesheet built without Node or npm, checksums verified |
 | Atkinson Hyperlegible Next | Self-hosted font, SIL Open Font License (`internal/web/static/fonts/OFL.txt`) |
+| Lucide icons (1.52) | The eight committee navigation icons, copied as inline SVG symbols into `internal/web/templates/layout.html`; nothing is loaded from a third party. ISC license, with the MIT notice of the Feather icons they derive from (`third_party/lucide/LICENSE`) |
 
 ## License
 

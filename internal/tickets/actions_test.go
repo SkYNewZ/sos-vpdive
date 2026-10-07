@@ -104,7 +104,7 @@ func TestTakeAssignsAndMailsTheMember(t *testing.T) {
 	assert.Equal(t, memberAddress, msgs[0].To)
 	assert.Contains(t, msgs[0].Text, "Alice, présidente, s'occupe de ta demande CPP-0001")
 	assert.Equal(t, 1, e.count(t, `SELECT COUNT(*) FROM events WHERE ticket_id = ? AND type = 'taken' AND actor = 'alice'`, id))
-	assert.Equal(t, Change{Type: ChangeUpdated, TicketID: id}, e.recorded()[1])
+	assert.Equal(t, Change{Type: ChangeUpdated, TicketID: id, Actor: "alice"}, e.recorded()[1], "the board knows who made the change")
 }
 
 func TestConcurrentTakeHasOneWinner(t *testing.T) {

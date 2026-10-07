@@ -2,12 +2,15 @@ package push
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/ecdh"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -169,6 +172,35 @@ func (c *Client) Send(ctx context.Context, sub Subscription, payload []byte) (er
 		return errGone
 	default:
 		telemetry.Fail(span, "push_rejected")
-		return fmt.Errorf("%w: status %d", errRejected, resp.StatusCode)
+		return fmt.Errorf("%w: status %d%s", errRejected, resp.StatusCode, serviceReason(resp.Body))
 	}
+}
+
+// serviceReason reads why a push service refused a message: the reason of a
+// JSON answer (Apple's "reason", Mozilla's "message") or the first line of a
+// text one (FCM), 200 characters at most, as " (reason)"; "" when the answer
+// says nothing usable. The answer never holds the subscription's address.
+func serviceReason(body io.Reader) string {
+	data, err := io.ReadAll(io.LimitReader(body, 512))
+	if err != nil {
+		return ""
+	}
+	var answer struct {
+		Reason  string `json:"reason"`
+		Message string `json:"message"`
+	}
+	var text string
+	if json.Unmarshal(data, &answer) == nil {
+		text = cmp.Or(answer.Reason, answer.Message)
+	} else {
+		text, _, _ = strings.Cut(string(data), "\n")
+	}
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return ""
+	}
+	if r := []rune(text); len(r) > 200 {
+		text = string(r[:200])
+	}
+	return " (" + text + ")"
 }

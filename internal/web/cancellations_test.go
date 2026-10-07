@@ -38,8 +38,8 @@ func TestCancellationsPage(t *testing.T) {
 	} {
 		assert.Contains(t, body, want)
 	}
-	assert.Less(t, strings.Index(body, "Plongée de nuit (annulée, météo)"), strings.Index(body, "SORTIE ANNULÉE - Île du Levant"),
-		"oldest first")
+	assert.Less(t, strings.Index(body, "SORTIE ANNULÉE - Île du Levant"), strings.Index(body, "Plongée de nuit (annulée, météo)"),
+		"newest first")
 	for _, name := range []string{"Bernard", "Durand", "Martin", "MARTIN"} {
 		assert.NotContains(t, body, name, "no names on this page")
 	}

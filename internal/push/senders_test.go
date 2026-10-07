@@ -117,6 +117,37 @@ func TestWebPushOutcomeWithoutDelivery(t *testing.T) {
 	assert.Equal(t, 1, ps.count(), "no retry")
 }
 
+// « M'envoyer une notification de test » reaches this device only, at once,
+// and reports the push service's refusal.
+func TestWebPushTestReachesThisDeviceOnly(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	ps := fanOut(t, map[string]int{"/mine": http.StatusCreated, "/other": http.StatusCreated, "/refused": http.StatusForbidden})
+	sender := NewWebPush(newTestClient(newTestVAPID(t), ps), s.Store, slog.New(slog.DiscardHandler))
+	mine, ua := testSubscription(t, ps.URL+"/mine")
+	other, _ := testSubscription(t, ps.URL+"/other")
+	me := s.session(t, "mine", "alice")
+	require.NoError(t, s.Save(ctx, me, "alice", mine))
+	require.NoError(t, s.Save(ctx, s.session(t, "other", "alice"), "alice", other))
+	s.clock.advance(time.Minute)
+
+	require.NoError(t, sender.Test(ctx, me))
+	require.Equal(t, 1, ps.count(), "this device only")
+	assert.Equal(t, "/mine", ps.requests[0].URL.Path)
+	var got map[string]string
+	require.NoError(t, json.Unmarshal(decrypt(t, ps.bodies[0], ua, mine.Auth), &got))
+	assert.Equal(t, "Notification de test", got["title"])
+	assert.Equal(t, "/notifications", got["url"])
+	assert.Equal(t, 1, s.touched(t))
+
+	require.ErrorIs(t, sender.Test(ctx, s.session(t, "none", "alice")), ErrNoSubscription)
+
+	refused, _ := testSubscription(t, ps.URL+"/refused")
+	bad := s.session(t, "refused", "alice")
+	require.NoError(t, s.Save(ctx, bad, "alice", refused))
+	require.ErrorIs(t, sender.Test(ctx, bad), errRejected)
+}
+
 // pushoverAPI is a Pushover double that refuses one user key.
 type pushoverAPI struct {
 	*httptest.Server

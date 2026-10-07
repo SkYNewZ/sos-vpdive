@@ -3,7 +3,7 @@
 <h1 class="text-2xl font-bold text-primary" data-draft-key-used>Avant d'envoyer</h1>
 <p class="mt-4">Ces fiches répondent peut-être à ta question. Si l'une d'elles règle ton problème, tu n'as pas besoin d'envoyer ta demande.</p>
 {{if $d.OpenRequest}}
-<div class="mt-6 border border-base-300 p-4">
+<div class="panel mt-6 p-4">
 <p class="font-semibold">Tu as déjà une demande en cours.</p>
 <p class="mt-2">Tu peux envoyer celle-ci quand même. Si tu as perdu le lien de suivi de la première, on te le renvoie par mail.</p>
 <form method="post" action="/demandes/lien" class="mt-3">

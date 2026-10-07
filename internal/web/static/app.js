@@ -107,9 +107,17 @@ window.addEventListener("pageshow", (event) => {
   for (const form of document.querySelectorAll("form[method=post]")) sent.delete(form);
 });
 
-// Committee board: live updates over SSE (spec §4.2). An event carries a
-// type and a request id only: the board fetches itself again and swaps its
-// list. A changed row keeps a mark until its request is opened.
+// Committee board: a changed filter applies at once (spec §4.2 as amended);
+// « Filtrer » stays for a browser without this script.
+for (const form of document.querySelectorAll("form[data-autosubmit]")) {
+  form.addEventListener("change", () => form.requestSubmit());
+}
+
+// Committee pages: live updates over SSE (spec §4.2). An event carries a
+// type, a request id, and whether this resolver made the change: the board
+// fetches itself again and swaps its list, the request page offers to
+// reload, and desktop pages show a toast. A changed row keeps a mark until
+// its request is opened.
 const CHANGED = "sos-vpdive-changed";
 
 const changedIds = () => {
@@ -133,15 +141,6 @@ const markRows = () => {
   for (const row of document.querySelectorAll("[data-ticket]")) {
     row.toggleAttribute("data-changed", ids.has(row.dataset.ticket));
   }
-};
-
-// Opens the event stream and calls onId(id) for each event of the given types.
-const subscribe = (types, onId) => {
-  const source = new EventSource("/evenements");
-  for (const type of types) {
-    source.addEventListener(type, (event) => onId(String(JSON.parse(event.data).id)));
-  }
-  return source;
 };
 
 // At most one fetch in flight: events arriving meanwhile share one more
@@ -173,16 +172,57 @@ const refreshBoard = async () => {
   }
 };
 
-if (document.querySelector("[data-board]")) {
+// Toasts (desktop only, spec §4.2 as amended): a fragment fetched under the
+// session, so the stream itself never carries a name. Three at most; each
+// closes after ten seconds, later while the pointer or the focus is on it.
+const toasts = document.querySelector("[data-toasts]");
+const wide = window.matchMedia("(min-width: 64rem)");
+const TOAST_MS = 10000;
+const showToast = async (type, id) => {
+  try {
+    const response = await fetch(`/demandes/${id}/toast?type=${type}`, { credentials: "same-origin" });
+    if (!response.ok) return;
+    const toast = new DOMParser().parseFromString(await response.text(), "text/html").querySelector("[data-toast]");
+    if (!toast) return;
+    toasts.append(toast);
+    while (toasts.children.length > 3) toasts.firstElementChild.remove();
+    const expire = () => {
+      if (toast.matches(":hover, :focus-within")) setTimeout(expire, TOAST_MS);
+      else toast.remove();
+    };
+    setTimeout(expire, TOAST_MS);
+    toast.querySelector("[data-toast-close]").addEventListener("click", () => toast.remove());
+  } catch {
+    // Network down: no toast; the board catches up on its own.
+  }
+};
+
+const board = document.querySelector("[data-board]");
+const ticketPage = document.querySelector("[data-ticket-page]");
+const shown = ticketPage?.dataset.ticketPage;
+// One stream per page, opened on first use. Phones open it on the board and
+// the request page only, as before: push notifications tell them the rest.
+let live = null;
+const stream = () => (live ??= new EventSource("/evenements"));
+const onChange = (types, handler) => {
+  for (const type of types) {
+    stream().addEventListener(type, (event) => {
+      const data = JSON.parse(event.data);
+      handler(type, String(data.id), data.self === true);
+    });
+  }
+};
+
+if (board) {
   markRows();
-  const source = subscribe(["created", "changed", "replied", "deleted"], (id) => {
+  onChange(["created", "changed", "replied", "deleted"], (type, id) => {
     const ids = changedIds();
     ids.add(id);
     saveChanged(ids);
     refreshBoard();
   });
   let connected = false;
-  source.addEventListener("open", () => {
+  stream().addEventListener("open", () => {
     if (connected) refreshBoard(); // back after a cut: catch up on everything
     connected = true;
   });
@@ -190,16 +230,53 @@ if (document.querySelector("[data-board]")) {
 
 // Request page: nothing reloads by itself, so a reply being typed is never
 // lost. A banner offers to reload when the request changed elsewhere.
-const ticketPage = document.querySelector("[data-ticket-page]");
 if (ticketPage) {
-  const id = ticketPage.dataset.ticketPage;
   const ids = changedIds();
-  if (ids.delete(id)) saveChanged(ids);
+  if (ids.delete(shown)) saveChanged(ids);
   const banner = document.querySelector("[data-changed-banner]");
-  subscribe(["changed", "replied", "deleted"], (changed) => {
-    if (banner && changed === id) banner.hidden = false;
+  onChange(["changed", "replied", "deleted"], (type, id) => {
+    if (banner && id === shown) banner.hidden = false;
   });
 }
+
+// Toasts start with a wide window, or when a narrow one grows wide.
+let toasting = false;
+const startToasts = () => {
+  if (toasting || toasts === null || !wide.matches) return;
+  toasting = true;
+  onChange(["created", "changed", "replied"], (type, id, self) => {
+    if (!self && id !== shown && wide.matches) showToast(type, id);
+  });
+};
+startToasts();
+wide.addEventListener("change", startToasts);
+
+// A tap on a notification while the app is open (service worker): go to the
+// request, unless something here is not sent yet; then a banner offers it.
+// Unsent: a field, a box or a choice changed by hand, or a reply or a note
+// the server wrote back after a refused action, in its field or in « Ton
+// texte » ([data-unsent]) when the request no longer takes it.
+const unsent = () =>
+  document.querySelector("[data-unsent]") !== null ||
+  [...document.querySelectorAll("form[method=post] :is(textarea, input, select)")].some((el) => {
+    if (el.type === "file") return el.files.length > 0;
+    if (el.type === "checkbox" || el.type === "radio") return el.checked !== el.defaultChecked;
+    if (el.localName === "select") return el.selectedIndex !== Math.max(0, [...el.options].findIndex((o) => o.defaultSelected));
+    if (el.localName === "textarea" && el.value.trim() !== "") return true;
+    return el.type !== "hidden" && el.value !== el.defaultValue;
+  });
+navigator.serviceWorker?.addEventListener("message", (event) => {
+  const url = typeof event.data?.open === "string" ? new URL(event.data.open, location.href) : null;
+  if (!url || url.origin !== location.origin) return;
+  if (!unsent()) {
+    location.assign(url);
+    return;
+  }
+  const banner = document.querySelector("[data-open-banner]");
+  if (!banner) return;
+  banner.querySelector("[data-open-link]").href = url.href;
+  banner.hidden = false;
+});
 
 // Request page: copy buttons, shown only when this script runs.
 for (const button of document.querySelectorAll("[data-copy]")) {

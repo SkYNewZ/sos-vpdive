@@ -62,6 +62,8 @@ func TestBoardFilters(t *testing.T) {
 	}
 	def := board("")
 	shows(def, todo, mine)
+	assert.Contains(t, def, `<form method="get" action="/" data-autosubmit`, "a changed filter applies at once (app.js)")
+	assert.Contains(t, def, ">Filtrer</button>", "the button stays for a browser without the script")
 	assert.Contains(t, boardRow(t, def, todo.ID), "a répondu")
 	assert.NotContains(t, boardRow(t, def, mine.ID), "a répondu")
 	assert.Contains(t, boardRow(t, def, mine.ID), "Alice")
@@ -180,7 +182,7 @@ func TestEventStreamCarriesIDsOnlyAndEndsAtLogout(t *testing.T) {
 	stream := e.openStream(t, cookie)
 
 	tk := e.submitTicket(t, "lea.martin@example.org")
-	assert.Equal(t, "event: created\ndata: {\"id\":"+strconv.FormatInt(tk.ID, 10)+"}\n", nextEvent(t, stream, "created"))
+	assert.Equal(t, "event: created\ndata: {\"id\":"+strconv.FormatInt(tk.ID, 10)+",\"self\":false}\n", nextEvent(t, stream, "created"))
 
 	token := e.csrf(t, cookie, "/")
 	logout := e.do(t, http.MethodPost, adminHost, "/deconnexion", formBody(url.Values{"csrf": {token}}), formType, withCookie(cookie))
@@ -191,6 +193,20 @@ func TestEventStreamCarriesIDsOnlyAndEndsAtLogout(t *testing.T) {
 		assert.NotContains(t, string(rest), secret)
 	}
 	assert.NotContains(t, e.logs.String(), "evenements", "the stream is neither logged nor traced")
+}
+
+// A change carries whether this resolver made it, so their own pages show
+// no toast for it; still no name and no text.
+func TestEventStreamMarksOwnChanges(t *testing.T) {
+	e := newTestEnv(t)
+	cookie := e.login(t)
+	tk := e.submitTicket(t, "lea.martin@example.org")
+	page := e.openTicket(t, cookie, tk.ID)
+	stream := e.openStream(t, cookie)
+	require.Equal(t, http.StatusSeeOther, e.act(t, cookie, tk.ID, page, url.Values{"action": {"take"}}).Code)
+	assert.Equal(t, "event: changed\ndata: {\"id\":"+strconv.FormatInt(tk.ID, 10)+",\"self\":true}\n", nextEvent(t, stream, "changed"))
+	require.NoError(t, e.deps.Tickets.MemberReply(context.Background(), tk.ID, "Voici le détail.", nil))
+	assert.Equal(t, "event: replied\ndata: {\"id\":"+strconv.FormatInt(tk.ID, 10)+",\"self\":false}\n", nextEvent(t, stream, "replied"))
 }
 
 // The keepalive also checks the session: a stream outlives neither a deleted
