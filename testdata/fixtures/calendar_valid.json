@@ -1,0 +1,43 @@
+{
+  "from": "2024-09-02",
+  "to": "2027-09-02",
+  "events": [
+    {"id": "evt-0001", "url": "https://club.example/agenda/evt-0001", "title": "Sortie de printemps", "description": "",
+     "starts_at": "2025-06-14T09:00:00+02:00", "ends_at": "2025-06-14T12:00:00+02:00", "all_day": false,
+     "category": "diving leisure", "color": "#0505f0", "text_color": "#ffffff", "activity": "outing",
+     "environment": "natural sea", "location": "Port du club", "max_participants": 12, "boats": ["Bateau A"],
+     "participants": []},
+    {"id": "evt-0002", "url": "https://club.example/agenda/evt-0002", "title": "Sortie épave, départ bateau 8h30", "description": "",
+     "starts_at": "2026-08-29T08:00:00+02:00", "ends_at": "2026-08-29T12:00:00+02:00", "all_day": false,
+     "category": "diving leisure", "color": "#0505f0", "text_color": "#ffffff", "activity": "outing",
+     "environment": "natural sea", "location": "Port du club", "max_participants": 24, "boats": ["Bateau A"],
+     "participants": [
+       {"vpdive_id": 101, "name": "MARTIN Léa", "last_name": "Martin", "first_name": "Léa", "registered": true,
+        "waiting_list": false, "status": "accepted", "people": 1, "guest": false, "tariff": "Plongée unitaire",
+        "qualifications": ["N3"], "roles": [{"name": "Directeur de plongée", "confirmed": true}],
+        "payment": {"status": "partial", "due_cents": 6000, "paid_cents": 4000}},
+       {"vpdive_id": 202, "name": "BERNARD Hugo", "last_name": "Bernard", "first_name": "Hugo", "registered": true,
+        "waiting_list": true, "status": "accepted", "people": 1, "guest": false, "tariff": "Plongée unitaire",
+        "qualifications": [], "roles": [], "payment": null},
+       {"vpdive_id": 303, "name": "Paul Garnier", "last_name": "", "first_name": "", "registered": false,
+        "waiting_list": false, "status": "", "people": 0, "guest": false, "tariff": "",
+        "qualifications": [], "roles": [{"name": "Pilote", "boat": "Bateau A", "confirmed": true}], "payment": null}
+     ]},
+    {"id": "evt-0003", "url": "https://club.example/agenda/evt-0003", "title": "Baptêmes annulés (météo)", "description": "",
+     "starts_at": "2026-09-12T14:00:00+02:00", "ends_at": "2026-09-12T17:00:00+02:00", "all_day": false,
+     "category": "discovery", "color": "#f0a505", "text_color": "#000000", "activity": "outing",
+     "environment": "pool", "location": "Piscine", "max_participants": null, "boats": [],
+     "participants": [
+       {"vpdive_id": 101, "name": "MARTIN Léa", "last_name": "", "first_name": "", "registered": false,
+        "waiting_list": false, "status": "", "people": 0, "guest": false, "tariff": "",
+        "qualifications": [], "roles": [], "payment": {"status": "paid", "due_cents": 2500, "paid_cents": 2500}},
+       {"vpdive_id": 404, "name": "Léa Martin", "last_name": "", "first_name": "", "registered": false,
+        "waiting_list": false, "status": "", "people": 0, "guest": false, "tariff": "",
+        "qualifications": [], "roles": [], "payment": {"status": "unpaid", "due_cents": 2500, "paid_cents": 0}}
+     ]},
+    {"id": "evt-0004", "url": "https://club.example/agenda/evt-0004", "title": "Assemblée générale", "description": "",
+     "starts_at": "2026-10-03T00:00:00+02:00", "ends_at": "2026-10-03T23:59:00+02:00", "all_day": true,
+     "category": "club life", "color": "#05a540", "text_color": "#ffffff", "activity": "meeting",
+     "environment": "", "location": "Local du club", "max_participants": null, "boats": [], "participants": []}
+  ]
+}

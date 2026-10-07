@@ -30,6 +30,7 @@ import (
 	sosvpdive "github.com/SkYNewZ/sos-vpdive"
 	"github.com/SkYNewZ/sos-vpdive/internal/admins"
 	"github.com/SkYNewZ/sos-vpdive/internal/blobs"
+	"github.com/SkYNewZ/sos-vpdive/internal/calendar"
 	"github.com/SkYNewZ/sos-vpdive/internal/config"
 	"github.com/SkYNewZ/sos-vpdive/internal/mail"
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
@@ -181,6 +182,7 @@ func newTestEnv(t *testing.T, opts ...func(*Deps)) *testEnv {
 	memberStore := members.NewStore(db, keys, clock.now)
 	paymentStore := payments.NewStore(db, keys, clock.now)
 	mollieStore := payments.NewMollieStore(db, keys, clock.now)
+	calendarStore := calendar.NewStore(db, keys, clock.now)
 	outbox := mail.NewOutbox(db, keys, clock.now)
 	broker := NewBroker()
 	ticketStore := tickets.NewStore(tickets.Deps{
@@ -190,8 +192,8 @@ func newTestEnv(t *testing.T, opts ...func(*Deps)) *testEnv {
 		RetentionDays: cfg.RetentionDays, Now: clock.now, Logger: logger, OnChange: broker.Publish,
 	})
 	deps := Deps{
-		Config: cfg, DB: db, Keys: keys, Members: memberStore, Payments: paymentStore, Mollie: mollieStore, Admins: registry,
-		Tickets: ticketStore, Outbox: outbox, Push: push.NewStore(db, keys, clock.now), Broker: broker, KB: base,
+		Config: cfg, DB: db, Keys: keys, Members: memberStore, Payments: paymentStore, Mollie: mollieStore, Calendar: calendarStore,
+		Admins: registry, Tickets: ticketStore, Outbox: outbox, Push: push.NewStore(db, keys, clock.now), Broker: broker, KB: base,
 		Content: sosvpdive.Content, Logger: logger, Now: clock.now,
 	}
 	for _, opt := range opts {

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/SkYNewZ/sos-vpdive/internal/calendar"
 	"github.com/SkYNewZ/sos-vpdive/internal/imports"
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
 	"github.com/SkYNewZ/sos-vpdive/internal/payments"
@@ -206,12 +207,25 @@ type export struct {
 	members  *members.Export
 	payments *payments.Export
 	mollie   *payments.MollieExport
+	calendar *calendar.Export
 }
 
 // readExport reads and validates an export of kind, whatever its source:
 // the upload form and the pushed route share it (spec §7.6). The export
 // carries the hash of the file, which the journal keeps.
 func (s *Server) readExport(ctx context.Context, kind imports.Kind, data []byte) (export, error) {
+	hash := s.keys.Hash(string(data))
+	if kind == imports.Calendar { // JSON pushed by the script: no workbook
+		var exp export
+		err := telemetry.Trace(ctx, s.tracer, "import.validate", func(context.Context) error {
+			var err error
+			if exp.calendar, err = calendar.Parse(data, s.paris, s.now()); err == nil {
+				exp.calendar.FileHash = hash
+			}
+			return err
+		})
+		return exp, err
+	}
 	var (
 		rows    []xlsx.Row
 		created time.Time // the members export dates itself in row 2
@@ -226,11 +240,10 @@ func (s *Server) readExport(ctx context.Context, kind imports.Kind, data []byte)
 	}); err != nil {
 		return export{}, fmt.Errorf("%w: %w", errUnreadable, err)
 	}
-	hash := s.keys.Hash(string(data))
 	var exp export
 	err := telemetry.Trace(ctx, s.tracer, "import.validate", func(context.Context) error {
 		var err error
-		switch kind { //nolint:exhaustive // the calendar is pushed as JSON and never read as a workbook
+		switch kind { //nolint:exhaustive // the calendar returned above: it is JSON, never a workbook
 		case imports.Members:
 			if exp.members, err = members.Parse(rows, s.paris); err == nil {
 				exp.members.FileHash = hash
@@ -394,6 +407,7 @@ func refusal(kind imports.Kind, err error) (code, message string, refused bool) 
 	var (
 		membersErr  *members.ParseError
 		paymentsErr *payments.ParseError
+		calendarErr *calendar.ParseError
 	)
 	switch {
 	case errors.Is(err, xlsx.ErrTooLarge):
@@ -402,6 +416,8 @@ func refusal(kind imports.Kind, err error) (code, message string, refused bool) 
 		return "too_many_rows", "Fichier trop long : 20 000 lignes au plus.", true
 	case errors.Is(err, errUnreadable):
 		return "invalid_workbook", unreadableMessage(kind), true
+	case errors.As(err, &calendarErr):
+		return "invalid_calendar", calendarMessage(calendarErr), true
 	case errors.As(err, &membersErr):
 		return string(membersErr.Kind), membersMessage(membersErr), true
 	case errors.As(err, &paymentsErr) && kind == imports.Mollie:
@@ -468,6 +484,27 @@ func mollieMessage(pe *payments.ParseError) string {
 	case payments.ProblemInvalidDate:
 		return "Date de paiement illisible, " + rowList(pe.Rows) + ". Refais l'export sans retoucher le fichier."
 	case payments.ProblemEmptyProduct: // the VPayDive export has no such check
+	}
+	return fileRefused
+}
+
+// calendarMessage explains a refused calendar. It cites at most an event id,
+// never a person.
+func calendarMessage(pe *calendar.ParseError) string {
+	switch pe.Kind {
+	case calendar.ProblemUnreadable:
+		return "Ce calendrier n'est pas un JSON lisible."
+	case calendar.ProblemWindow:
+		return "Période du calendrier absente ou illisible."
+	case calendar.ProblemEventID:
+		if pe.Event == "" {
+			return "Un événement n'a pas d'identifiant."
+		}
+		return "Identifiant d'événement en double : " + pe.Event + "."
+	case calendar.ProblemDates:
+		return "Dates illisibles pour l'événement " + pe.Event + "."
+	case calendar.ProblemPerson:
+		return "Participant sans identifiant dans l'événement " + pe.Event + "."
 	}
 	return fileRefused
 }
