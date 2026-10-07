@@ -93,7 +93,8 @@ func (s *Server) deleteSession(ctx context.Context, hash []byte) {
 }
 
 // signedIn lets only committee members through. A page request goes to the
-// login page; any other request is refused.
+// login page; any other request is refused. A temporary password leads every
+// page to « Mon compte » until it is changed.
 func (s *Server) signedIn(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		sess, ok := s.sessionOf(r)
@@ -103,6 +104,14 @@ func (s *Server) signedIn(next http.HandlerFunc) http.HandlerFunc {
 				return
 			}
 			s.writeText(w, r, http.StatusForbidden, "Session expirée : reconnecte-toi.\n")
+			return
+		}
+		if sess.account.MustChangePassword && r.URL.Path != accountPath && r.URL.Path != "/deconnexion" {
+			if r.Method == http.MethodGet {
+				http.Redirect(w, r, accountPath, http.StatusSeeOther)
+				return
+			}
+			s.writeText(w, r, http.StatusForbidden, "Choisis d'abord ton mot de passe.\n")
 			return
 		}
 		next(w, r.WithContext(context.WithValue(r.Context(), ctxSession, sess)))

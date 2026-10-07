@@ -211,6 +211,8 @@ func (s *Server) adminRoutes() *http.ServeMux {
 	s.handle(mux, "GET /envois", s.signedIn(s.failedMails))
 	s.handle(mux, "GET /notifications", s.signedIn(s.notificationsPage))
 	s.handle(mux, "GET /plus", s.signedIn(s.plusPage))
+	s.handle(mux, "GET "+accountPath, s.signedIn(s.accountPage))
+	s.handle(mux, "POST "+accountPath, s.signedIn(s.changePassword))
 	if s.cfg.VAPID != nil {
 		s.handle(mux, "POST /push/abonnement", s.signedIn(s.subscribePush))
 		s.handle(mux, "POST /push/desabonnement", s.signedIn(s.unsubscribePush))

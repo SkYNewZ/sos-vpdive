@@ -51,7 +51,7 @@
 <ul class="flex flex-col gap-1 [&_svg]:size-5">{{range navItems}}{{if not .PhoneOnly}}<li><a class="flex min-h-11 items-center gap-3 rounded-field border-l-4 px-3 {{if eq .Section $.Section}}border-primary bg-base-100 font-bold text-primary{{else}}border-transparent hover:bg-base-100{{end}}" href="{{.Path}}"{{if eq .Section $.Section}} aria-current="page"{{end}}>{{template "icon" .Icon}}<span>{{.Label}}</span></a></li>{{end}}{{end}}</ul>
 </nav>
 <div class="mt-auto border-t border-base-300 px-3 pt-4">
-<div class="flex items-center gap-3"><img src="{{.Account.Avatar}}" alt="" width="32" height="32" class="size-8"><span class="min-w-0 text-sm"><span class="block truncate font-semibold">{{.Account.Name}}</span><span class="block truncate">{{.Account.Role}}</span></span></div>
+<a class="flex min-h-11 items-center gap-3 rounded-field hover:bg-base-100" href="/compte"{{if eq $.Section "compte"}} aria-current="page"{{end}}><img src="{{.Account.Avatar}}" alt="" width="32" height="32" class="size-8"><span class="min-w-0 text-sm"><span class="block truncate font-semibold">{{.Account.Name}}</span><span class="block truncate">{{.Account.Role}}</span></span></a>
 <form method="post" action="/deconnexion" class="mt-2">
 <input type="hidden" name="csrf" value="{{.CSRF}}">
 <button class="btn btn-ghost btn-sm min-h-11 px-0" type="submit">Se déconnecter</button>

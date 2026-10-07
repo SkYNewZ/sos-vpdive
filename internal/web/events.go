@@ -24,7 +24,7 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess, ok := s.sessionOf(r)
-	if !ok {
+	if !ok || sess.account.MustChangePassword {
 		s.writeText(w, r, http.StatusForbidden, "Session expirée : reconnecte-toi.\n")
 		return
 	}

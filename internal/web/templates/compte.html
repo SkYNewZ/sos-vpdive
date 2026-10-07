@@ -1,0 +1,46 @@
+{{define "main"}}
+{{$d := .Data}}
+{{if $d.Forced}}
+<div class="panel mx-auto max-w-sm p-6">
+<h1 class="text-2xl font-bold text-primary">Choisis ton mot de passe</h1>
+<p class="mt-2">Le mot de passe que tu as reçu ne sert qu'une fois.</p>
+{{template "passwordForm" .}}
+<form method="post" action="/deconnexion" class="mt-4">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<button class="btn btn-ghost min-h-11 px-0" type="submit">Se déconnecter</button>
+</form>
+</div>
+{{else}}
+<h1 class="text-2xl font-bold text-primary max-lg:sr-only">Mon compte</h1>
+<div class="panel flex items-center gap-3 p-4 lg:mt-6">
+<img src="{{.Account.Avatar}}" alt="" width="40" height="40" class="size-10">
+<p><span class="block font-semibold">{{.Account.Name}}</span><span class="block text-sm">{{.Account.Role}}</span><span class="block text-sm">Identifiant : {{.Account.Username}}</span></p>
+</div>
+<section class="mt-8 max-w-md" aria-labelledby="mot-de-passe">
+<h2 id="mot-de-passe" class="text-xl font-semibold">Changer de mot de passe</h2>
+{{template "passwordForm" .}}
+</section>
+{{end}}
+{{end}}
+
+{{define "passwordForm"}}{{$d := .Data}}<form method="post" action="/compte" class="mt-4 flex flex-col gap-4">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<input type="text" name="username" value="{{$d.Username}}" autocomplete="username" hidden>
+{{if not $d.Forced}}{{$err := index $d.Errors "actuel"}}<div class="flex flex-col gap-1">
+<label class="font-semibold" for="actuel">Mot de passe actuel</label>
+<input class="input w-full" id="actuel" name="actuel" type="password" autocomplete="current-password" required{{if $err}} aria-invalid="true" aria-describedby="actuel-erreur"{{end}}>
+{{with $err}}<p id="actuel-erreur" class="font-semibold text-error">{{.}}</p>{{end}}
+</div>
+{{end}}{{$err := index $d.Errors "nouveau"}}<div class="flex flex-col gap-1">
+<label class="font-semibold" for="nouveau">Nouveau mot de passe</label>
+<p id="nouveau-aide" class="text-sm">12 caractères minimum. Une phrase de quelques mots marche bien.</p>
+<input class="input w-full" id="nouveau" name="nouveau" type="password" autocomplete="new-password" minlength="12" required aria-describedby="nouveau-aide{{if $err}} nouveau-erreur{{end}}"{{if $err}} aria-invalid="true"{{end}}>
+{{with $err}}<p id="nouveau-erreur" class="font-semibold text-error">{{.}}</p>{{end}}
+</div>
+{{$err = index $d.Errors "confirmation"}}<div class="flex flex-col gap-1">
+<label class="font-semibold" for="confirmation">Confirme-le</label>
+<input class="input w-full" id="confirmation" name="confirmation" type="password" autocomplete="new-password" required{{if $err}} aria-invalid="true" aria-describedby="confirmation-erreur"{{end}}>
+{{with $err}}<p id="confirmation-erreur" class="font-semibold text-error">{{.}}</p>{{end}}
+</div>
+<button class="btn btn-primary min-h-11 self-start" type="submit">{{if $d.Forced}}Enregistrer mon mot de passe{{else}}Changer mon mot de passe{{end}}</button>
+</form>{{end}}
