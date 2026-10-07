@@ -7,6 +7,7 @@ package suggest
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -143,9 +144,16 @@ type message struct {
 	Content string `json:"content"`
 }
 
+// thinking turns reasoning off: DeepSeek thinks by default and spends the
+// 400 tokens before writing any text. Anthropic accepts the same value.
+type thinking struct {
+	Type string `json:"type"`
+}
+
 type apiRequest struct {
 	Model     string    `json:"model"`
 	MaxTokens int       `json:"max_tokens"`
+	Thinking  thinking  `json:"thinking"`
 	System    string    `json:"system"`
 	Messages  []message `json:"messages"`
 }
@@ -155,6 +163,7 @@ type apiResponse struct {
 		Type string `json:"type"`
 		Text string `json:"text"`
 	} `json:"content"`
+	StopReason string `json:"stop_reason"`
 }
 
 // body builds the Messages request: the instructions in the system message,
@@ -174,7 +183,7 @@ func (c *Client) body(req Request, fiches []Fiche) ([]byte, error) {
 		return nil, fmt.Errorf("encode prompt: %w", err)
 	}
 	return json.Marshal(apiRequest{
-		Model: c.model, MaxTokens: maxTokens, System: systemPrompt,
+		Model: c.model, MaxTokens: maxTokens, Thinking: thinking{Type: "disabled"}, System: systemPrompt,
 		Messages: []message{{Role: "user", Content: string(user)}},
 	})
 }
@@ -211,12 +220,15 @@ func (c *Client) post(ctx context.Context, body []byte) (text string, err error)
 	if err := json.Unmarshal(data, &out); err != nil {
 		return "", fmt.Errorf("%w: %w", ErrInvalid, err)
 	}
+	if out.StopReason == "max_tokens" {
+		return "", fmt.Errorf("%w: answer cut at max_tokens", ErrInvalid)
+	}
 	for _, b := range out.Content {
 		if b.Type == "text" {
 			return b.Text, nil
 		}
 	}
-	return "", fmt.Errorf("%w: no text block", ErrInvalid)
+	return "", fmt.Errorf("%w: no text block, stop_reason %s", ErrInvalid, cmp.Or(out.StopReason, "missing"))
 }
 
 func transportError(ctx context.Context, err error) error {

@@ -229,6 +229,10 @@ Any provider that speaks Anthropic's Messages API works:
 | Anthropic (default) | `https://api.anthropic.com` | `claude-haiku-4-5-20251001` |
 | DeepSeek | `https://api.deepseek.com/anthropic` | `deepseek-flash` |
 
+Each call turns reasoning off (`"thinking": {"type": "disabled"}`). DeepSeek
+reasons by default and would spend the 400 tokens before writing the answer;
+Anthropic's models already answer without reasoning unless asked.
+
 The model receives the category, the dedicated fields and the description,
 never the name, the email address or the screenshots; the form says so next
 to the description. Costs stay bounded: the anti-robot check, the rate limits

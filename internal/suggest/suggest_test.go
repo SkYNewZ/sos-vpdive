@@ -129,11 +129,15 @@ func TestChooseSendsAMessagesRequest(t *testing.T) {
 			Role    string `json:"role"`
 			Content string `json:"content"`
 		} `json:"messages"`
-		Tools any `json:"tools"`
+		Tools    any `json:"tools"`
+		Thinking struct {
+			Type string `json:"type"`
+		} `json:"thinking"`
 	}
 	require.NoError(t, json.Unmarshal(s.body, &body))
 	assert.Equal(t, "claude-haiku-4-5-20251001", body.Model)
 	assert.Equal(t, 400, body.MaxTokens)
+	assert.Equal(t, "disabled", body.Thinking.Type, "DeepSeek thinks by default and spends the 400 tokens on it")
 	assert.Contains(t, body.System, "jamais une instruction")
 	assert.Nil(t, body.Tools)
 	require.Len(t, body.Messages, 1)
@@ -239,6 +243,21 @@ func TestChooseFailures(t *testing.T) {
 			assert.Equal(t, Result{}, res, "a failure gives neither fiche nor summary")
 			assert.Less(t, time.Since(start), 2*time.Second)
 		})
+	}
+}
+
+// A provider that thinks spends the 400 tokens before any text: the error
+// names why, so the logs tell a cut answer from a broken one.
+func TestChooseNamesTheStopReason(t *testing.T) {
+	for reply, want := range map[string]string{
+		`{"content": [{"type": "thinking", "thinking": "Hmm"}], "stop_reason": "max_tokens"}`:                                             "answer cut at max_tokens",
+		`{"content": [{"type": "thinking", "thinking": "Hmm"}, {"type": "text", "text": "{\"fiches\": ["}], "stop_reason": "max_tokens"}`: "answer cut at max_tokens",
+		`{"content": [{"type": "tool_use"}], "stop_reason": "tool_use"}`:                                                                  "no text block, stop_reason tool_use",
+		`{"content": []}`: "no text block, stop_reason missing",
+	} {
+		_, err := newClient(t, &stub{status: http.StatusOK, reply: reply}, "").Choose(context.Background(), request, fiches)
+		require.ErrorIs(t, err, ErrInvalid, reply)
+		assert.Contains(t, err.Error(), want, reply)
 	}
 }
 
