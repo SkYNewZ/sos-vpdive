@@ -79,7 +79,7 @@ func TestInsertSealsNameAndPushoverKey(t *testing.T) {
 func TestInsertRefusesInvalidAndTaken(t *testing.T) {
 	r, _ := newRegistry(t, alice())
 	ctx := context.Background()
-	assert.ErrorIs(t, r.Insert(ctx, alice()), ErrTaken)
+	require.ErrorIs(t, r.Insert(ctx, alice()), ErrTaken)
 	for _, a := range []Account{
 		{Username: "Alice", Name: "A", Role: "R"},
 		{Username: "", Name: "A", Role: "R"},
@@ -144,9 +144,9 @@ func TestChangePasswordKeepsOneSession(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	assert.ErrorIs(t, r.ChangePassword(ctx, "alice", "short", []byte("kept")), ErrTooShort)
-	assert.ErrorIs(t, r.ChangePassword(ctx, "alice", testPassword, []byte("kept")), ErrSamePassword)
-	assert.ErrorIs(t, r.ChangePassword(ctx, "carol", "a brand new password", nil), ErrNotFound)
+	require.ErrorIs(t, r.ChangePassword(ctx, "alice", "short", []byte("kept")), ErrTooShort)
+	require.ErrorIs(t, r.ChangePassword(ctx, "alice", testPassword, []byte("kept")), ErrSamePassword)
+	require.ErrorIs(t, r.ChangePassword(ctx, "carol", "a brand new password", nil), ErrNotFound)
 
 	require.NoError(t, r.ChangePassword(ctx, "alice", "a brand new password", []byte("kept")))
 	got, _ := r.Get("alice")
@@ -163,7 +163,7 @@ func TestSetPushoverKey(t *testing.T) {
 	r, _ := newRegistry(t, alice())
 	ctx := context.Background()
 	key := strings.Repeat("a1", 15)
-	assert.ErrorIs(t, r.SetPushoverKey(ctx, "alice", "too short"), ErrPushoverKey)
+	require.ErrorIs(t, r.SetPushoverKey(ctx, "alice", "too short"), ErrPushoverKey)
 	require.NoError(t, r.SetPushoverKey(ctx, "alice", key))
 	a, _ := r.Get("alice")
 	assert.Equal(t, key, a.PushoverUserKey)
