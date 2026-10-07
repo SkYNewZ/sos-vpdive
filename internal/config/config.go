@@ -506,10 +506,12 @@ func (p *parser) vapid() *VAPID {
 	return v
 }
 
-// vapidSubject accepts a mailto: address or an https: URL (RFC 8292).
+// vapidSubject accepts a mailto: address or an https: URL (RFC 8292). The
+// address is bare: Apple refuses a token whose subject reads
+// mailto:<club@example.org> (403 BadJwtToken).
 func (p *parser) vapidSubject(raw string) string {
 	if addr, ok := strings.CutPrefix(raw, "mailto:"); ok {
-		if a, err := mail.ParseAddress(addr); err == nil && a.Name == "" {
+		if a, err := mail.ParseAddress(addr); err == nil && a.Address == addr {
 			return raw
 		}
 	} else if u, ok := absolute(raw); ok && u.Scheme == schemeHTTPS {

@@ -287,7 +287,9 @@ Google's or Pushover's servers.
   `pushover_user_key` in the accounts file. Editing the file applies at once.
 - Web Push, to the installed committee app: run `sos-vpdive vapid-keys`
   (`docker run --rm sos-vpdive:local vapid-keys`) once, copy both keys into
-  `.env` and set `VAPID_SUBJECT=mailto:<club address>`. Keep the keys: new
+  `.env` and set `VAPID_SUBJECT` to the club's address, bare:
+  `mailto:club@example.org`, never `mailto:<club@example.org>` (Apple answers
+  403 `BadJwtToken`, and the server refuses to start). Keep the keys: new
   ones break every existing subscription. `PUSH_ALLOWED_HOSTS` lists the push
   services a phone may subscribe through. Each resolver then turns
   notifications on, device by device, on the « Notifications » page. On
