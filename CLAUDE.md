@@ -47,6 +47,17 @@ validated: it wins over this file, over existing code, and over preference.
 - Sentry also receives every log line. A record at `Error` or above is a Sentry
   error event: log levels decide what is reported (§9.10), so expected
   failures log at `Warn` or below.
+- Owner's feedback after the first deploy (2026-10-07):
+  - `/annulations` lists the outings newest first (§7.4).
+  - The board filters apply as soon as they change; « Filtrer » stays. The
+    phone list shows the category (§4.2).
+  - Pushover and Web Push alerts read « CPP-0042 · Prénom Nom · Catégorie »,
+    then the model's summary when there is one (§6, §9.6).
+  - Icons are allowed in the committee navigation only (Lucide, always with
+    their label); the neutrals are warm sand (§12.2). The rest of §12 holds.
+  - Desktop committee pages show a toast for a change made by someone else;
+    the SSE event carries `self` for the resolver's own changes (§4.2).
+  - The suggestion call sends `"thinking": {"type": "disabled"}` (§5.2).
 
 ## Private material: `.local/` is gitignored
 
@@ -163,6 +174,13 @@ No i18n framework.
   16 px or Safari zooms on focus (`--font-size-min` in `css/input.css`).
 - Safari asks for push permission only from a direct tap: `pushManager.subscribe`
   comes first in the handler, and every push must show a notification.
+- `VAPID_SUBJECT` is a bare `mailto:club@example.org`: Apple answers 403
+  `BadJwtToken` to `mailto:<...>`, and the config refuses it.
+- An installed app on iOS has one window: `clients.openWindow` only wakes it.
+  The service worker posts `{open: url}` to the open window and `app.js` goes
+  there unless a POST form field was changed.
+- `.panel` (white block on the sand page) lives in `@layer components`, so a
+  utility such as `border-primary` overrides its border.
 - The service worker's cache name hashes every embedded file: any deploy that
   changes the site shows the update banner.
 - Playwright's `route()` misses requests a service worker makes: to drop a
