@@ -5,7 +5,7 @@
 <p><a class="link link-primary inline-flex min-h-11 items-center" href="/">Toutes les demandes</a></p>
 
 <header class="flex flex-col gap-3 border-b border-base-300 pb-4">
-<h1 class="text-2xl font-bold text-primary">Demande {{$t.Ref}}</h1>
+<h1 class="text-2xl font-bold text-primary max-lg:sr-only">Demande {{$t.Ref}}</h1>
 <div class="flex flex-wrap items-center gap-x-6 gap-y-2">
 {{template "status" $t.Status}}
 <span>Ancienneté : {{template "age" (age $t.SubmittedAt $t.ClosedAt)}}</span>
@@ -32,23 +32,9 @@
 {{end}}
 </header>
 
-<section class="mt-6" aria-labelledby="demandeur">
-<h2 id="demandeur" class="text-xl font-semibold">Demandeur</h2>
-<dl class="mt-3 grid grid-cols-1 gap-x-4 sm:grid-cols-[auto_minmax(0,1fr)] sm:gap-y-2">
-<dt class="font-semibold">Nom</dt>
-<dd class="mb-2 flex flex-wrap items-center gap-2 sm:mb-0"><span class="break-words">{{$t.FirstName}} {{$t.LastName}}</span><button type="button" class="btn btn-outline btn-sm min-h-11" data-copy="{{$t.FirstName}} {{$t.LastName}}" hidden>Copier le nom</button></dd>
-<dt class="font-semibold">Adresse mail</dt><dd class="mb-2 break-words sm:mb-0">{{$t.Email}}</dd>
-{{with $d.Profile}}
-<dt class="font-semibold">Saisons d'adhésion</dt><dd class="mb-2 sm:mb-0">{{.Seasons}}</dd>
-<dt class="font-semibold">Licence valable jusqu'au</dt><dd class="mb-2 sm:mb-0">{{.Licence}}</dd>
-{{else}}
-<dt class="font-semibold">Liste des membres</dt><dd class="mb-2 sm:mb-0">Cette adresse n'est plus dans la liste des membres.</dd>
-{{end}}
-</dl>
-<p class="mt-2 text-sm">Saisons et licence d'après le dernier import de la liste des membres.</p>
-</section>
-
-<section class="mt-8" aria-labelledby="demande">
+<div class="mt-6 grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] lg:items-start">
+<div class="flex min-w-0 flex-col gap-6">
+<section class="panel p-4 lg:p-5" aria-labelledby="demande">
 <h2 id="demande" class="text-xl font-semibold">Demande</h2>
 {{with $t.Summary}}<div class="mt-3 border-l-4 border-info pl-3">
 <p class="text-sm font-semibold">Résumé automatique, à vérifier</p>
@@ -83,41 +69,7 @@
 </li>{{end}}</ul>
 {{end}}
 </section>
-
-<section class="mt-8" aria-labelledby="autres">
-<h2 id="autres" class="text-xl font-semibold">Autres demandes de cette adresse</h2>
-{{with $d.Others}}<ul class="mt-3 flex flex-col gap-1">{{range .}}<li><a class="link link-primary inline-flex min-h-11 items-center" href="/demandes/{{.ID}}">{{.Ref}}</a> · {{categoryLabel .Category}} · {{.Status.Label}} · envoyée le {{formatDate .SubmittedAt}}</li>{{end}}</ul>{{else}}<p class="mt-3">Aucune.</p>{{end}}
-</section>
-
-<section class="mt-8" aria-labelledby="procedure">
-<h2 id="procedure" class="text-xl font-semibold">Procédure suggérée</h2>
-{{range $d.Fiches}}<article class="mt-4">
-<h3 class="font-semibold"><a class="link link-primary" href="/fiches#{{.ID}}">{{.Title}}</a></h3>
-<div class="mt-2 flex flex-col gap-2">{{template "blocks" .Procedure}}</div>
-</article>
-{{end}}{{range $d.Removed}}<p class="mt-4">Fiche retirée depuis l'envoi : {{.}}</p>
-{{end}}{{if not (or $d.Fiches $d.Removed)}}<p class="mt-3">Aucune fiche proposée à l'envoi.</p>{{end}}
-<p class="mt-2"><a class="link link-primary inline-flex min-h-11 items-center" href="/fiches">Voir toutes les fiches</a></p>
-</section>
-
-<section class="mt-8" aria-labelledby="vpdive">
-<h2 id="vpdive" class="text-xl font-semibold">VPDive</h2>
-<ul class="mt-3 flex flex-wrap gap-3">{{range $d.Links}}<li><a class="btn btn-outline min-h-11" href="{{.URL}}" target="_blank" rel="noopener">{{.Label}}</a></li>{{end}}</ul>
-<h3 class="mt-4 font-semibold">Filtre à saisir sur la page des paiements</h3>
-<div class="overflow-x-auto">
-<table class="table mt-2"><tbody>
-<tr><th scope="row">Affichage par</th><td>Membres</td></tr>
-<tr><th scope="row">Nom du membre</th><td><span class="break-words">{{$d.Filter.Name}}</span> <button type="button" class="btn btn-outline btn-sm min-h-11" data-copy="{{$d.Filter.Name}}" hidden>Copier</button></td></tr>
-<tr><th scope="row">Type de produit</th><td>{{with $d.Filter.Product}}{{.}}{{else}}Tous{{end}}</td></tr>
-<tr><th scope="row">État</th><td>Tous</td></tr>
-<tr><th scope="row">Champ de date</th><td>Date de création</td></tr>
-<tr><th scope="row">Du, au</th><td>{{$d.Filter.From}} au {{$d.Filter.To}}</td></tr>
-</tbody></table>
-</div>
-<p class="mt-2 text-sm">Clique ensuite sur « Rechercher », puis déplie les lignes du membre.</p>
-</section>
-
-<section class="mt-8" aria-labelledby="paiements">
+<section class="panel p-4 lg:p-5" aria-labelledby="paiements">
 <h2 id="paiements" class="text-xl font-semibold">Paiements VPDive</h2>
 {{with $d.Payments}}{{if or (eq .State "no_lines") (eq .State "purged")}}
 {{template "noPayments" (eq .State "purged")}}
@@ -152,8 +104,7 @@
 </table></div>
 {{end}}{{end}}{{end}}
 </section>
-
-<section class="mt-8" aria-labelledby="encaissements">
+<section class="panel p-4 lg:p-5" aria-labelledby="encaissements">
 <h2 id="encaissements" class="text-xl font-semibold">Encaissements Mollie</h2>
 {{with $d.Mollie}}{{if or (eq .State "no_lines") (eq .State "purged")}}
 <p class="mt-3">{{if eq .State "purged"}}Plus de 90 jours sans import : les encaissements Mollie ont été effacés.{{else}}Aucun encaissement Mollie importé.{{end}} <a class="link link-primary inline-flex min-h-11 items-center" href="/imports#encaissements-titre">Importer l'export VPayDive</a></p>
@@ -178,11 +129,10 @@
 <p class="mt-2"><a class="btn btn-outline min-h-11" href="{{$d.MollieLink.URL}}" target="_blank" rel="noopener">{{$d.MollieLink.Label}}</a></p>
 {{end}}{{end}}
 </section>
-
-<section class="mt-8" aria-labelledby="fil">
+<section class="panel p-4 lg:p-5" aria-labelledby="fil">
 <h2 id="fil" class="text-xl font-semibold">Fil de la demande</h2>
 {{with $t.Messages}}<ol class="mt-3 flex flex-col gap-4">{{range .}}
-<li class="border p-4 {{if .Internal}}border-warning bg-warning/10{{else if .FromMember}}border-base-300{{else}}border-primary{{end}}">
+<li class="rounded-box border p-4 {{if .Internal}}border-warning bg-warning/10{{else if .FromMember}}border-base-300{{else}}border-primary{{end}}">
 <p class="text-sm">{{if .Internal}}<span class="font-semibold">Note interne, visible du comité seulement</span> · {{author .Author}}{{else if .FromMember}}<span class="font-semibold">{{$t.FirstName}} {{$t.LastName}}</span> (adhérent){{else}}<span class="font-semibold">Réponse à l'adhérent</span> · {{author .Author}}{{end}} · {{formatTime .CreatedAt}}</p>
 <p class="mt-2 whitespace-pre-line break-words">{{.Body}}</p>
 {{with .Captures}}<ul class="mt-3 flex flex-wrap gap-3">{{range .}}<li><a href="/demandes/{{$t.ID}}/captures/{{.ID}}" target="_blank" rel="noopener"><img src="/demandes/{{$t.ID}}/captures/{{.ID}}" alt="Capture jointe au message" class="h-32 w-auto border border-base-300" loading="lazy"></a></li>{{end}}</ul>{{end}}
@@ -194,9 +144,8 @@
 </details>
 </li>{{end}}</ol>{{else}}<p class="mt-3">Aucun message pour l'instant.</p>{{end}}
 </section>
-
 {{if $d.Can.reply}}
-<section class="mt-8" aria-labelledby="repondre">
+<section class="panel p-4 lg:p-5" aria-labelledby="repondre">
 <h2 id="repondre" class="text-xl font-semibold">Répondre à l'adhérent</h2>
 <p class="text-sm">Ta réponse est visible de l'adhérent et lui part par mail.</p>
 <form method="post" action="/demandes/{{$t.ID}}/actions" class="mt-3 flex flex-col gap-3">{{template "actionFields" $}}
@@ -210,7 +159,7 @@
 </div>
 </form>
 </section>
-<section class="mt-8 border border-warning bg-warning/10 p-4" aria-labelledby="note">
+<section class="rounded-box border border-warning bg-warning/10 p-4 lg:p-5" aria-labelledby="note">
 <h2 id="note" class="text-xl font-semibold">Note interne</h2>
 <p class="text-sm font-semibold">Visible du comité seulement : l'adhérent ne la voit jamais et ne reçoit aucun mail.</p>
 <form method="post" action="/demandes/{{$t.ID}}/actions" class="mt-3 flex flex-col gap-3">{{template "actionFields" $}}
@@ -221,19 +170,64 @@
 </form>
 </section>
 {{else}}
-{{if or $d.Reply $d.Note}}<section class="mt-8 border border-warning bg-warning/10 p-4" aria-labelledby="texte-perdu"><h2 id="texte-perdu" class="text-xl font-semibold">Ton texte</h2>
+{{if or $d.Reply $d.Note}}<section class="rounded-box border border-warning bg-warning/10 p-4 lg:p-5" aria-labelledby="texte-perdu"><h2 id="texte-perdu" class="text-xl font-semibold">Ton texte</h2>
 {{with $d.Reply}}<p class="mt-2 whitespace-pre-line break-words">{{.}}</p>{{end}}{{with $d.Note}}<p class="mt-2 whitespace-pre-line break-words">{{.}}</p>{{end}}</section>{{end}}
 {{if $d.Can.take}}
-<p class="mt-8">Prends la demande pour répondre à l'adhérent ou écrire une note interne.</p>
+<p class="panel p-4">Prends la demande pour répondre à l'adhérent ou écrire une note interne.</p>
 {{end}}
 {{end}}
-
-<section class="mt-8" aria-labelledby="journal">
+<section class="panel p-4 lg:p-5" aria-labelledby="journal">
 <h2 id="journal" class="text-xl font-semibold">Journal</h2>
 <ol class="mt-3 flex flex-col gap-1 text-sm">{{range $t.Events}}<li>{{formatTime .CreatedAt}} · {{describe .}} · {{actor .Actor}}</li>{{end}}</ol>
 </section>
-
-<section class="mt-10 border-t border-base-300 pt-6" aria-labelledby="suppression">
+</div>
+<div class="flex min-w-0 flex-col gap-6">
+<section class="panel p-4 lg:p-5" aria-labelledby="demandeur">
+<h2 id="demandeur" class="text-xl font-semibold">Demandeur</h2>
+<dl class="mt-3 grid grid-cols-1 gap-x-4 sm:grid-cols-[auto_minmax(0,1fr)] sm:gap-y-2 lg:grid-cols-1 lg:gap-y-0">
+<dt class="font-semibold">Nom</dt>
+<dd class="mb-2 flex flex-wrap items-center gap-2 sm:mb-0 lg:mb-2"><span class="break-words">{{$t.FirstName}} {{$t.LastName}}</span><button type="button" class="btn btn-outline btn-sm min-h-11" data-copy="{{$t.FirstName}} {{$t.LastName}}" hidden>Copier le nom</button></dd>
+<dt class="font-semibold">Adresse mail</dt><dd class="mb-2 break-words sm:mb-0 lg:mb-2">{{$t.Email}}</dd>
+{{with $d.Profile}}
+<dt class="font-semibold">Saisons d'adhésion</dt><dd class="mb-2 sm:mb-0 lg:mb-2">{{.Seasons}}</dd>
+<dt class="font-semibold">Licence valable jusqu'au</dt><dd class="mb-2 sm:mb-0 lg:mb-2">{{.Licence}}</dd>
+{{else}}
+<dt class="font-semibold">Liste des membres</dt><dd class="mb-2 sm:mb-0 lg:mb-2">Cette adresse n'est plus dans la liste des membres.</dd>
+{{end}}
+</dl>
+<p class="mt-2 text-sm">Saisons et licence d'après le dernier import de la liste des membres.</p>
+</section>
+<section class="panel p-4 lg:p-5" aria-labelledby="autres">
+<h2 id="autres" class="text-xl font-semibold">Autres demandes de cette adresse</h2>
+{{with $d.Others}}<ul class="mt-3 flex flex-col gap-1">{{range .}}<li><a class="link link-primary inline-flex min-h-11 items-center" href="/demandes/{{.ID}}">{{.Ref}}</a> · {{categoryLabel .Category}} · {{.Status.Label}} · envoyée le {{formatDate .SubmittedAt}}</li>{{end}}</ul>{{else}}<p class="mt-3">Aucune.</p>{{end}}
+</section>
+<section class="panel p-4 lg:p-5" aria-labelledby="procedure">
+<h2 id="procedure" class="text-xl font-semibold">Procédure suggérée</h2>
+{{range $d.Fiches}}<article class="mt-4">
+<h3 class="font-semibold"><a class="link link-primary" href="/fiches#{{.ID}}">{{.Title}}</a></h3>
+<div class="mt-2 flex flex-col gap-2">{{template "blocks" .Procedure}}</div>
+</article>
+{{end}}{{range $d.Removed}}<p class="mt-4">Fiche retirée depuis l'envoi : {{.}}</p>
+{{end}}{{if not (or $d.Fiches $d.Removed)}}<p class="mt-3">Aucune fiche proposée à l'envoi.</p>{{end}}
+<p class="mt-2"><a class="link link-primary inline-flex min-h-11 items-center" href="/fiches">Voir toutes les fiches</a></p>
+</section>
+<section class="panel p-4 lg:p-5" aria-labelledby="vpdive">
+<h2 id="vpdive" class="text-xl font-semibold">VPDive</h2>
+<ul class="mt-3 flex flex-wrap gap-3">{{range $d.Links}}<li><a class="btn btn-outline min-h-11" href="{{.URL}}" target="_blank" rel="noopener">{{.Label}}</a></li>{{end}}</ul>
+<h3 class="mt-4 font-semibold">Filtre à saisir sur la page des paiements</h3>
+<div class="overflow-x-auto">
+<table class="table mt-2"><tbody>
+<tr><th scope="row">Affichage par</th><td>Membres</td></tr>
+<tr><th scope="row">Nom du membre</th><td><span class="break-words">{{$d.Filter.Name}}</span> <button type="button" class="btn btn-outline btn-sm min-h-11" data-copy="{{$d.Filter.Name}}" hidden>Copier</button></td></tr>
+<tr><th scope="row">Type de produit</th><td>{{with $d.Filter.Product}}{{.}}{{else}}Tous{{end}}</td></tr>
+<tr><th scope="row">État</th><td>Tous</td></tr>
+<tr><th scope="row">Champ de date</th><td>Date de création</td></tr>
+<tr><th scope="row">Du, au</th><td>{{$d.Filter.From}} au {{$d.Filter.To}}</td></tr>
+</tbody></table>
+</div>
+<p class="mt-2 text-sm">Clique ensuite sur « Rechercher », puis déplie les lignes du membre.</p>
+</section>
+<section class="panel p-4 lg:p-5" aria-labelledby="suppression">
 <h2 id="suppression" class="text-xl font-semibold">Suppression</h2>
 <details class="mt-3"><summary class="link inline-flex min-h-11 items-center">Supprimer cette demande</summary>
 <form method="post" action="/demandes/{{$t.ID}}/actions" class="mt-2 flex flex-col gap-2">{{template "actionFields" $}}
@@ -243,6 +237,8 @@
 </details>
 <p class="mt-3"><a class="link link-primary inline-flex min-h-11 items-center" href="/effacement?demande={{$t.ID}}">Effacer toutes les données de cette personne</a></p>
 </section>
+</div>
+</div>
 </div>
 {{end}}
 

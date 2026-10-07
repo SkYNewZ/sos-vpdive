@@ -1,8 +1,8 @@
 {{define "main"}}
-<h1 class="text-2xl font-bold text-primary">Envois en échec</h1>
+<h1 class="text-2xl font-bold text-primary max-lg:sr-only">Envois en échec</h1>
 <p class="mt-4">Ces mails ne sont pas partis : adresse refusée par le serveur d'envoi, ou sept jours sans succès. Relance-les une fois le problème réglé.</p>
 {{if .Data}}
-<div class="mt-4 overflow-x-auto">
+<div class="panel mt-4 overflow-x-auto">
 <table class="table">
 <thead><tr><th scope="col">Mis en file le</th><th scope="col">Échec le</th><th scope="col">Mail</th><th scope="col">Demande</th><th scope="col">Destinataire</th><th scope="col"><span class="sr-only">Action</span></th></tr></thead>
 <tbody>

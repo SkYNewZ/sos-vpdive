@@ -1,11 +1,11 @@
 {{define "main"}}
-<h1 class="text-2xl font-bold text-primary">Fiches</h1>
+<h1 class="text-2xl font-bold text-primary max-lg:sr-only">Fiches</h1>
 <p class="mt-4">L'adhérent voit la réponse avant d'envoyer sa demande. La procédure ne s'affiche que pour le comité.</p>
 <nav class="mt-4" aria-label="Sommaire des fiches">
 <ul class="flex flex-col gap-1">{{range .Data}}<li><a class="link link-primary inline-flex min-h-11 items-center" href="#{{.ID}}">{{.Title}}</a></li>{{end}}</ul>
 </nav>
 {{range .Data}}
-<article class="mt-10 border-t border-base-300 pt-6" id="{{.ID}}" aria-labelledby="titre-{{.ID}}">
+<article class="panel mt-6 p-4 lg:p-5" id="{{.ID}}" aria-labelledby="titre-{{.ID}}">
 <h2 class="text-xl font-semibold" id="titre-{{.ID}}">{{.Title}}</h2>
 <p class="mt-2 text-sm">{{range $i, $c := .Categories}}{{if $i}} · {{end}}{{categoryLabel $c}}{{end}}</p>
 <p class="mt-1 text-sm">Demandes évitées où elle était proposée : {{.Deflections}}</p>

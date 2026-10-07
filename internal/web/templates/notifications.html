@@ -1,6 +1,6 @@
 {{define "main"}}
 {{$d := .Data}}
-<h1 class="text-2xl font-bold text-primary">Notifications</h1>
+<h1 class="text-2xl font-bold text-primary max-lg:sr-only">Notifications</h1>
 <p class="mt-4">Les mails à la boîte du club arrivent dans tous les cas. Ici, tu choisis ce qui arrive en plus sur ton téléphone : une alerte pour chaque nouvelle demande et chaque réponse d'adhérent.</p>
 {{if $d.VAPIDKey}}
 <section class="mt-8" aria-labelledby="appareil">
