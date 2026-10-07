@@ -28,8 +28,9 @@ make run
 ```
 
 Sign in at http://comite.localhost:8080 with that password: the first sign-in
-asks for a new one. Then import the members list on the Imports page. The members site is http://sos.localhost:8080. Without `S3_*`,
-screenshots are stored under `DATA_DIR/captures`.
+asks for a new one. Then import the members list on the Imports page. The
+members site is http://sos.localhost:8080. Without `S3_*`, screenshots are
+stored under `DATA_DIR/captures`.
 
 `make test`, `make lint` and `make css` run the tests, the linter and the
 stylesheet build.
@@ -50,9 +51,13 @@ The image is distroless and runs as a non-root user on a read-only file
 system. The database lives in the `/data` volume. The owner
 (`OWNER_USERNAME`) creates the other committee accounts on the « Comptes »
 page, each with a temporary password to change at the first sign-in. If the
-owner loses their password, `reset-password <OWNER_USERNAME>` prints a new
-temporary one: `docker exec` runs the binary directly, the image needs no
-shell.
+owner loses their password, this prints a new temporary one:
+
+```sh
+docker compose exec app /sos-vpdive reset-password <OWNER_USERNAME>
+```
+
+The image has no shell, so `exec` runs the binary itself.
 
 ### Reverse proxy
 

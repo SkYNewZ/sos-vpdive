@@ -29,8 +29,9 @@ validated: it wins over this file, over existing code, and over preference.
   other accounts on `/comptes` (404 for anyone else). A new account or a
   reset gets a temporary password shown once; the first sign-in leads every
   page to « Mon compte » until it is changed. Identifier, name and function
-  never change. `reset-password` (run with `docker exec`) creates the first
-  account and recovers the owner's. `ADMINS_FILE` and `hash-password` are gone.
+  never change. `reset-password` (run with `docker exec`) gives any existing
+  account a new temporary password and creates a missing one: that is how the
+  owner gets back in. `ADMINS_FILE` and `hash-password` are gone.
   Each resolver sets their Pushover key on « Notifications ».
 - `.env.example` lists only the variables the binary reads; each lot adds its own.
 - Pushover is per resolver: an optional `pushover_user_key` per account,
@@ -143,9 +144,10 @@ No i18n framework.
 - CI (`.github/workflows/ci.yml`): `check` runs `gofmt -l`, `go vet`,
   `go test -race`, `validate-kb` and the forbidden-files guard; `image` builds
   the Dockerfile and pushes it (develop → `:latest`, tag `vX.Y.Z` → `:X.Y.Z`).
-- `make run` needs `.env` (from `.env.example`, `APP_ENV=development`);
-  `make account ARGS='…'` creates a local account. Sites on `http://sos.localhost:8080` and
-  `http://comite.localhost:8080` (browsers treat `*.localhost` as secure).
+- `make run` needs `.env` (from `.env.example`, `APP_ENV=development`); sites
+  on `http://sos.localhost:8080` and `http://comite.localhost:8080` (browsers
+  treat `*.localhost` as secure).
+- `make account ARGS='…'` creates a local account.
 - `./scripts/check-forbidden-files.sh` is the CI guard on private files.
 - The repo's `.env`, `admins/` and `data/` are the owner's dev files: never delete
   or overwrite them; acceptance runs use a scratch `DATA_DIR`.
