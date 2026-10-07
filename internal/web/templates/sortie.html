@@ -1,0 +1,31 @@
+{{define "main"}}{{$e := .Data}}
+<p><a class="link link-primary inline-flex min-h-11 items-center" href="{{with $e}}{{.Back}}{{else}}/calendrier{{end}}">Retour au calendrier</a></p>
+{{with $e}}
+<header class="flex flex-col gap-2 border-b border-base-300 pb-4">
+<h1 class="text-2xl font-bold break-words text-primary">{{.Title}}</h1>
+{{if .Cancelled}}<p><span class="badge badge-soft badge-warning">Annulée</span> <a class="link link-primary inline-flex min-h-11 items-center" href="/annulations">Voir les sorties annulées</a></p>{{end}}
+<p>{{longDay .Start}}, {{hours .Event}}</p>
+{{if .EndInverted}}<p class="font-semibold">Heure de fin incohérente dans VPDive.</p>{{end}}
+<p>{{template "category" .Category}}{{with .Activity}} · {{activity .}}{{end}}{{with .Environment}} · {{environment .}}{{end}}{{with .Location}} · {{.}}{{end}}</p>
+{{with .Boats}}<p>Bateaux : {{join .}}</p>{{end}}
+<p>{{template "counts" .}}</p>
+{{with .URL}}<p><a class="btn btn-outline min-h-11" href="{{.}}" target="_blank" rel="noopener">Ouvrir dans VPDive</a></p>{{end}}
+</header>
+{{with .Description}}<section class="panel mt-6 p-4 lg:p-5" aria-labelledby="description"><h2 id="description" class="text-xl font-semibold">Description</h2><p class="mt-2 whitespace-pre-line break-words">{{.}}</p></section>{{end}}
+{{with .Staff}}<section class="panel mt-6 p-4 lg:p-5" aria-labelledby="encadrement"><h2 id="encadrement" class="text-xl font-semibold">Encadrement</h2>
+{{range .}}<p class="mt-2">{{.Label}} : {{.Names}}</p>{{end}}</section>{{end}}
+{{range .Lists}}{{template "people" .}}{{end}}
+{{else}}
+<h1 class="text-2xl font-bold text-primary">Sortie introuvable</h1>
+<p class="mt-4">Sortie introuvable : supprimée dans VPDive, ou commencée il y a plus de 12 mois.</p>
+{{end}}
+{{end}}
+
+{{/* A list of the outing's people: name and match, then cart and roles. */}}
+{{define "people"}}{{if .People}}<section class="panel mt-6 p-4 lg:p-5" aria-labelledby="{{.ID}}">
+<h2 id="{{.ID}}" class="text-xl font-semibold">{{.Title}} ({{len .People}})</h2>
+<ul class="mt-2 flex flex-col divide-y divide-base-300">{{range .People}}<li class="py-2">
+<p>{{.Name}} · {{.Match}}</p>
+<p class="text-sm">{{if gt .People 1}}{{.People}} personnes · {{end}}{{if .Guest}}invité · {{end}}{{with .Tariff}}{{.}} · {{end}}Panier : {{cart .Payment}}{{with .Roles}} · {{roles .}}{{end}}</p>
+</li>{{end}}</ul>
+</section>{{end}}{{end}}
