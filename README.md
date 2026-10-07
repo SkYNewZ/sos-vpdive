@@ -1,22 +1,22 @@
 # sos-vpdive
 
-A small support desk for a volunteer-run diving club whose members use the
-VPDive platform. Members file requests through a public form; a few committee
-members handle them. One Go binary serves two host names: the members site
-and the committee site. Simplicity and robustness beat features.
+A small help desk for a volunteer-run diving club whose members use VPDive.
+Members ask for help through a public form, and a few committee members
+answer. One Go binary serves two sites: one for members, one for the
+committee.
 
-Status: lot 7 (Mollie collections and pushed imports): request form with
-screenshots, fiches suggested before sending, tracking page and lost link,
-committee board with live updates and summaries, assignment, internal notes,
-journal, deletions and mails, both sites installable on a phone, committee
-alerts by Web Push and Pushover, imports of the VPDive members, payments and
-VPayDive exports, by hand or pushed by a script, with the requester's payments
-and Mollie collections on each request, a list of cancelled outings and a list
-of payments to check.
+- Members need no account. Before sending, the form shows the help fiches
+  that may already answer them, and each request gets a private tracking link.
+- The committee works from a live board: status, assignee, internal notes,
+  history, and the requester's VPDive payments next to each request.
+- New requests reach the committee by mail, and optionally by Web Push or
+  Pushover. Both sites install as phone apps.
+- The service never connects to VPDive. The committee imports VPDive's Excel
+  exports by hand, or a script pushes them.
 
-## Run it locally
+## Try it locally
 
-Requirements: Go (see `go.mod`), `make`, `curl`.
+You need Go (version in `go.mod`), `make` and `curl`.
 
 ```sh
 cp .env.example .env
@@ -28,166 +28,91 @@ mkdir -p admins && cp admins.example.yaml admins/admins.yaml   # paste the hash
 make run
 ```
 
-Open http://comite.localhost:8080 (browsers resolve `*.localhost` to your
-machine and accept the `__Host-` session cookie there) and import the members
-list, then the payments, on the Imports page. http://sos.localhost:8080 is the members site.
+Sign in at http://comite.localhost:8080 and import the members list on the
+Imports page. The members site is http://sos.localhost:8080. Without `S3_*`,
+screenshots are stored under `DATA_DIR/captures`.
 
-`make test` runs the tests, `make lint` the linter, `make css` the stylesheet.
+`make test`, `make lint` and `make css` run the tests, the linter and the
+stylesheet build.
 
-Without `S3_*` variables, development stores screenshots under
-`DATA_DIR/captures`. Mails go through a queue in the database to the SMTP
-relay of `.env`: with an unreachable relay they stay queued, are retried, and
-show on the committee's « Envois » page after 7 days.
-
-## Deploy with Docker Compose
+## Deploy
 
 ```sh
 docker build --build-arg VERSION=$(git describe --tags --always) -t sos-vpdive:local .
-cp .env.example .env                                    # fill every required value
-docker run --rm -it sos-vpdive:local hash-password      # once per account
+cp .env.example .env                                    # fill in every required value
+docker run --rm -it sos-vpdive:local hash-password      # once per committee account
 mkdir -p admins && cp admins.example.yaml admins/admins.yaml   # paste the hashes
 docker compose up -d --wait
 ```
 
-The image is distroless (`gcr.io/distroless/static-debian13:nonroot`): no
-shell, user 65532, read-only root file system. The database lives in the
-`/data` volume; the `admins/` directory is mounted read-only at `/config`
-(a directory rather than the file, so that editors saving by rename are
-picked up by the hot reload).
+`.env.example` lists every variable with a comment. The service refuses to
+start when a required one is missing or invalid, and names it.
 
-### Behind a reverse proxy
+The image is distroless and runs as a non-root user on a read-only file
+system. The database lives in the `/data` volume. Compose mounts the
+`admins/` directory rather than the file: editors that save by renaming the
+file would otherwise go unnoticed. Changes to the accounts file apply at
+once.
 
-- Terminate TLS at the proxy and forward both host names to port 8080 with the
-  `Host` header unchanged.
-- Set `X-Forwarded-For` and list the proxy's address, as the container sees it,
-  in `TRUSTED_PROXIES`; otherwise the visitor address is the proxy's. With the
-  example compose file, a proxy on the host reaches the container through the
-  Docker bridge gateway: the default `172.30.30.1/32` is the gateway of the
-  network pinned in `compose.yaml`. With another topology, list the address
-  the proxy connects from.
-- Do not log request paths of the members site: tracking links carry a secret.
-- You may restrict the committee host name (by address, for instance) without
-  touching the members site. A script pushing the exports must then come from
-  an allowed address, and the proxy must pass its `Authorization` header.
-- The example compose file publishes the port on 127.0.0.1 only, so the proxy
-  must run on the same host; with a remote proxy, change the binding and
-  firewall the port so only the proxy reaches it.
-- Do not buffer `/evenements` on the committee host name: it is a
-  Server-Sent Events stream with a keepalive every 25 seconds. Keep the
-  proxy's read timeout above 60 seconds (nginx: `proxy_buffering off;
-  proxy_read_timeout 1h;`). Without the stream, the board still works and is
-  refreshed by hand.
-- Allow request bodies up to 16 MB on both host names: a request or a reply
-  carries up to three 5 MB screenshots plus its fields, and the committee host
-  takes import uploads (5 MiB plus fields), above nginx's 1 MB default
-  (nginx: `client_max_body_size 16m;` in both server blocks).
-- Serve HTTP/2 to browsers (nginx: `http2 on;`). On a computer every
-  committee page holds a live stream open (it shows a toast when someone else
-  files, answers or changes a request); on a phone the board and each request
-  page do. Over HTTP/1.1 six open tabs exhaust the browser's connection limit
-  per host name.
+### Reverse proxy
 
-## Configuration
+- Terminate TLS and forward both host names to port 8080 with the `Host`
+  header unchanged.
+- Set `X-Forwarded-For` and list the proxy's address, as the container sees
+  it, in `TRUSTED_PROXIES`. For a proxy on the same host as the example
+  compose file, the default `172.30.30.1/32` (the gateway of the network
+  pinned in `compose.yaml`) is right.
+- Never log the path or the `Referer` header of members-site requests.
+  Tracking links carry a secret token, and a tracking page sends its own
+  address as `Referer` with every file and form it loads. nginx's default
+  `combined` log format records both.
+- Do not buffer `/evenements` on the committee site, and keep the read
+  timeout above 60 seconds (nginx: `proxy_buffering off; proxy_read_timeout 1h;`).
+  It is a live stream with a keepalive every 25 seconds. Without it, the board
+  still works but needs a manual refresh.
+- Accept request bodies up to 16 MB on both sites (nginx:
+  `client_max_body_size 16m;`). A request can carry three 5 MB screenshots.
+- Serve HTTP/2. Every open committee tab holds a live stream, and HTTP/1.1
+  allows only six connections per host name.
+- The example compose file publishes the port on 127.0.0.1 only. For a proxy
+  on another machine, change the binding and firewall the port.
+- You can restrict the committee site, by IP address for example. A script
+  that pushes exports must then connect from an allowed address, and the
+  proxy must pass its `Authorization` header through.
 
-Everything is set through environment variables; `.env.example` lists them
-with comments. The service refuses to start, naming the variable, when a
-required one is missing or invalid. Business content lives in versioned files
-embedded in the binary: `config/robots.yaml` (AI robots refused),
-`config/vpdive.yaml` (links to VPDive pages) and the fiches of `kb/`.
+## Adapt it to your club
 
-## Request categories and products
+What is specific to a club lives in versioned files. They are embedded in the
+binary and checked at startup.
 
-`config/categories.yaml` lists the categories of the form, their dedicated
-fields (`text`, `textarea`, `choice`, `date`, `number`) and help texts;
-`config/products.yaml` lists the products offered by `options_from: products`.
-Ids are stable: a request keeps the ids in force when it was filed, and the
-committee sees « retiré » next to a value whose field or option disappeared.
-A category marked `committee_only` is never offered on the form; only a
-reclassification leads to it. Both files are checked at startup.
+| File | Holds |
+| --- | --- |
+| `config/categories.yaml` | Form categories, their extra fields and help texts. A `committee_only` category never shows on the form. |
+| `config/products.yaml` | The choices of a field with `options_from: products` |
+| `config/vpdive.yaml` | Links to VPDive pages, shown to the committee |
+| `config/robots.yaml` | AI crawlers that get a 403 |
+| `kb/*.md` | The help fiches (next section) |
 
-## VPDive exports
+Once ids are in use, keep them. A request keeps the ids it was filed with,
+and the committee sees « retiré » next to a value that no longer exists.
 
-The committee imports three VPDive exports on the Imports page, or a script
-pushes them (next section); the service never connects to VPDive. Each upload
-shows a preview, kept 15 minutes, and the confirmation replaces everything the
-previous import stored.
+App icons are PNG files in `internal/web/static/icons/membres/` and
+`comite/`: 192 and 512 px, a 512 px maskable one with the logo inside the
+central 80 % circle, a 180 px Apple icon and a 32 px favicon. The app names
+are in `internal/web/pwa.go` and `templates/layout.html`. The members' icons
+add the [SOS icon by Freepik from Flaticon](https://www.flaticon.com/free-icons/sos)
+to the club logo, and its free licence asks for this credit.
 
-- The members list (« Liste des membres » page, « Télécharger » button) is the
-  whitelist of the form. The service keeps names, email, seasons and licence
-  expiry, and reads no other column.
-- The payments export (payments page, « Télécharger Excel » button) holds only
-  what the page's filters show: set them as the Imports page says (display by
-  members, every state, creation date over the last 24 months). The service
-  keeps amounts, states, payment methods, titles and dates, and drops the
-  names once hashed. It never reads comments, addresses or civility.
-- A payment line reaches a request through the members list: the request's
-  address, its member, then a hash of the normalised name. Lines whose name
-  several members share are never shown, and stay hidden until the next
-  payments import, even when a members import keeps only one of them.
-- A request page shows carnet and training balances as VPDive reports them,
-  never recomputed, the lines left to pay, the cancelled outings waiting for
-  deletion and the ten latest lines. « Annulations » lists, newest first, the
-  outings whose title contains « annul », in any case, that still hold paid
-  lines: the club
-  renames a cancelled outing, refunds real-money payments, then deletes it in
-  VPDive, which credits the carnets back.
-- The VPayDive export (VPayDive page, « Exporter (Excel) » button, over the
-  « Du » and « Au » dates) lists the payments Mollie collected, one line per
-  cart item, and whether VPDive settled them. The service keeps the product,
-  the outing and its date, the amount, « Payé », the payment date and the
-  method. It never reads the commission, net amount, transfer, billing or API
-  status columns. On a request page, « Encaissements Mollie » shows the
-  requester's payments, newest first: the lines of one person at one minute
-  make one payment. Every payment is made online, so the pages call the two
-  exports « Paiements VPDive » and « Encaissements Mollie ».
-- « À vérifier » lists the lines where the money received and the state in
-  VPDive disagree: Mollie lines that VPDive did not settle (« Payé : Non »)
-  and partial payments. The service fixes nothing. A resolver masks a line
-  once checked; the line has no identifier, so the mask is keyed on a hash of
-  the person, the date, the product and the amount, and survives later imports.
-- `MEMBERS_MAX_AGE`, `PAYMENTS_MAX_AGE` and `VPAYDIVE_MAX_AGE` set when the
-  committee is reminded to import again. Payment and Mollie lines are deleted
-  after 90 days without an import of their export, the members list after 12
-  months.
+Chrome's install dialog shows the screenshots in
+`internal/web/static/screenshots/membres/` and `comite/`: `etroite.png`
+(824 × 1830) and `large.png` (1280 × 800). A test checks those sizes. Take
+them on a local instance filled with the synthetic files of
+`testdata/fixtures/`, never with real requests.
 
-## Pushed imports
+### Fiches
 
-A script can push the three exports instead of a resolver, on a schedule for
-instance. The script lives outside this repository: it signs in to VPDive, the
-service never does. Set `IMPORT_TOKEN` to turn the route on (32 characters at
-least, `openssl rand -base64 32`); without it, the route answers 404.
-
-```sh
-curl --fail-with-body -X POST -H "Authorization: Bearer $IMPORT_TOKEN" \
-  --data-binary @export.xlsx https://comite.example.org/api/imports/payments
-```
-
-- `{type}` is `members`, `payments` or `vpaydive`. The body is the `.xlsx`
-  file as VPDive produced it, 5 MB at most.
-- The file goes through the same checks as an upload, without the preview: a
-  valid file replaces the data in place in one transaction, and the journal
-  names « script » as its author. A file with less than half of the data in
-  place (accounts, or lines) is refused: upload it by hand if it is right.
-- The answer is JSON: `{"result": "imported", "read": 120, "kept": 118,
-  "skipped": 2, "to_check": 3}`, with `unchanged` when the file has the bytes
-  of the latest import of its kind. A refusal answers `{"error": "<code>",
-  "message": "…"}`: `unauthorized` (401), `rate_limited` (429),
-  `unknown_type` (404), `too_large` (413), and 422 for a refused file with
-  `invalid_workbook`, `too_many_rows`, `no_header`, `missing_column`,
-  `invalid_number`, `invalid_date`, `empty_product`, `duplicate_email`,
-  `invalid_email` or `too_few`.
-- Every refused file mails the club inbox. The route takes 10 calls an hour
-  per address and logs refused tokens, never the token itself.
-- When an import outlives its maximum age, the club inbox gets one mail on top
-  of the banner: with a script, an ageing import means the script is down.
-- What the script does: download the members without filter, the payments and
-  VPayDive over the last 24 months, push each file unchanged and keep none;
-  when a download fails, push nothing.
-
-## Knowledge base and suggestions
-
-Each recurring problem has a fiche in `kb/<id>.md`: an answer for the member
-and a procedure for the committee. The format:
+Each recurring problem gets a fiche in `kb/<id>.md`, with an answer for the
+member and a procedure for the committee:
 
 ```markdown
 ---
@@ -206,24 +131,89 @@ Short text shown to the member before sending.
 1. Numbered steps in VPDive.
 ```
 
-`categories` takes ids of `config/categories.yaml` and `liens_vpdive` keys of
-`config/vpdive.yaml`. The text supports paragraphs, `- ` lists and `1. `
-lists, nothing else. A fiche never quotes a price (link the club's price page
-instead), a member's name or a secret: the repository is public. Fiches are
-embedded at build time: changing one goes through a commit and a deployment.
-`go run ./cmd/sos-vpdive validate-kb` runs the checks of the startup and lists
-the `[À COMPLÉTER : …]` marks left to fill in; CI runs it too. A malformed
-fiche refuses the start.
+`categories` takes ids from `config/categories.yaml`, and `liens_vpdive`
+takes keys from `config/vpdive.yaml`. The text supports paragraphs, `- `
+lists and `1. ` lists. The repository is public, so a fiche never quotes a
+price, a member's name or a secret: link the club's price page instead.
 
-With `LLM_API_KEY` set, a sent form is stored as a draft and the model picks
-up to three fiches; the member then sees their answers and either closes the
-request (« Ça règle mon problème », counted on the committee's « Fiches » page)
-or sends it anyway. The same call writes a summary of at most 200 characters
-for the committee, shown on the board and the request page. The model never
-writes to members: they only read fiches, and the server keeps only fiche ids
-it knows. Without a key, or when the model fails or takes longer than
-`LLM_TIMEOUT` (8 s), the request is sent at once and the board shows the start
-of the description.
+A fiche ships with the binary, so changing one means a commit and a deploy.
+`go run ./cmd/sos-vpdive validate-kb` runs the startup checks and lists the
+`[À COMPLÉTER : …]` marks still to fill in. CI runs it too, and a malformed
+fiche stops the service from starting.
+
+## VPDive exports
+
+The committee imports three exports on the Imports page. Each upload shows a
+preview for 15 minutes, and confirming replaces what the previous import
+stored.
+
+| Export | Where in VPDive | Used for |
+| --- | --- | --- |
+| Members list | « Liste des membres », « Télécharger » | Who may use the form |
+| Payments | Payments page, « Télécharger Excel », with the filters the Imports page gives | Payments on each request, « Annulations », « À vérifier » |
+| VPayDive | VPayDive page, « Exporter (Excel) », over the « Du » and « Au » dates | « Encaissements Mollie » on each request, « À vérifier » |
+
+The service reads only the columns it needs. It hashes the names on payment
+lines and never reads addresses, comments or civility.
+`MEMBERS_MAX_AGE`, `PAYMENTS_MAX_AGE` and `VPAYDIVE_MAX_AGE` set when the
+committee is reminded to import again. Payment and Mollie lines are deleted
+after 90 days without a new import, the members list after 12 months.
+
+### Pushed imports
+
+A script can push the exports on a schedule instead. The script lives
+outside this repository: it signs in to VPDive, the service never does. Set
+`IMPORT_TOKEN` (32 characters or more, `openssl rand -base64 32`) to turn the
+route on. Without it, the route answers 404.
+
+```sh
+curl --fail-with-body -X POST -H "Authorization: Bearer $IMPORT_TOKEN" \
+  --data-binary @export.xlsx https://comite.example.org/api/imports/payments
+```
+
+The type is `members`, `payments` or `vpaydive`. The body is the `.xlsx` file
+exactly as VPDive produced it. The file goes through the checks of an upload,
+without the preview, and the journal names « script » as its author. A file
+holding less than half of the data in place is refused: upload it by hand if
+it is right.
+
+The answer is JSON: `{"result": "imported", "read": 120, "kept": 118,
+"skipped": 2, "to_check": 3}`, with `"unchanged"` when the file has the same
+bytes as the latest import of its type. A refusal reads
+`{"error": "<code>", "message": "…"}`:
+
+| Status | Code |
+| --- | --- |
+| 400 | `interrupted`: the body was cut short |
+| 401 | `unauthorized`: wrong token, logged without the token |
+| 404 | `unknown_type` |
+| 413 | `too_large`: body over 5 MB |
+| 422 | The file is refused: `too_large` (over 50 MB once decompressed), `too_many_rows`, `invalid_workbook`, `no_header`, `missing_column`, `invalid_number`, `invalid_date`, `empty_product`, `duplicate_email`, `invalid_email` or `too_few` |
+| 429 | `rate_limited`: 10 calls an hour per address |
+| 500 | `internal` |
+
+Each refused file (413 or 422) sends a mail to the club inbox. When an
+import outlives its maximum age, the club inbox gets one mail as well: with a
+script, it means the script has stopped working.
+
+The script should download the members list without a filter and the two
+payment exports over the last 24 months, push each file unchanged, keep no
+copy, and push nothing when a download fails.
+
+## Optional services
+
+An invalid Umami or Sentry setting turns that tool off with a warning at
+startup, and the service starts anyway.
+
+### Fiche suggestions
+
+With `LLM_API_KEY` set, a model picks up to three fiches to show the member
+before sending, and writes a short summary for the committee. Members only
+ever read fiches, never model output. The model receives the category, the
+extra fields and the description, never the name, the email address or the
+screenshots. Without a key, or when the model fails or takes longer than
+`LLM_TIMEOUT` (8 s), the request leaves at once. `LLM_DAILY_LIMIT` (200 by
+default) caps the calls per day.
 
 Any provider that speaks Anthropic's Messages API works:
 
@@ -232,194 +222,103 @@ Any provider that speaks Anthropic's Messages API works:
 | Anthropic (default) | `https://api.anthropic.com` | `claude-haiku-4-5-20251001` |
 | DeepSeek | `https://api.deepseek.com/anthropic` | `deepseek-flash` |
 
-Each call turns reasoning off (`"thinking": {"type": "disabled"}`). DeepSeek
-reasons by default and would spend the 400 tokens before writing the answer;
-Anthropic's models already answer without reasoning unless asked.
+Every call turns reasoning off. DeepSeek reasons by default and would
+otherwise spend the 400-token answer budget before writing anything.
 
-The model receives the category, the dedicated fields and the description,
-never the name, the email address or the screenshots; the form says so next
-to the description. Costs stay bounded: the anti-robot check, the rate limits
-and the members list run before any call, the description is limited to
-4 000 characters, the answer to 400 tokens, and `LLM_DAILY_LIMIT` (200 by
-default) caps the calls per day, counted in Paris time.
+### Mail
 
-## Mails
+Mail goes out through the SMTP relay of `SMTP_*`, always encrypted:
+`SMTP_TLS=implicit` (port 465) or `SMTP_TLS=starttls` (port 587). Resend
+works as is (host `smtp.resend.com`, user `resend`, the API key as
+password). Check the SPF and DKIM records of `MAIL_FROM`'s domain before
+going live.
 
-Mails leave through the SMTP relay of `SMTP_*`, always encrypted before
-authentication: implicit TLS (`SMTP_TLS=implicit`, port 465) or STARTTLS
-(`SMTP_TLS=starttls`, port 587). Resend works without dedicated code
-(host `smtp.resend.com`, user `resend`, the API key as password). Verify the
-domain of `MAIL_FROM` (SPF, DKIM) before going live.
-
-Every notification is written in the database with the event that causes it,
-then sent by a background worker: retries after 1 minute, 5 minutes,
-30 minutes, 2 hours, 12 hours, then every 24 hours. After 7 days, or on a
-definitive refusal, the mail is marked failed and listed on the committee's
+Mails wait in a database queue and are retried for 7 days, so a relay outage
+loses nothing. A mail that fails for good shows on the committee's
 « Envois » page, where it can be sent again.
 
-## Installable apps
+### Committee alerts
 
-Each host name is also an app a phone can install: « SOS CPP » for members,
-« SOS CPP Comité » for the committee, each with its own manifest, service
-worker and icons. Chrome on Android offers to install it; on iPhone, Safari's
-Share menu has « Sur l'écran d'accueil ». The service worker keeps the static
-files and an offline page, nothing else: pages and screenshots always come
-from the network. After a deploy, open pages show « Une nouvelle version du
-site est disponible » and reload only when asked.
-
-- On iPhone, the installed app keeps its own cookies and storage, apart from
-  Safari: resolvers sign in again inside the app.
-- Another club replaces the PNG files of `internal/web/static/icons/membres/`
-  and `comite/` (192 and 512 px; a 512 px maskable one whose logo fits in the
-  central 80 % circle; a 180 px Apple icon; a 32 px favicon), and the app
-  names in `internal/web/pwa.go` and `templates/layout.html`.
-- The members' icons add the [SOS icon by Freepik from
-  Flaticon](https://www.flaticon.com/free-icons/sos) to the club logo; its
-  free licence asks for this credit.
-- Chrome shows a richer install dialog with each manifest's description and
-  screenshots: `internal/web/static/screenshots/membres/` and `comite/`, one
-  for phones (`etroite.png`, 824 × 1830, a 412 × 915 page at twice the
-  density) and one for desktops (`large.png`, 1280 × 800). Make them on a
-  local instance filled with the synthetic files of `testdata/fixtures/`,
-  never with real requests, and keep those sizes: a test checks them.
-- Browsers older than Chrome 111, Safari 16.4 or Firefox 128 get a short
-  notice with the club's address instead of the page.
-- The request form keeps what a member types in the browser's storage until
-  the request leaves, 7 days at most, so a lost connection or a closed tab
-  loses nothing. Screenshots and tokens are never kept there.
-
-## Committee alerts
-
-Besides the mail to the club mailbox, a new request and a member's reply can
-reach the committee's phones. An alert reads « CPP-0042 · Léa Martin ·
-Carnet, solde de plongées », then the model's summary of the request when
-there is one; never what the member wrote. A Web Push alert is encrypted for
-the device: Apple's and Google's servers cannot read it. Pushover receives
-it in clear, as the club mailbox receives the committee mail.
+An alert reads « CPP-0042 · Léa Martin · Carnet, solde de plongées », followed
+by the model's summary when there is one. Web Push alerts are encrypted for
+the device, so Apple's and Google's servers cannot read them. Pushover gets
+them in clear, like the club mailbox. An alert is sent once; if that fails,
+the mail still arrives.
 
 - Pushover: set `PUSHOVER_APP_TOKEN` to the token of an application created
-  on pushover.net, and give each resolver who wants the alerts a
-  `pushover_user_key` in the accounts file. Editing the file applies at once.
-- Web Push, to the installed committee app: run `sos-vpdive vapid-keys`
-  (`docker run --rm sos-vpdive:local vapid-keys`) once, copy both keys into
-  `.env` and set `VAPID_SUBJECT` to the club's address, bare:
-  `mailto:club@example.org`, never `mailto:<club@example.org>` (Apple answers
-  403 `BadJwtToken`, and the server refuses to start). Keep the keys: new
-  ones break every existing subscription. `PUSH_ALLOWED_HOSTS` lists the push
-  services a phone may subscribe through. Each resolver then turns
-  notifications on, device by device, on the « Notifications » page. On
-  iPhone that works only from the installed app (iOS 16.4 or later). A
-  subscription ends with its session: after signing in again, turn it back
-  on there. « M'envoyer une notification de test » on that page pushes to
-  the device at once and shows the push service's answer when it refuses.
+  on pushover.net, and give each resolver who wants alerts a
+  `pushover_user_key` in the accounts file.
+- Web Push: run `sos-vpdive vapid-keys` once and copy both keys into `.env`.
+  Keep them, because new keys end every subscription. Set `VAPID_SUBJECT` to
+  the club's bare address, `mailto:club@example.org`: the service refuses
+  `mailto:<club@example.org>`, which Apple answers with a 403.
+- Each resolver turns alerts on device by device on the « Notifications »
+  page, which also sends a test notification. On iPhone this only works from
+  the installed app, on iOS 16.4 or later.
 
-An alert is sent once, within the hour. If that fails, the log says so and
-the mail still arrives. Alerts never show on the « Envois » page.
+### Screenshot storage
 
-Before going live, check on a real Android phone and a real iPhone:
+Production keeps screenshots in an S3-compatible bucket, such as Cloudflare
+R2. Create the bucket in the EU jurisdiction (endpoint
+`https://<account>.eu.r2.cloudflarestorage.com`, `S3_REGION=auto`), keep it
+private and limit the API token to object read and write on that bucket.
+Give the service a bucket of its own: a daily job deletes any object it does
+not recognise once it is 24 hours old. Screenshots are encrypted before
+upload, and only the service serves them.
 
-1. Install both apps; each opens on its own page, without the browser bar.
-2. Turn notifications on in the committee app, file a request from the
-   members app: the phone shows « Nouvelle demande » with the reference, the
-   requester and the category; a tap opens the request, even when the app
-   was already open on another page.
+### Usage and errors
+
+Umami counts page views once `UMAMI_SCRIPT_URL` and a website ID per site are
+set (`UMAMI_WEBSITE_ID` for members, `UMAMI_ADMIN_WEBSITE_ID` for the
+committee). Host Umami on another origin than both sites: on the same origin,
+the browser would hand it tracking tokens in `Referer`, so the service
+ignores such a script URL. Pages are reported by route (`/suivi/[masqué]`), Umami
+sets no cookie, and a browser with Do Not Track on never loads the script.
+
+Sentry receives the server's errors, logs and traces when `SENTRY_DSN` is set
+and `APP_ENV` is not `development`. Every error-level log line becomes an
+issue, while expected refusals such as invalid input or rate limits do not.
+Request data and the user are removed before an event leaves.
+
+## Before going live
+
+On a real Android phone and a real iPhone:
+
+1. Install both apps. Each opens on its own page, without the browser bar.
+2. Turn alerts on in the committee app, then file a request from the members
+   app. The phone shows « Nouvelle demande » with the reference, the
+   requester and the category, and a tap opens the request.
 3. Refuse the permission on another device: the « Notifications » page says
    how to allow it.
-4. Turn notifications off on the « Notifications » page, then on again;
-   sign out: alerts stop reaching that device.
-
-## Screenshot storage
-
-Screenshots live in an S3-compatible bucket, Cloudflare R2 in production:
-
-- Create the bucket in the EU jurisdiction (it cannot change later); the
-  endpoint is `https://<account>.eu.r2.cloudflarestorage.com` with
-  `S3_REGION=auto`.
-- Keep it private: no public access, no custom domain. Scope the API token to
-  object read and write on this bucket only.
-- The service encrypts every screenshot before upload and serves it itself;
-  browsers never get a bucket URL. A daily job removes objects left without a
-  request for more than 24 hours. For that reason the bucket must hold
-  nothing else and must not be shared between instances: that job deletes
-  every object it does not recognise once it is older than 24 hours.
-- `backup` covers the database only; screenshots stay in the bucket.
-
-## Usage and errors
-
-Both tools are optional and stay off until configured. An invalid value logs
-a warning at startup and leaves that tool off; the service runs as before.
-
-Umami counts page views. Set `UMAMI_SCRIPT_URL` to the script of your
-instance, then one website ID per site: `UMAMI_WEBSITE_ID` for the members
-site, `UMAMI_ADMIN_WEBSITE_ID` for the committee site. A site without an ID is
-not measured, and without any ID Umami stays off. The instance must live on
-another origin than both sites: on the same origin, the browser would send it
-a tracking page's full address, token included, in the `Referer` header, so
-such a URL is refused.
-
-- A page is reported by its route, never by its address: a tracking page
-  counts as `/suivi/[masqué]`, a request page as `/demandes/[id]`. The
-  previous page and the title are not sent.
-- With Do Not Track on, the browser never loads the script.
-- Umami sets no cookie. The Content Security Policy allows its origin for
-  the script and the page views, and for nothing else.
-- No custom event is sent.
-
-Sentry receives the server's errors, logs and traces when `SENTRY_DSN` is
-set. It stays off with `APP_ENV=development`, even with a DSN.
-
-- Every log line at error level becomes a Sentry issue, on the trace of its
-  request: panics, 5xx answers, failed background jobs, notifications that
-  failed for good. Expected refusals are not reported: invalid input, an
-  address missing from the members list, rate limits, a postponed mail.
-- Before an event leaves, the request (body, cookies, headers, IP address,
-  URL) and the user are removed from it. Its message is the log line's, and
-  logs never hold personal data.
-- Traces are the OpenTelemetry spans, sent over OTLP to the DSN's project,
-  always with the DSN's scheme: the `OTEL_EXPORTER_OTLP_*` variables of
-  another collector do not apply to it.
-- An unreachable Sentry slows no request. Nothing runs in the browser.
-
-Events carry the build version. `make build` takes it from `git describe`;
-for an image, pass `--build-arg VERSION=…` to `docker build`. The startup log
-line shows it too.
+4. Turn alerts off, then on again, then sign out: the device stops receiving
+   them.
 
 ## Data protection
 
-- Personal data (names, emails, imported VPDive fields, request descriptions
-  and fields, messages and committee notes, tracking tokens, queued mails) is
-  encrypted with AES-256-GCM before it reaches SQLite. Keys derive from `SECRET_KEY`.
-- At startup the service checks that `SECRET_KEY` decrypts the existing data
-  and refuses to start otherwise.
-- There is no key rotation. Changing `SECRET_KEY` makes existing data
-  unreadable. Back the key up separately from the database.
-- Screenshots are re-encoded on arrival (metadata dropped), encrypted the
-  same way, then stored under random names.
-- The model provider, when configured, receives the category, the dedicated
-  fields and the description of each request, nothing else. The summary it
-  writes is encrypted like the rest.
-- Erasing a person deletes their requests, their members row and every
-  payment and Mollie line carrying their name hash, a homonym's included. The
-  next imports bring back what VPDive still holds.
-- A masked line to check is stored as an HMAC of the line, without a name.
-- Logs and traces never contain a token, an email address, a name or a
-  request body; spans are named after route patterns. Sentry, when
-  configured, receives these logs and traces and nothing more (see Usage and
-  errors).
-- Umami, when configured, receives page views reported by route, without
-  the real address, the previous page or the title, and nothing from a
-  browser with Do Not Track on.
+- Personal data is encrypted with AES-256-GCM before it reaches SQLite or the
+  bucket. The keys derive from `SECRET_KEY`.
+- The service checks at startup that `SECRET_KEY` decrypts the existing data,
+  and refuses to start otherwise. There is no key rotation: with another key,
+  the data is lost. Back the key up apart from the database.
+- Logs and traces never hold a token, an email address, a name or a request's
+  text.
+- Erasing a person on the « Effacement » page deletes their requests, their
+  member entry and every payment and Mollie line under their name, a
+  namesake's included. The next imports bring back what VPDive still holds.
 
 ## Backup and restore
 
+`backup` makes a consistent copy of the database with SQLite's backup API. The
+copy stays encrypted and does not hold the key. Screenshots are not in it:
+they stay in the bucket.
+
 ```sh
-# Backup: a consistent copy made with SQLite's backup API, still encrypted.
 docker compose exec app /sos-vpdive backup /data/backup-$(date +%F).db
 docker compose cp app:/data/backup-$(date +%F).db .
 ```
 
-Restore on a blank machine, with the same `.env` (same `SECRET_KEY`) and
-`admins/admins.yaml`:
+To restore on a blank machine, bring the same `.env` (same `SECRET_KEY`) and
+`admins/admins.yaml`, then:
 
 ```sh
 docker compose stop app      # skip on a blank machine
@@ -427,20 +326,21 @@ docker compose run --rm -v "$PWD/backup-2026-10-05.db:/restore/backup.db:ro" app
 docker compose up -d --wait
 ```
 
-`restore` refuses a backup that `SECRET_KEY` cannot decrypt. Keep backups
-30 days. Backups pile up in the volume: remove old ones with
+`restore` refuses a backup that `SECRET_KEY` cannot decrypt. Keep backups for
+30 days. They pile up in the volume: remove old ones with
 `docker run --rm -v <project>_data:/data busybox rm /data/backup-2026-09-05.db`,
-or write them to a mounted host directory instead.
+or write them to a mounted host directory.
 
 ## Continuous integration
 
-Every push to main or develop and every pull request runs gofmt, `go vet`, golangci-lint, the tests
-with the race detector, `validate-kb` on the fiches, a guard against committed spreadsheets, CSV files,
-databases or `.env` files (only synthetic workbooks in `testdata/fixtures/`
-are allowed), and an image build. Once those pass, a push to develop publishes
-`skynewz/sos-vpdive:latest` and a tag `vX.Y.Z` publishes `skynewz/sos-vpdive:X.Y.Z`
-on Docker Hub, with the `DOCKERHUB_TOKEN` secret. A fork changes `IMAGE` and
-the login username in `.github/workflows/ci.yml` and sets its own secret.
+Every push to `main` or `develop` and every pull request runs gofmt,
+`go vet`, golangci-lint, the tests with the race detector, `validate-kb`, an
+image build, and a guard that fails on committed spreadsheets, CSV files,
+databases or `.env` files (synthetic workbooks in `testdata/fixtures/` are
+allowed). Once those pass, a push to `develop` publishes
+`skynewz/sos-vpdive:latest` on Docker Hub, and a `vX.Y.Z` tag publishes
+`skynewz/sos-vpdive:X.Y.Z`. A fork changes `IMAGE` and the login user in
+`.github/workflows/ci.yml` and sets its own `DOCKERHUB_TOKEN` secret.
 
 ## Dependencies
 
@@ -448,18 +348,18 @@ the login username in `.github/workflows/ci.yml` and sets its own secret.
 | --- | --- |
 | `modernc.org/sqlite` | SQLite without CGO, so the binary is static and the image distroless |
 | `golang.org/x/crypto` | argon2id password hashing |
-| `golang.org/x/text` | Unicode normalization: name matching and spreadsheet headers |
+| `golang.org/x/text` | Unicode normalization for name matching and spreadsheet headers |
 | `golang.org/x/term` | `hash-password` reads a password without echo |
 | `golang.org/x/image` | WebP decoding: screenshots are re-encoded to drop their metadata, and the standard library reads no WebP |
 | `go.yaml.in/yaml/v3` | YAML content and accounts files (maintained successor of `gopkg.in/yaml.v3`) |
 | `go.opentelemetry.io/otel`, `otel/trace`, `otel/sdk`, `otlptracehttp` | Traces over OTLP/HTTP, exported only when configured |
-| `github.com/getsentry/sentry-go`, `sentry-go/otel`, `sentry-go/slog` | Optional error, log and trace reporting to Sentry: the official SDK, the link between its errors and the existing spans, and its `log/slog` handler |
-| `github.com/dicebear/dicebear-go/v10`, `github.com/dicebear/styles/v10` | Committee avatars generated offline (Voxel Art style, CC0); they pull `github.com/dicebear/schema` and `github.com/santhosh-tekuri/jsonschema/v6` indirectly |
-| `github.com/minio/minio-go/v7` | S3 client for the private screenshot bucket (Cloudflare R2, any S3-compatible store); it pulls `klauspost/compress`, `klauspost/cpuid`, `klauspost/crc32`, `minio/crc64nvme`, `minio/md5-simd`, `philhofer/fwd`, `rs/xid`, `tinylib/msgp`, `zeebo/xxh3` and `gopkg.in/ini.v1` indirectly |
+| `github.com/getsentry/sentry-go`, `sentry-go/otel`, `sentry-go/slog` | Optional reporting to Sentry: the official SDK, the link between its errors and the existing spans, and its `log/slog` handler |
+| `github.com/dicebear/dicebear-go/v10`, `github.com/dicebear/styles/v10` | Committee avatars generated offline (Voxel Art style, CC0); they pull `github.com/dicebear/schema` and `github.com/santhosh-tekuri/jsonschema/v6` |
+| `github.com/minio/minio-go/v7` | S3 client for the private screenshot bucket; it pulls `klauspost/compress`, `klauspost/cpuid`, `klauspost/crc32`, `minio/crc64nvme`, `minio/md5-simd`, `philhofer/fwd`, `rs/xid`, `tinylib/msgp`, `zeebo/xxh3` and `gopkg.in/ini.v1` |
 | `github.com/stretchr/testify` | Tests only |
 | Tailwind CSS standalone CLI v4, daisyUI 5 (vendored `.mjs`) | Stylesheet built without Node or npm, checksums verified |
 | Atkinson Hyperlegible Next | Self-hosted font, SIL Open Font License (`internal/web/static/fonts/OFL.txt`) |
-| Lucide icons (1.52) | The eight committee navigation icons, copied as inline SVG symbols into `internal/web/templates/layout.html`; nothing is loaded from a third party. ISC license, with the MIT notice of the Feather icons they derive from (`third_party/lucide/LICENSE`) |
+| Lucide icons (1.52) | The committee navigation icons, copied as inline SVG into `internal/web/templates/layout.html`. ISC license, with the MIT notice of the Feather icons they derive from (`third_party/lucide/LICENSE`) |
 
 ## License
 
