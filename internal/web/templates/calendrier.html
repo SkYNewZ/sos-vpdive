@@ -10,9 +10,9 @@
 {{if eq $d.View "mois"}}
 <div class="panel mt-4 hidden lg:block">
 <ol class="grid grid-cols-7 border-b border-base-300 text-sm font-semibold" aria-hidden="true">{{range $d.Weekdays}}<li class="p-2">{{.}}</li>{{end}}</ol>
-<ol class="grid grid-cols-7">{{range $d.Days}}<li class="min-h-28 min-w-0 border-r border-b border-base-300 p-1{{if not .InSpan}} bg-base-200{{end}}">
+<ol class="grid grid-cols-7">{{range $day := $d.Days}}<li class="min-h-28 min-w-0 border-r border-b border-base-300 p-1{{if not .InSpan}} bg-base-200{{end}}">
 {{if .InSpan}}<a class="inline-flex min-h-8 items-center px-1 font-semibold{{if .Today}} text-primary underline{{end}}" href="{{.Link}}">{{.Date.Day}}</a>
-{{with .Shown}}<ul class="flex flex-col gap-1 text-sm">{{range .}}<li class="cal-tint-{{tint .Category}} pl-1"><a class="block truncate hover:underline" href="/calendrier/{{.ID}}">{{if .Cancelled}}Annulée · {{end}}{{if .AllDay}}Journée{{else}}{{clock .Start}}{{end}} {{.Title}}</a></li>{{end}}</ul>{{end}}
+{{with .Shown}}<ul class="flex flex-col gap-1 text-sm">{{range .}}<li class="cal-tint-{{tint .Category}} pl-1"><a class="block truncate hover:underline" href="/calendrier/{{.ID}}">{{if .Cancelled}}Annulée · {{end}}{{cellHours .Event $day.Date}} {{.Title}}</a></li>{{end}}</ul>{{end}}
 {{if .More}}<a class="link text-sm" href="{{.Link}}">+ {{.More}} autre{{if gt .More 1}}s{{end}}</a>{{end}}{{end}}
 </li>{{end}}</ol>
 </div>

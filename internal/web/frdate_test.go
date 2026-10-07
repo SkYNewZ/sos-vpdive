@@ -40,6 +40,13 @@ func TestFrenchDates(t *testing.T) {
 	late := calendar.Event{Start: at(10, 10, 21, 0), End: at(10, 11, 0, 0)}
 	assert.Equal(t, "21 h – 0 h", eventHours(late, paris))
 
+	trip := calendar.Event{Start: at(10, 10, 8, 30), End: at(10, 12, 0, 0)}
+	assert.Equal(t, "8 h 30", cellHours(trip, at(10, 10, 0, 0), paris), "the start day: the start clock")
+	assert.Equal(t, "jusqu'au 11/10", cellHours(trip, at(10, 11, 0, 0), paris), "the later days: the continuation, an end at midnight closing the day before")
+	allDay.End = at(10, 12, 18, 0)
+	assert.Equal(t, "Journée", cellHours(allDay, at(10, 10, 0, 0), paris))
+	assert.Equal(t, "jusqu'au 12/10", cellHours(allDay, at(10, 12, 0, 0), paris))
+
 	assert.Equal(t, slices.Concat(frWeekdaysShort[1:], frWeekdaysShort[:1]), frWeekdaysMonday, "the month grid heads: monday first")
 
 	assert.Equal(t, "aucun", cartText(nil))

@@ -77,6 +77,12 @@ func TestCalendarViews(t *testing.T) {
 	assert.Contains(t, month, "SORTIE ANNULÉE - Île du Levant")
 	assert.NotContains(t, month, "Hugo", "the month reads no participant")
 
+	// Séjour Corse runs 20 to 24 September: its start on the first cell, the
+	// continuation on the four others.
+	_, september := e.page(t, cookie, "/calendrier?vue=mois&date=2026-09-01")
+	assert.Equal(t, 1, strings.Count(september, ">8 h Séjour Corse</a>"), "the start clock once, on the first day")
+	assert.Equal(t, 4, strings.Count(september, ">jusqu'au 24/09 Séjour Corse</a>"), "the continuation on the later days")
+
 	_, day := e.page(t, cookie, "/calendrier?vue=jour&date=2026-09-22")
 	for _, want := range []string{"mardi 22 septembre 2026", "Séjour Corse", "8 h, jusqu'au 24/09", "1 inscrit sur 8 · 2 en attente", "Plongée loisir · Sortie · Mer · Ajaccio"} {
 		assert.Contains(t, day, want)

@@ -73,16 +73,21 @@ func midnight(t time.Time, loc *time.Location) time.Time {
 	return time.Date(y, m, d, 0, 0, 0, 0, loc)
 }
 
+// lastDay is the day an event ends on, in loc. An end at midnight closes the
+// day before, as in Store.Range.
+func lastDay(ev calendar.Event, loc *time.Location) time.Time {
+	start, until := ev.Start.In(loc), ev.Until().In(loc)
+	if until.After(start) && until.Equal(midnight(until, loc)) {
+		return until.Add(-time.Nanosecond)
+	}
+	return until
+}
+
 // eventHours writes the hours of an event in a day list: « 8 h 30 – 12 h »,
 // « Journée », the start alone when the end precedes it, and « jusqu'au
-// 14/10 » when it ends another day. An end at midnight closes the day
-// before, as in Store.Range.
+// 14/10 » when it ends another day.
 func eventHours(ev calendar.Event, paris *time.Location) string {
-	start, until := ev.Start.In(paris), ev.Until().In(paris)
-	last := until
-	if until.After(start) && until.Equal(midnight(until, paris)) {
-		last = until.Add(-time.Nanosecond)
-	}
+	start, until, last := ev.Start.In(paris), ev.Until().In(paris), lastDay(ev, paris)
 	sameDay := start.Format(time.DateOnly) == last.Format(time.DateOnly)
 	s := frClock(start)
 	switch {
@@ -95,6 +100,20 @@ func eventHours(ev calendar.Event, paris *time.Location) string {
 		s += ", jusqu'au " + last.Format("02/01")
 	}
 	return s
+}
+
+// cellHours writes what a month cell says of an event on day, a Paris
+// midnight: the start on the day it starts (« 8 h », « Journée »), « jusqu'au
+// 24/09 » on the days after.
+func cellHours(ev calendar.Event, day time.Time, paris *time.Location) string {
+	start := ev.Start.In(paris)
+	switch {
+	case midnight(start, paris).Before(day):
+		return "jusqu'au " + lastDay(ev, paris).Format("02/01")
+	case ev.AllDay:
+		return "Journée"
+	}
+	return frClock(start)
 }
 
 // cartText writes a participant's cart, after « Panier : ».

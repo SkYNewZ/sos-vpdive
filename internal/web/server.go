@@ -146,12 +146,12 @@ func New(d Deps) (*Server, error) {
 		"activity":    func(key string) string { return label(s.labels.Activities, key) },
 		"environment": func(key string) string { return label(s.labels.Environments, key) },
 		"roles":       s.labels.roles, "join": func(v []string) string { return strings.Join(v, ", ") },
-		"when":     func(ev calendar.Event) string { return eventWhen(ev, s.paris) },
-		"hours":    func(ev calendar.Event) string { return eventHours(ev, s.paris) },
-		"clock":    func(t time.Time) string { return frClock(t.In(s.paris)) },
-		"shortDay": func(t time.Time) string { return frShortDay(t.In(s.paris)) },
-		"longDay":  func(t time.Time) string { return frLongDay(t.In(s.paris)) },
-		"cart":     cartText,
+		"when":      func(ev calendar.Event) string { return eventWhen(ev, s.paris) },
+		"hours":     func(ev calendar.Event) string { return eventHours(ev, s.paris) },
+		"cellHours": func(ev calendar.Event, day time.Time) string { return cellHours(ev, day, s.paris) },
+		"shortDay":  func(t time.Time) string { return frShortDay(t.In(s.paris)) },
+		"longDay":   func(t time.Time) string { return frLongDay(t.In(s.paris)) },
+		"cart":      cartText,
 	}
 	if s.pages, err = parsePages(funcs); err != nil {
 		return nil, err
