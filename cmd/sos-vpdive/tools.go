@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/admins"
@@ -54,7 +55,7 @@ func resetPassword(ctx context.Context, getenv func(string) string, args []strin
 	if err := flags.Parse(args); err != nil || flags.NArg() != 1 {
 		return usageError{"reset-password takes -name and -role (new account only), then one username"}
 	}
-	username := flags.Arg(0)
+	username := strings.ToLower(strings.TrimSpace(flags.Arg(0))) // as the sign-in and the owner form do
 	cfg, keys, err := loadKeys(getenv)
 	if err != nil {
 		return err

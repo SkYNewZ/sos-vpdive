@@ -333,7 +333,9 @@ func TestResetPasswordCreatesThenResets(t *testing.T) {
 	env := devEnv(t, freePort(t))
 	var out bytes.Buffer
 	require.ErrorContains(t, run(ctx, []string{"reset-password", "carol"}, getenv(env), nil, &out), "-name and -role")
-	require.NoError(t, run(ctx, []string{"reset-password", "-name", "Carol", "-role", "Secrétaire", "carol"}, getenv(env), nil, &out))
+	// The username is trimmed and lowercased, like at sign-in.
+	require.NoError(t, run(ctx, []string{"reset-password", "-name", "Carol", "-role", "Secrétaire", " Carol "}, getenv(env), nil, &out))
+	assert.Contains(t, out.String(), "Temporary password for carol:")
 	first := temporaryPattern.FindString(out.String())
 	require.NotEmpty(t, first, out.String())
 
