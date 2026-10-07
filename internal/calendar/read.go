@@ -209,7 +209,8 @@ func (s *Store) Participations(ctx context.Context, nameHash []byte) ([]Particip
 	return out, nil
 }
 
-// openEvent decrypts an event and sets its times from the clear columns.
+// openEvent decrypts an event and sets its times from the clear columns, in
+// UTC: a caller shows them in Paris, and a missed conversion fails everywhere.
 func (s *Store) openEvent(start, end int64, sealed []byte) (Event, error) {
 	plain, err := s.keys.Open(sealed)
 	if err != nil {
@@ -219,7 +220,7 @@ func (s *Store) openEvent(start, end int64, sealed []byte) (Event, error) {
 	if err := json.Unmarshal(plain, &ev); err != nil {
 		return Event{}, fmt.Errorf("decode calendar event: %w", err)
 	}
-	ev.Start, ev.End = time.Unix(start, 0), time.Unix(end, 0)
+	ev.Start, ev.End = time.Unix(start, 0).UTC(), time.Unix(end, 0).UTC()
 	return ev, nil
 }
 

@@ -99,6 +99,8 @@ func TestEventMatchesParticipantsWithMembers(t *testing.T) {
 	ev, err := f.store.Event(ctx, "evt-a")
 	require.NoError(t, err)
 	assert.Equal(t, time.Date(2026, 10, 11, 8, 0, 0, 0, paris(t)).Unix(), ev.Start.Unix())
+	assert.Equal(t, "UTC", ev.Start.Location().String(), "read times are UTC: a caller converts to Paris, or fails on every machine")
+	assert.Equal(t, "UTC", ev.End.Location().String())
 	assert.Equal(t, map[string]int{"Bernard Hugo": 1, "Martin Léa": 2, "Petit ": 0}, membersOf(ev),
 		"own name hash; homonyms count 2; an empty first name never matches")
 
