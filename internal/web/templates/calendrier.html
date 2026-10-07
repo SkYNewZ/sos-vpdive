@@ -36,9 +36,9 @@
 {{end}}
 
 {{/* An event of a list: hours, title, category; counts and details when read. */}}
-{{define "eventItem"}}<li class="cal-tint-{{tint .Category}} py-3 pr-3 pl-3">
+{{define "eventItem"}}<li class="cal-tint-{{tint .Category}} py-2 pr-3 pl-3">
 <p class="text-sm">{{hours .Event}}</p>
-<p><a class="link link-primary font-semibold break-words" href="/calendrier/{{.ID}}">{{if .Cancelled}}Annulée · {{end}}{{.Title}}</a></p>
+<p><a class="link link-primary inline-flex min-h-11 items-center font-semibold break-words" href="/calendrier/{{.ID}}">{{if .Cancelled}}Annulée · {{end}}{{.Title}}</a></p>
 <p class="text-sm">{{(category .Category).Label}}{{if .Detailed}}{{with .Activity}} · {{activity .}}{{end}}{{with .Environment}} · {{environment .}}{{end}}{{with .Location}} · {{.}}{{end}}{{end}}</p>
 {{if .Counted}}<p class="text-sm">{{template "counts" .}}</p>{{end}}
 {{if .Detailed}}{{with .Boats}}<p class="text-sm">Bateaux : {{join .}}</p>{{end}}{{range .Staff}}<p class="text-sm">{{.Label}} : {{.Names}}</p>{{end}}{{end}}

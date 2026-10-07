@@ -3,6 +3,8 @@ package web
 import (
 	"html"
 	"net/http"
+	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -66,6 +68,8 @@ func TestCalendarViews(t *testing.T) {
 		assert.Contains(t, week, want)
 	}
 	assert.NotContains(t, week, "Sortie Porquerolles", "another week")
+	titles := regexp.MustCompile(`class="[^"]*\bmin-h-11\b[^"]*" href="/calendrier/evt-cap"`).FindAllString(week, -1)
+	assert.Len(t, titles, strings.Count(week, `href="/calendrier/evt-cap"`), "every title link is a 44 px touch target")
 
 	_, month := e.page(t, cookie, "/calendrier?vue=mois&date=2026-05-20")
 	assert.Contains(t, month, "mai 2026")
