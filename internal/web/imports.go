@@ -223,35 +223,26 @@ type export struct {
 // carries the hash of the file, which the journal keeps.
 func (s *Server) readExport(ctx context.Context, kind imports.Kind, data []byte) (export, error) {
 	hash := s.keys.Hash(string(data))
-	if kind == imports.Calendar { // JSON pushed by the script: no workbook
-		var exp export
-		err := telemetry.Trace(ctx, s.tracer, "import.validate", func(context.Context) error {
-			var err error
-			if exp.calendar, err = calendar.Parse(data, s.paris, s.now()); err == nil {
-				exp.calendar.FileHash = hash
-			}
-			return err
-		})
-		return exp, err
-	}
 	var (
 		rows    []xlsx.Row
 		created time.Time // the members export dates itself in row 2
 	)
-	if err := telemetry.Trace(ctx, s.tracer, "import.read", func(context.Context) error {
-		var err error
-		rows, err = xlsx.ReadFirstSheet(data, imports.Limits())
-		if err == nil && kind != imports.Members {
-			created, _ = xlsx.Created(data, imports.Limits())
+	if kind != imports.Calendar { // the calendar is JSON pushed by the script: no workbook
+		if err := telemetry.Trace(ctx, s.tracer, "import.read", func(context.Context) error {
+			var err error
+			rows, err = xlsx.ReadFirstSheet(data, imports.Limits())
+			if err == nil && kind != imports.Members {
+				created, _ = xlsx.Created(data, imports.Limits())
+			}
+			return err
+		}); err != nil {
+			return export{}, fmt.Errorf("%w: %w", errUnreadable, err)
 		}
-		return err
-	}); err != nil {
-		return export{}, fmt.Errorf("%w: %w", errUnreadable, err)
 	}
 	var exp export
 	err := telemetry.Trace(ctx, s.tracer, "import.validate", func(context.Context) error {
 		var err error
-		switch kind { //nolint:exhaustive // the calendar returned above: it is JSON, never a workbook
+		switch kind {
 		case imports.Members:
 			if exp.members, err = members.Parse(rows, s.paris); err == nil {
 				exp.members.FileHash = hash
@@ -263,6 +254,10 @@ func (s *Server) readExport(ctx context.Context, kind imports.Kind, data []byte)
 		case imports.Mollie:
 			if exp.mollie, err = payments.ParseMollie(rows, created, s.paris); err == nil {
 				exp.mollie.FileHash = hash
+			}
+		case imports.Calendar:
+			if exp.calendar, err = calendar.Parse(data, s.paris, s.now()); err == nil {
+				exp.calendar.FileHash = hash
 			}
 		}
 		return err
@@ -438,7 +433,8 @@ func refusal(kind imports.Kind, err error) (code, message string, refused bool) 
 
 func unreadableMessage(kind imports.Kind) string {
 	const unreadable = "Ce fichier n'est pas un classeur Excel (.xlsx) lisible."
-	switch kind { //nolint:exhaustive // the calendar is JSON: it is never an unreadable workbook
+	switch kind {
+	case imports.Calendar: // JSON pushed by the script: never an unreadable workbook
 	case imports.Members:
 		return unreadable + " Dépose l'export « Télécharger » de la liste des membres."
 	case imports.Payments:

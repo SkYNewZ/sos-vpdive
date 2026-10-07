@@ -164,11 +164,8 @@ func (s *Store) Find(ctx context.Context, email string) (Profile, bool, error) {
 	if err != nil {
 		return Profile{}, false, fmt.Errorf("find member: %w", err)
 	}
-	if p.FirstName, err = s.keys.OpenString(first); err != nil {
-		return Profile{}, false, fmt.Errorf("decrypt member: %w", err)
-	}
-	if p.LastName, err = s.keys.OpenString(last); err != nil {
-		return Profile{}, false, fmt.Errorf("decrypt member: %w", err)
+	if p.FirstName, p.LastName, err = s.openNames(first, last); err != nil {
+		return Profile{}, false, err
 	}
 	if seasons != nil {
 		v, err := s.keys.OpenString(seasons)
@@ -198,13 +195,9 @@ func (s *Store) Named(ctx context.Context, nameHash []byte) (name string, member
 	if err != nil {
 		return "", 0, fmt.Errorf("member of a name: %w", err)
 	}
-	firstName, err := s.keys.OpenString(first)
+	firstName, lastName, err := s.openNames(first, last)
 	if err != nil {
-		return "", 0, fmt.Errorf("decrypt member: %w", err)
-	}
-	lastName, err := s.keys.OpenString(last)
-	if err != nil {
-		return "", 0, fmt.Errorf("decrypt member: %w", err)
+		return "", 0, err
 	}
 	return strings.TrimSpace(firstName + " " + lastName), members, nil
 }
@@ -230,11 +223,8 @@ func (s *Store) EraseTx(ctx context.Context, tx *sql.Tx, email string) (Profile,
 	if err != nil {
 		return Profile{}, false, fmt.Errorf("erase member: %w", err)
 	}
-	if p.FirstName, err = s.keys.OpenString(first); err != nil {
-		return Profile{}, false, fmt.Errorf("decrypt member: %w", err)
-	}
-	if p.LastName, err = s.keys.OpenString(last); err != nil {
-		return Profile{}, false, fmt.Errorf("decrypt member: %w", err)
+	if p.FirstName, p.LastName, err = s.openNames(first, last); err != nil {
+		return Profile{}, false, err
 	}
 	return p, true, nil
 }
@@ -260,6 +250,17 @@ func (s *Store) Purge(ctx context.Context) error {
 		}
 		return nil
 	})
+}
+
+// openNames decrypts the stored first and last name of a member.
+func (s *Store) openNames(first, last []byte) (firstName, lastName string, err error) {
+	if firstName, err = s.keys.OpenString(first); err != nil {
+		return "", "", fmt.Errorf("decrypt member: %w", err)
+	}
+	if lastName, err = s.keys.OpenString(last); err != nil {
+		return "", "", fmt.Errorf("decrypt member: %w", err)
+	}
+	return firstName, lastName, nil
 }
 
 // replaceWith replaces the list in place with ms.

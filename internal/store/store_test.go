@@ -37,6 +37,49 @@ func keys(t *testing.T, b byte) *secure.Keys {
 	return k
 }
 
+// dbAtVersion builds the database file of a binary at schema version n, runs
+// seed on it and returns its path: Open then migrates it forward.
+func dbAtVersion(t *testing.T, n int, seed string) string {
+	t.Helper()
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), FileName)
+	old, err := sql.Open("sqlite", path+dsnParams)
+	require.NoError(t, err)
+	entries, err := migrations.ReadDir("migrations")
+	require.NoError(t, err)
+	require.NoError(t, Tx(ctx, old, "test.v"+strconv.Itoa(n), func(ctx context.Context, tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `CREATE TABLE meta (key TEXT PRIMARY KEY, value BLOB NOT NULL)`); err != nil {
+			return err
+		}
+		for _, e := range entries[:n] {
+			script, err := migrations.ReadFile("migrations/" + e.Name())
+			if err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, string(script)); err != nil {
+				return err
+			}
+		}
+		_, err := tx.ExecContext(ctx, `INSERT INTO meta (key, value) VALUES ('schema_version', CAST('`+strconv.Itoa(n)+`' AS BLOB));`+seed)
+		return err
+	}))
+	require.NoError(t, old.Close())
+	return path
+}
+
+// foreignKeyViolations lists the tables of the rows that point at nothing.
+func foreignKeyViolations(t *testing.T, db *sql.DB) []string {
+	t.Helper()
+	rows, err := db.QueryContext(context.Background(), `PRAGMA foreign_key_check`)
+	violations, err := Collect(rows, err, func(rows *sql.Rows) (string, error) {
+		var table string
+		var rowid, parent, fkid sql.NullString
+		return table, rows.Scan(&table, &rowid, &parent, &fkid)
+	})
+	require.NoError(t, err)
+	return violations
+}
+
 func TestOpenCreatesSchemaAndIsIdempotent(t *testing.T) {
 	db, path := openTemp(t)
 	ctx := context.Background()
@@ -74,31 +117,12 @@ func TestOpenCreatesSchemaAndIsIdempotent(t *testing.T) {
 // point at it.
 func TestMigration6KeepsImportsAndPaymentLines(t *testing.T) {
 	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), FileName)
-	old, err := sql.Open("sqlite", path+dsnParams)
-	require.NoError(t, err)
+	path := dbAtVersion(t, 5, `
+		INSERT INTO imports (id, kind, exported_at, imported_at, imported_by, row_count, skipped_count)
+		VALUES (3, 'members', 100, 200, 'alice', 2, 0), (7, 'payments', NULL, 300, 'bob', 2, 1);
+		INSERT INTO payment_lines (id, import_id, name_hash, ambiguous, data) VALUES (11, 7, x'01', 1, x'02'), (12, 7, x'03', 0, x'04');`)
 	entries, err := migrations.ReadDir("migrations")
 	require.NoError(t, err)
-	require.NoError(t, Tx(ctx, old, "test.v5", func(ctx context.Context, tx *sql.Tx) error {
-		if _, err := tx.ExecContext(ctx, `CREATE TABLE meta (key TEXT PRIMARY KEY, value BLOB NOT NULL)`); err != nil {
-			return err
-		}
-		for _, e := range entries[:5] {
-			script, err := migrations.ReadFile("migrations/" + e.Name())
-			if err != nil {
-				return err
-			}
-			if _, err := tx.ExecContext(ctx, string(script)); err != nil {
-				return err
-			}
-		}
-		_, err := tx.ExecContext(ctx, `INSERT INTO meta (key, value) VALUES ('schema_version', CAST('5' AS BLOB));
-			INSERT INTO imports (id, kind, exported_at, imported_at, imported_by, row_count, skipped_count)
-			VALUES (3, 'members', 100, 200, 'alice', 2, 0), (7, 'payments', NULL, 300, 'bob', 2, 1);
-			INSERT INTO payment_lines (id, import_id, name_hash, ambiguous, data) VALUES (11, 7, x'01', 1, x'02'), (12, 7, x'03', 0, x'04');`)
-		return err
-	}))
-	require.NoError(t, old.Close())
 
 	db, err := Open(ctx, path)
 	require.NoError(t, err)
@@ -139,14 +163,7 @@ func TestMigration6KeepsImportsAndPaymentLines(t *testing.T) {
 		{id: 11, importID: 7, hash: []byte{1}, data: []byte{2}, ambiguous: true},
 		{id: 12, importID: 7, hash: []byte{3}, data: []byte{4}},
 	}, lines, "lines kept with their ids, content and homonym mark")
-	fkRows, err := db.QueryContext(ctx, `PRAGMA foreign_key_check`)
-	violations, err := Collect(fkRows, err, func(rows *sql.Rows) (string, error) {
-		var table string
-		var rowid, parent, fkid sql.NullString
-		return table, rows.Scan(&table, &rowid, &parent, &fkid)
-	})
-	require.NoError(t, err)
-	assert.Empty(t, violations)
+	assert.Empty(t, foreignKeyViolations(t, db))
 
 	_, err = db.ExecContext(ctx, `INSERT INTO imports (kind, imported_at, imported_by, row_count, skipped_count, file_hash)
 		VALUES ('vpaydive', 400, 'script', 1, 0, x'05')`)
@@ -287,34 +304,13 @@ func TestRestoreRefusesForeignFile(t *testing.T) {
 // tables, and the calendar tables point at it.
 func TestMigration8KeepsImportsAndLines(t *testing.T) {
 	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), FileName)
-	old, err := sql.Open("sqlite", path+dsnParams)
-	require.NoError(t, err)
-	entries, err := migrations.ReadDir("migrations")
-	require.NoError(t, err)
-	require.NoError(t, Tx(ctx, old, "test.v7", func(ctx context.Context, tx *sql.Tx) error {
-		if _, err := tx.ExecContext(ctx, `CREATE TABLE meta (key TEXT PRIMARY KEY, value BLOB NOT NULL)`); err != nil {
-			return err
-		}
-		for _, e := range entries[:7] {
-			script, err := migrations.ReadFile("migrations/" + e.Name())
-			if err != nil {
-				return err
-			}
-			if _, err := tx.ExecContext(ctx, string(script)); err != nil {
-				return err
-			}
-		}
-		_, err := tx.ExecContext(ctx, `INSERT INTO meta (key, value) VALUES ('schema_version', CAST('7' AS BLOB));
-			INSERT INTO imports (id, kind, exported_at, imported_at, imported_by, row_count, skipped_count)
-			VALUES (3, 'members', 100, 200, 'alice', 2, 0);
-			INSERT INTO imports (id, kind, period_from, period_to, imported_at, imported_by, row_count, skipped_count, file_hash)
-			VALUES (7, 'vpaydive', 10, 20, 300, 'script', 2, 1, x'aa');
-			INSERT INTO payment_lines (id, import_id, name_hash, ambiguous, data) VALUES (11, 7, x'01', 1, x'02');
-			INSERT INTO online_payment_lines (id, import_id, name_hash, ambiguous, data) VALUES (21, 7, x'03', 0, x'04');`)
-		return err
-	}))
-	require.NoError(t, old.Close())
+	path := dbAtVersion(t, 7, `
+		INSERT INTO imports (id, kind, exported_at, imported_at, imported_by, row_count, skipped_count)
+		VALUES (3, 'members', 100, 200, 'alice', 2, 0);
+		INSERT INTO imports (id, kind, period_from, period_to, imported_at, imported_by, row_count, skipped_count, file_hash)
+		VALUES (7, 'vpaydive', 10, 20, 300, 'script', 2, 1, x'aa');
+		INSERT INTO payment_lines (id, import_id, name_hash, ambiguous, data) VALUES (11, 7, x'01', 1, x'02');
+		INSERT INTO online_payment_lines (id, import_id, name_hash, ambiguous, data) VALUES (21, 7, x'03', 0, x'04');`)
 
 	db, err := Open(ctx, path)
 	require.NoError(t, err)
@@ -340,14 +336,7 @@ func TestMigration8KeepsImportsAndLines(t *testing.T) {
 		`SELECT (SELECT COUNT(*) FROM payment_lines WHERE id = 11 AND import_id = 7 AND ambiguous = 1)
 		      + (SELECT COUNT(*) FROM online_payment_lines WHERE id = 21 AND import_id = 7)`).Scan(&lines))
 	assert.Equal(t, 2, lines, "lines kept with their ids, import and mark")
-	fkRows, err := db.QueryContext(ctx, `PRAGMA foreign_key_check`)
-	violations, err := Collect(fkRows, err, func(rows *sql.Rows) (string, error) {
-		var table string
-		var rowid, parent, fkid sql.NullString
-		return table, rows.Scan(&table, &rowid, &parent, &fkid)
-	})
-	require.NoError(t, err)
-	assert.Empty(t, violations)
+	assert.Empty(t, foreignKeyViolations(t, db))
 
 	_, err = db.ExecContext(ctx, `INSERT INTO imports (id, kind, imported_at, imported_by, row_count, skipped_count)
 		VALUES (8, 'calendar', 400, 'script', 1, 0)`)
