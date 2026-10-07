@@ -5,9 +5,9 @@
 <h1 class="text-2xl font-bold text-primary">Choisis ton mot de passe</h1>
 <p class="mt-2">Le mot de passe que tu as reçu ne sert qu'une fois.</p>
 {{template "passwordForm" .}}
-<form method="post" action="/deconnexion" class="mt-4">
+<form method="post" action="/deconnexion" class="mt-6">
 <input type="hidden" name="csrf" value="{{.CSRF}}">
-<button class="btn btn-ghost min-h-11 px-0" type="submit">Se déconnecter</button>
+<button class="btn btn-outline min-h-11" type="submit">Se déconnecter</button>
 </form>
 </div>
 {{else}}
