@@ -43,8 +43,8 @@ func TestFrenchDates(t *testing.T) {
 	assert.Equal(t, slices.Concat(frWeekdaysShort[1:], frWeekdaysShort[:1]), frWeekdaysMonday, "the month grid heads: monday first")
 
 	assert.Equal(t, "aucun", cartText(nil))
-	assert.Equal(t, "payé, 60,00 €", cartText(&calendar.Payment{Status: calendar.PaymentPaid, DueCents: 6000, PaidCents: 6000}))
-	assert.Equal(t, "partiel, 40,00 € sur 60,00 €", cartText(&calendar.Payment{Status: calendar.PaymentPartial, DueCents: 6000, PaidCents: 4000}))
-	assert.Equal(t, "à payer, 60,00 €", cartText(&calendar.Payment{Status: calendar.PaymentUnpaid, DueCents: 6000}))
-	assert.Equal(t, "refunded, 0,00 € sur 60,00 €", cartText(&calendar.Payment{Status: "refunded", DueCents: 6000}), "unknown: as received")
+	assert.Equal(t, "payé, 60,00\u00a0€", cartText(&calendar.Payment{Status: calendar.PaymentPaid, DueCents: 6000, PaidCents: 6000}))
+	assert.Equal(t, "partiel, 40,00\u00a0€ sur 60,00\u00a0€", cartText(&calendar.Payment{Status: calendar.PaymentPartial, DueCents: 6000, PaidCents: 4000}))
+	assert.Equal(t, "à payer, 60,00\u00a0€", cartText(&calendar.Payment{Status: calendar.PaymentUnpaid, DueCents: 6000}))
+	assert.Equal(t, "refunded, 0,00\u00a0€ sur 60,00\u00a0€", cartText(&calendar.Payment{Status: "refunded", DueCents: 6000}), "unknown: as received")
 }
