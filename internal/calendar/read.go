@@ -42,15 +42,25 @@ type Participation struct {
 // event that ends at ?1 or starts at ?2 is outside.
 const overlaps = `starts_at < ?2 AND (starts_at >= ?1 OR ends_at > ?1)`
 
-// readTx opens the transaction a read of events then participants runs in:
-// both see the same import even when a push commits in between (WAL
-// snapshot). The caller rolls it back.
+// readTx opens the transaction a read of events then participants runs in.
+// A read-only transaction is a plain deferred BEGIN (the DSN's
+// _txlock=immediate applies to writes only), so the reads of Range or Event
+// share one WAL snapshot, even when a push commits in between, and no writer
+// waits on them. The caller ends it with endRead.
 func (s *Store) readTx(ctx context.Context) (*sql.Tx, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return nil, fmt.Errorf("begin calendar read: %w", err)
 	}
 	return tx, nil
+}
+
+// endRead rolls back a read transaction; one the context already ended is
+// not an error, and err keeps its identity when the rollback succeeds.
+func endRead(tx *sql.Tx, err *error) {
+	if rerr := tx.Rollback(); rerr != nil && !errors.Is(rerr, sql.ErrTxDone) {
+		*err = errors.Join(*err, rerr)
+	}
 }
 
 // Range returns the events overlapping [from, to), by start then id, each
@@ -60,7 +70,7 @@ func (s *Store) Range(ctx context.Context, from, to time.Time, participants bool
 	if err != nil {
 		return nil, err
 	}
-	defer func() { err = errors.Join(err, tx.Rollback()) }()
+	defer endRead(tx, &err)
 	rows, err := tx.QueryContext(ctx,
 		`SELECT starts_at, ends_at, data FROM calendar_events WHERE `+overlaps+` ORDER BY starts_at, id`,
 		from.Unix(), to.Unix())
@@ -120,7 +130,7 @@ func (s *Store) Event(ctx context.Context, id string) (_ Event, err error) {
 	if err != nil {
 		return Event{}, err
 	}
-	defer func() { err = errors.Join(err, tx.Rollback()) }()
+	defer endRead(tx, &err)
 	var (
 		start, end int64
 		sealed     []byte

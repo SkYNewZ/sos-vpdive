@@ -109,6 +109,7 @@ func TestEventMatchesParticipantsWithMembers(t *testing.T) {
 
 	_, err = f.store.Event(ctx, "evt-missing")
 	require.ErrorIs(t, err, ErrNotFound)
+	assert.Equal(t, ErrNotFound, err, "the rollback does not wrap it")
 }
 
 func TestParticipationsFollowTheNameAndTheLinkedPerson(t *testing.T) {
@@ -133,4 +134,26 @@ func TestParticipationsFollowTheNameAndTheLinkedPerson(t *testing.T) {
 	got, err = f.store.Participations(ctx, nil)
 	require.NoError(t, err)
 	assert.Empty(t, got, "no member, no participation")
+}
+
+// A calendar read never waits for a writer: it takes no write lock.
+func TestReadsDoNotTakeTheWriteLock(t *testing.T) {
+	f := newFixture(t)
+	require.NoError(t, f.push(t, window(event(t, "evt-a", "2026-10-11T08:00:00+02:00", registered(101, "Martin", "Léa")))))
+	ctx := context.Background()
+	writer, err := f.db.BeginTx(ctx, nil) // BEGIN IMMEDIATE: holds the write lock
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, writer.Rollback()) })
+	_, err = writer.ExecContext(ctx, `DELETE FROM calendar_participants`)
+	require.NoError(t, err)
+
+	short, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	day := time.Date(2026, 10, 11, 0, 0, 0, 0, paris(t))
+	events, err := f.store.Range(short, day, day.AddDate(0, 0, 1), true)
+	require.NoError(t, err)
+	require.Len(t, events, 1)
+	assert.Len(t, events[0].Participants, 1, "the read sees the last commit, not the writer's pending delete")
+	_, err = f.store.Event(short, "evt-a")
+	require.NoError(t, err)
 }
