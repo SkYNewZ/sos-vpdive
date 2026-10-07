@@ -9,7 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Spec §7.4: one row per cancelled outing (title and « Du »), oldest first;
+// Spec §7.4: one row per cancelled outing (title and « Du »), newest first
+// (amended by the owner);
 // a dive paid on two carnets is two lines but one person.
 func TestCancellations(t *testing.T) {
 	f := newFixture(t)
@@ -26,8 +27,8 @@ func TestCancellations(t *testing.T) {
 	assert.Equal(t, "alice", c.Import.ImportedBy)
 	loc := paris(t)
 	want := []Outing{
-		{Title: cancelledLower, Starts: time.Date(2026, 5, 8, 20, 0, 0, 0, loc), Persons: 1, Lines: 1, ByMoney: 3500},
 		{Title: cancelledCaps, Starts: time.Date(2026, 5, 10, 9, 0, 0, 0, loc), Persons: 3, Lines: 4, ByCarnet: 9000},
+		{Title: cancelledLower, Starts: time.Date(2026, 5, 8, 20, 0, 0, 0, loc), Persons: 1, Lines: 1, ByMoney: 3500},
 	}
 	require.Len(t, c.Outings, len(want))
 	for i, o := range c.Outings {
@@ -55,8 +56,9 @@ func TestCancellationsOrderUnknownDatesLast(t *testing.T) {
 	for i, o := range c.Outings {
 		titles[i] = o.Title
 	}
-	assert.Equal(t, []string{"Sortie annulée en mai", "Sortie annulée en juin", "Sortie annulée en juin", "Sortie annulée sans date"}, titles,
+	assert.Equal(t, []string{"Sortie annulée en juin", "Sortie annulée en juin", "Sortie annulée en mai", "Sortie annulée sans date"}, titles,
 		"a title on two dates is two outings")
+	assert.Equal(t, 27, c.Outings[0].Starts.Day(), "newest first")
 	assert.True(t, c.Outings[3].Starts.IsZero())
 }
 

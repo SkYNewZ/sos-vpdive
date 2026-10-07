@@ -124,8 +124,9 @@ previous import stored.
   payments import, even when a members import keeps only one of them.
 - A request page shows carnet and training balances as VPDive reports them,
   never recomputed, the lines left to pay, the cancelled outings waiting for
-  deletion and the ten latest lines. « Annulations » lists the outings whose
-  title contains « annul », in any case, that still hold paid lines: the club
+  deletion and the ten latest lines. « Annulations » lists, newest first, the
+  outings whose title contains « annul », in any case, that still hold paid
+  lines: the club
   renames a cancelled outing, refunds real-money payments, then deletes it in
   VPDive, which credits the carnets back.
 - The VPayDive export (VPayDive page, « Exporter (Excel) » button, over the
