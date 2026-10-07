@@ -266,6 +266,6 @@
 {{with .Participant}}<p class="mt-1">{{if not .Registered}}Non inscrit{{else if .WaitingList}}Liste d'attente{{else}}Inscrit{{end}}{{if gt .People 1}}, {{.People}} personnes{{end}}{{if .Guest}}, invité{{end}}{{with .Roles}} · {{roles .}}{{end}}</p>
 <p class="mt-1">Panier : {{cart .Payment}}</p>{{end}}
 {{with .Lines}}<ul class="mt-1 text-sm">{{range .}}<li>VPDive : {{.Product}}, {{.State}}{{with .Method}}, {{methodLabel .}}{{end}}, {{.Settled.Euros}}</li>{{end}}</ul>{{end}}
-{{with .Mollie}}<ul class="mt-1 text-sm">{{range .}}<li>Mollie : {{.Product}}, {{.Amount.Euros}}, {{if .Unsettled}}non soldé dans VPDive{{else if eq .Settled "Oui"}}soldé dans VPDive{{else}}« Payé » vaut « {{.Settled}} »{{end}}, payé le {{formatTime .PaidAt}}</li>{{end}}</ul>{{end}}
+{{with .Mollie}}<ul class="mt-1 text-sm">{{range .}}<li>Mollie : {{.Product}}, {{.Amount.Euros}}{{if .Negative}}, remboursement ou remise{{end}}, {{if .Unsettled}}{{with .Dismissal}}Vérifié par {{author .By}} le {{formatDate .At}}{{else}}non soldé dans VPDive{{end}}{{else if eq .Settled "Oui"}}soldé dans VPDive{{else if .Settled}}« Payé » vaut « {{.Settled}} » dans l'export{{else}}« Payé » est vide dans l'export{{end}}, payé le {{formatTime .PaidAt}}</li>{{end}}</ul>{{end}}
 {{range .Signals}}<div role="status" class="alert alert-soft alert-warning mt-2"><span>{{.}}</span></div>{{end}}
 </li>{{end}}

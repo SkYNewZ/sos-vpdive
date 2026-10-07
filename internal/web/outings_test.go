@@ -1,6 +1,8 @@
 package web
 
 import (
+	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -10,6 +12,7 @@ import (
 
 	"github.com/SkYNewZ/sos-vpdive/internal/calendar"
 	"github.com/SkYNewZ/sos-vpdive/internal/payments"
+	"github.com/SkYNewZ/sos-vpdive/internal/xlsx/xlsxtest"
 )
 
 func outingOn(id, title string, start time.Time) calendar.Participation {
@@ -121,4 +124,36 @@ func TestRequestPageOutingsBlock(t *testing.T) {
 
 	_, tracking := e.tracking(t, hugo.Token)
 	assert.NotContains(t, tracking, "Sorties VPDive")
+}
+
+// An outing's Mollie line words its « Payé » cell as the Mollie block does:
+// an empty one is named as such, never quoted as an empty value, and a
+// dismissed unsettled one says who checked it.
+func TestOutingsBlockWordsMollieLikeItsBlock(t *testing.T) {
+	e := newTestEnv(t, withImportToken)
+	e.importMembers(t, "members_valid.xlsx")
+	e.importCalendar(t, "calendar_view.json")
+	cookie := e.login(t)
+	hugo := e.submitTicket(t, "hugo.bernard@example.org")
+	data := xlsxtest.BuildCreated(t, time.Time{}, xlsxtest.Sheet{
+		{"Nom", "Prénom", "Type Panier", "Prestation", "Date Début", "Montant Panier", "Payé", "Date paiement"},
+		{"Bernard", "Hugo", "Calendrier", "Sortie Porquerolles", "15/08/2026", 40, "", "12/08/2026 14:05"},
+		{"Bernard", "Hugo", "Calendrier", "Sortie Porquerolles", "15/08/2026", 40, "Non", "12/08/2026 14:06"},
+	})
+	require.Equal(t, http.StatusOK, e.push(t, "vpaydive", data, importToken).Code)
+
+	page := e.openTicket(t, cookie, hugo.ID).body
+	assert.Equal(t, 2, strings.Count(page, "« Payé » est vide dans l'export"), "the Mollie block and the outing")
+	assert.NotContains(t, page, "« Payé » vaut")
+	assert.Equal(t, 2, strings.Count(page, signalMollie), "the Mollie block and the outing")
+
+	checks := e.do(t, http.MethodGet, adminHost, "/anomalies", nil, withCookie(cookie)).Body.String()
+	csrf := csrfPattern.FindStringSubmatch(checks)[1]
+	for _, m := range fingerprintPattern.FindAllStringSubmatch(checks, -1) {
+		v := url.Values{"csrf": {csrf}, "empreinte": {m[1]}}
+		e.do(t, http.MethodPost, adminHost, "/anomalies/masquer", formBody(v), formType, withCookie(cookie))
+	}
+	page = e.openTicket(t, cookie, hugo.ID).body
+	assert.NotContains(t, page, signalMollie)
+	assert.Equal(t, 2, strings.Count(page, "Vérifié par Alice (Présidente) le 02/09/2026"), "the Mollie block and the outing")
 }
