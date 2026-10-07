@@ -50,7 +50,7 @@ func (s *Server) renderAccount(w http.ResponseWriter, r *http.Request, status in
 
 // changePassword sets the password the resolver chose. Outside the first
 // sign-in it asks for the current one, under the login's rate limits. This
-// session stays; the account's other sessions end.
+// device gets a new session; the account's other sessions end.
 func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
 	if !s.postForm(w, r) {
 		return
@@ -80,12 +80,23 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	var hash string
 	if len(d.Errors) == 0 {
-		switch err := s.admins.ChangePassword(ctx, a.Username, next, sess.hash); {
+		var err error
+		hash, err = s.admins.ChangePassword(ctx, a.Username, next, sess.hash)
+		switch {
 		case errors.Is(err, admins.ErrTooShort):
 			d.Errors["nouveau"] = fmt.Sprintf("Il faut au moins %d caractères.", admins.MinPasswordLength)
 		case errors.Is(err, admins.ErrSamePassword):
 			d.Errors["nouveau"] = "C'est déjà ton mot de passe."
+		case errors.Is(err, admins.ErrPasswordChanged):
+			field := "actuel"
+			if a.MustChangePassword {
+				field = "nouveau" // the forced page has no « actuel » field
+			}
+			d.Errors[field] = "Ton mot de passe vient d'être changé. Reconnecte-toi."
+			s.renderAccount(w, r, http.StatusConflict, d, nil)
+			return
 		case err != nil:
 			s.serverError(w, r, err)
 			return
@@ -93,6 +104,12 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(d.Errors) > 0 {
 		s.renderAccount(w, r, http.StatusUnprocessableEntity, d, nil)
+		return
+	}
+	// ChangePassword kept this session valid until the new one replaces it.
+	a.PasswordHash = hash
+	if err := s.startSession(ctx, w, a, sess.hash); err != nil {
+		s.serverError(w, r, err)
 		return
 	}
 	if a.MustChangePassword {

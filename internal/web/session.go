@@ -33,17 +33,26 @@ func sessionFrom(ctx context.Context) (session, bool) {
 }
 
 // startSession stores a new session and sets its cookie. A new token is
-// drawn at each login.
-func (s *Server) startSession(ctx context.Context, w http.ResponseWriter, a admins.Account) error {
+// drawn at each login and each password change. replaces, when set, is the
+// session the new one takes over from: its push subscriptions move to the
+// new one, then it ends.
+func (s *Server) startSession(ctx context.Context, w http.ResponseWriter, a admins.Account, replaces []byte) error {
 	token, err := secure.NewToken()
 	if err != nil {
 		return err
 	}
-	now := s.now()
+	now, hash := s.now(), secure.TokenHash(token)
 	err = store.Tx(ctx, s.db, "session.create", func(ctx context.Context, tx *sql.Tx) error {
-		_, err := tx.ExecContext(ctx,
+		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO sessions (token_hash, username, credential_hash, created_at, expires_at) VALUES (?, ?, ?, ?, ?)`,
-			secure.TokenHash(token), a.Username, a.CredentialHash(), now.Unix(), now.Add(sessionTTL).Unix())
+			hash, a.Username, a.CredentialHash(), now.Unix(), now.Add(sessionTTL).Unix()); err != nil || replaces == nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE push_subscriptions SET session_token_hash = ? WHERE session_token_hash = ?`, hash, replaces); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE token_hash = ?`, replaces)
 		return err
 	})
 	if err != nil {
@@ -53,6 +62,9 @@ func (s *Server) startSession(ctx context.Context, w http.ResponseWriter, a admi
 		Name: sessionCookieName, Value: token, Path: "/", MaxAge: int(sessionTTL / time.Second),
 		Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode,
 	})
+	if replaces != nil {
+		s.broker.disconnect(func(sub *subscriber) bool { return sub.session == string(replaces) })
+	}
 	return nil
 }
 

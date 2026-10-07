@@ -9,14 +9,32 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 )
 
 const newPassword = "a brand new long password"
 
-func (e *testEnv) postAccount(t *testing.T, cookie *http.Cookie, v url.Values) (int, string, string) {
+func (e *testEnv) postAccount(t *testing.T, cookie *http.Cookie, v url.Values) (int, string) {
 	t.Helper()
 	rec := e.do(t, http.MethodPost, adminHost, "/compte", formBody(v), formType, withCookie(cookie))
-	return rec.Code, html.UnescapeString(rec.Body.String()), rec.Header().Get("Location")
+	return rec.Code, html.UnescapeString(rec.Body.String())
+}
+
+// changeOK posts a password change that succeeds and returns the new
+// session's cookie, after checking that the old one ended.
+func (e *testEnv) changeOK(t *testing.T, old *http.Cookie, v url.Values, location string) *http.Cookie {
+	t.Helper()
+	rec := e.do(t, http.MethodPost, adminHost, "/compte", formBody(v), formType, withCookie(old))
+	require.Equal(t, http.StatusSeeOther, rec.Code, rec.Body.String())
+	assert.Equal(t, location, rec.Header().Get("Location"))
+	cookie := sessionCookie(t, rec)
+	assert.NotEqual(t, old.Value, cookie.Value, "a new session")
+	gone := e.do(t, http.MethodGet, adminHost, "/", nil, withCookie(old))
+	assert.Equal(t, http.StatusSeeOther, gone.Code, "the old session ended")
+	assert.Equal(t, "/connexion", gone.Header().Get("Location"))
+	assert.Equal(t, http.StatusOK, e.do(t, http.MethodGet, adminHost, "/", nil, withCookie(cookie)).Code, "this device stays signed in")
+	return cookie
 }
 
 func TestTemporaryPasswordLeadsToTheAccountPage(t *testing.T) {
@@ -43,18 +61,15 @@ func TestTemporaryPasswordLeadsToTheAccountPage(t *testing.T) {
 	csrf := e.csrf(t, cookie, "/compte")
 	assert.Equal(t, http.StatusForbidden,
 		e.do(t, http.MethodPost, adminHost, "/anomalies/masquer", formBody(url.Values{"csrf": {csrf}}), formType, withCookie(cookie)).Code)
-	code, body, _ := e.postAccount(t, cookie, url.Values{"csrf": {csrf}, "nouveau": {"short"}, "confirmation": {"short"}})
+	code, body := e.postAccount(t, cookie, url.Values{"csrf": {csrf}, "nouveau": {"short"}, "confirmation": {"short"}})
 	assert.Equal(t, http.StatusUnprocessableEntity, code)
 	assert.Contains(t, body, "Il faut au moins 12 caractères.")
-	_, body, _ = e.postAccount(t, cookie, url.Values{"csrf": {csrf}, "nouveau": {temporary}, "confirmation": {temporary}})
+	_, body = e.postAccount(t, cookie, url.Values{"csrf": {csrf}, "nouveau": {temporary}, "confirmation": {temporary}})
 	assert.Contains(t, body, "C'est déjà ton mot de passe.")
-	_, body, _ = e.postAccount(t, cookie, url.Values{"csrf": {csrf}, "nouveau": {newPassword}, "confirmation": {newPassword + "!"}})
+	_, body = e.postAccount(t, cookie, url.Values{"csrf": {csrf}, "nouveau": {newPassword}, "confirmation": {newPassword + "!"}})
 	assert.Contains(t, body, "Les deux mots de passe ne sont pas pareils.")
 
-	code, _, location := e.postAccount(t, cookie, url.Values{"csrf": {csrf}, "nouveau": {newPassword}, "confirmation": {newPassword}})
-	require.Equal(t, http.StatusSeeOther, code)
-	assert.Equal(t, "/", location)
-	assert.Equal(t, http.StatusOK, e.do(t, http.MethodGet, adminHost, "/", nil, withCookie(cookie)).Code, "this session stays")
+	e.changeOK(t, cookie, url.Values{"csrf": {csrf}, "nouveau": {newPassword}, "confirmation": {newPassword}}, "/")
 	assert.Equal(t, http.StatusSeeOther, e.postLogin(t, "alice", newPassword).Code)
 }
 
@@ -70,17 +85,32 @@ func TestChangePasswordKeepsThisDeviceOnly(t *testing.T) {
 		assert.Contains(t, page, want)
 	}
 	csrf := e.csrf(t, this, "/compte")
-	code, body, _ := e.postAccount(t, this, url.Values{"csrf": {csrf}, "actuel": {"wrong password"}, "nouveau": {newPassword}, "confirmation": {newPassword}})
+	code, body := e.postAccount(t, this, url.Values{"csrf": {csrf}, "actuel": {"wrong password"}, "nouveau": {newPassword}, "confirmation": {newPassword}})
 	assert.Equal(t, http.StatusUnprocessableEntity, code)
 	assert.Contains(t, body, "Ce n'est pas ton mot de passe actuel.")
 
-	code, _, location := e.postAccount(t, this, url.Values{"csrf": {csrf}, "actuel": {testPassword}, "nouveau": {newPassword}, "confirmation": {newPassword}})
-	require.Equal(t, http.StatusSeeOther, code)
-	assert.Equal(t, "/compte?change=1", location)
-	done := html.UnescapeString(e.do(t, http.MethodGet, adminHost, location, nil, withCookie(this)).Body.String())
+	renewed := e.changeOK(t, this, url.Values{"csrf": {csrf}, "actuel": {testPassword}, "nouveau": {newPassword}, "confirmation": {newPassword}}, "/compte?change=1")
+	done := html.UnescapeString(e.do(t, http.MethodGet, adminHost, "/compte?change=1", nil, withCookie(renewed)).Body.String())
 	assert.Contains(t, done, "Mot de passe changé. Tes autres appareils sont déconnectés.")
 	assert.Equal(t, http.StatusSeeOther, e.do(t, http.MethodGet, adminHost, "/", nil, withCookie(other)).Code)
+	var follows int
+	require.NoError(t, e.db.QueryRowContext(context.Background(),
+		`SELECT count(*) FROM push_subscriptions WHERE session_token_hash = ?`, secure.TokenHash(renewed.Value)).Scan(&follows))
 	assert.Equal(t, 1, e.count(t, "push_subscriptions"), "this device keeps its notifications")
+	assert.Equal(t, 1, follows, "they follow the new session")
+}
+
+// The owner resets the password while the form is open: the change does not
+// overwrite the reset.
+func TestChangePasswordAfterAReset(t *testing.T) {
+	e := newTestEnv(t)
+	cookie := e.login(t)
+	csrf := e.csrf(t, cookie, "/compte")
+	_, err := e.db.ExecContext(context.Background(), `UPDATE accounts SET password_hash = 'reset' WHERE username = 'alice'`)
+	require.NoError(t, err)
+	code, body := e.postAccount(t, cookie, url.Values{"csrf": {csrf}, "actuel": {testPassword}, "nouveau": {newPassword}, "confirmation": {newPassword}})
+	assert.Equal(t, http.StatusConflict, code)
+	assert.Contains(t, body, "Ton mot de passe vient d'être changé. Reconnecte-toi.")
 }
 
 func TestAccountLinks(t *testing.T) {

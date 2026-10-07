@@ -103,7 +103,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	if err := s.startSession(ctx, w, account); err != nil {
+	if err := s.startSession(ctx, w, account, nil); err != nil {
 		s.serverError(w, r, err)
 		return
 	}

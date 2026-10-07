@@ -144,13 +144,18 @@ func TestChangePasswordKeepsOneSession(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	require.ErrorIs(t, r.ChangePassword(ctx, "alice", "short", []byte("kept")), ErrTooShort)
-	require.ErrorIs(t, r.ChangePassword(ctx, "alice", testPassword, []byte("kept")), ErrSamePassword)
-	require.ErrorIs(t, r.ChangePassword(ctx, "carol", "a brand new password", nil), ErrNotFound)
+	_, err := r.ChangePassword(ctx, "alice", "short", []byte("kept"))
+	require.ErrorIs(t, err, ErrTooShort)
+	_, err = r.ChangePassword(ctx, "alice", testPassword, []byte("kept"))
+	require.ErrorIs(t, err, ErrSamePassword)
+	_, err = r.ChangePassword(ctx, "carol", "a brand new password", nil)
+	require.ErrorIs(t, err, ErrNotFound)
 
-	require.NoError(t, r.ChangePassword(ctx, "alice", "a brand new password", []byte("kept")))
+	hash, err := r.ChangePassword(ctx, "alice", "a brand new password", []byte("kept"))
+	require.NoError(t, err)
 	got, _ := r.Get("alice")
 	assert.False(t, got.MustChangePassword)
+	assert.Equal(t, got.PasswordHash, hash)
 	for token, valid := range map[string]bool{"kept": true, "other": false} {
 		var credential []byte
 		require.NoError(t, db.QueryRowContext(ctx, `SELECT credential_hash FROM sessions WHERE token_hash = ?`, []byte(token)).Scan(&credential))
@@ -269,6 +274,18 @@ func TestSyncIgnoresTheCallersCancellation(t *testing.T) {
 	require.NoError(t, got, "OnChange ran with a live context")
 	_, ok := r.Get("bob")
 	assert.False(t, ok)
+}
+
+func TestChangePasswordRefusesAPasswordChangedMeanwhile(t *testing.T) {
+	r, db := newRegistry(t, alice())
+	ctx := context.Background()
+	_, err := db.ExecContext(ctx, `UPDATE accounts SET password_hash = 'reset by the owner' WHERE username = 'alice'`)
+	require.NoError(t, err)
+	_, err = r.ChangePassword(ctx, "alice", "a brand new password", nil)
+	require.ErrorIs(t, err, ErrPasswordChanged)
+	var hash string
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT password_hash FROM accounts WHERE username = 'alice'`).Scan(&hash))
+	assert.Equal(t, "reset by the owner", hash)
 }
 
 // A reload that keeps failing (every Watch tick) logs once, not every tick;

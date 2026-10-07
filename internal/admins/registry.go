@@ -23,12 +23,13 @@ import (
 
 // Errors of the account changes, for the committee pages to explain.
 var (
-	ErrInvalid      = errors.New("invalid account")
-	ErrTaken        = errors.New("username already taken")
-	ErrNotFound     = errors.New("no such account")
-	ErrTooShort     = fmt.Errorf("password shorter than %d characters", MinPasswordLength)
-	ErrSamePassword = errors.New("new password is the current one")
-	ErrPushoverKey  = errors.New("not a Pushover user key")
+	ErrInvalid         = errors.New("invalid account")
+	ErrTaken           = errors.New("username already taken")
+	ErrNotFound        = errors.New("no such account")
+	ErrTooShort        = fmt.Errorf("password shorter than %d characters", MinPasswordLength)
+	ErrSamePassword    = errors.New("new password is the current one")
+	ErrPushoverKey     = errors.New("not a Pushover user key")
+	ErrPasswordChanged = errors.New("password changed meanwhile")
 )
 
 // Registry keeps the accounts in memory, read from the database at startup,
@@ -206,46 +207,49 @@ func (r *Registry) ResetPassword(ctx context.Context, username string) (string, 
 	return password, nil
 }
 
-// ChangePassword sets the password the resolver chose. The session whose
-// token hash is keepSession stays valid; the account's other sessions end.
-func (r *Registry) ChangePassword(ctx context.Context, username, password string, keepSession []byte) error {
+// ChangePassword sets the password the resolver chose and returns its hash,
+// for the session that replaces keepSession. The session whose token hash is
+// keepSession stays valid; the account's other sessions end.
+func (r *Registry) ChangePassword(ctx context.Context, username, password string, keepSession []byte) (string, error) {
 	a, ok := r.Get(username)
 	if !ok {
-		return ErrNotFound
+		return "", ErrNotFound
 	}
 	if len([]rune(password)) < MinPasswordLength {
-		return ErrTooShort
+		return "", ErrTooShort
 	}
 	same, err := VerifyPassword(a.PasswordHash, password)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if same {
-		return ErrSamePassword
+		return "", ErrSamePassword
 	}
 	hash, err := HashPassword(password)
 	if err != nil {
-		return err
+		return "", err
 	}
 	credential := Account{PasswordHash: hash}.CredentialHash()
 	err = store.Tx(ctx, r.db, "accounts.change_password", func(ctx context.Context, tx *sql.Tx) error {
+		// Only over the password just verified: an owner's reset in between wins.
 		res, err := tx.ExecContext(ctx,
-			`UPDATE accounts SET password_hash = ?, must_change_password = 0 WHERE username = ?`, hash, username)
+			`UPDATE accounts SET password_hash = ?, must_change_password = 0 WHERE username = ? AND password_hash = ?`,
+			hash, username, a.PasswordHash)
 		if err != nil {
 			return err
 		}
 		if n, err := res.RowsAffected(); err != nil || n == 0 {
-			return cmp.Or(err, ErrNotFound)
+			return cmp.Or(err, ErrPasswordChanged)
 		}
 		_, err = tx.ExecContext(ctx, `UPDATE sessions SET credential_hash = ? WHERE token_hash = ? AND username = ?`,
 			credential, keepSession, username)
 		return err
 	})
 	if err != nil {
-		return fmt.Errorf("change password: %w", err)
+		return "", fmt.Errorf("change password: %w", err)
 	}
 	r.sync(ctx)
-	return nil
+	return hash, nil
 }
 
 // SetPushoverKey sets the account's Pushover user key; "" removes it.
