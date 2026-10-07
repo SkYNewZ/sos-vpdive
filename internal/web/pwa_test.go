@@ -2,6 +2,8 @@ package web
 
 import (
 	"encoding/json"
+	"fmt"
+	"image/png"
 	"net/http"
 	"regexp"
 	"strings"
@@ -25,6 +27,14 @@ type testManifest struct {
 		Type    string `json:"type"`
 		Purpose string `json:"purpose"`
 	} `json:"icons"`
+	Description string `json:"description"`
+	Screenshots []struct {
+		Src        string  `json:"src"`
+		Sizes      string  `json:"sizes"`
+		Type       string  `json:"type"`
+		FormFactor *string `json:"form_factor"`
+		Label      string  `json:"label"`
+	} `json:"screenshots"`
 }
 
 func TestManifestPerHost(t *testing.T) {
@@ -54,6 +64,26 @@ func TestManifestPerHost(t *testing.T) {
 			assert.Contains(t, purposes, "192x192 any")
 			assert.Contains(t, purposes, "512x512 any")
 			assert.Contains(t, purposes, "512x512 maskable", "a separate maskable entry, as web.dev advises")
+
+			// Chrome's richer install dialog: a description, a screenshot for
+			// phones (no form_factor) and one for desktops ("wide").
+			assert.NotEmpty(t, m.Description)
+			factors := map[string]bool{}
+			for _, shot := range m.Screenshots {
+				factor := "phone"
+				if shot.FormFactor != nil {
+					factor = *shot.FormFactor
+				}
+				factors[factor] = true
+				assert.Equal(t, "image/png", shot.Type)
+				assert.NotEmpty(t, shot.Label)
+				img := e.do(t, http.MethodGet, host, shot.Src, nil)
+				require.Equal(t, http.StatusOK, img.Code, shot.Src)
+				cfg, err := png.DecodeConfig(img.Body)
+				require.NoError(t, err, shot.Src)
+				assert.Equal(t, shot.Sizes, fmt.Sprintf("%dx%d", cfg.Width, cfg.Height), "declared size is the file's")
+			}
+			assert.Equal(t, map[string]bool{"phone": true, "wide": true}, factors)
 		})
 	}
 	members := e.do(t, http.MethodGet, publicHost, "/manifest.webmanifest", nil).Body.String()
@@ -87,6 +117,7 @@ func TestServiceWorkerPerHost(t *testing.T) {
 		}
 		assert.Contains(t, urls, e.srv.assets.URL(strings.TrimPrefix(own, "/")+"icon-192.png"))
 		assert.NotContains(t, m[1], other, "each app precaches its own icons only")
+		assert.NotContains(t, m[1], "screenshots/", "install screenshots are never cached")
 		for _, u := range urls {
 			assert.Equal(t, http.StatusOK, e.do(t, http.MethodGet, host, u, nil).Code, u)
 			assert.Regexp(t, `^/(static/|hors-ligne$)`, u, "a closed list: static files and the offline page, no page with data")

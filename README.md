@@ -276,6 +276,12 @@ site est disponible » and reload only when asked.
 - The members' icons add the [SOS icon by Freepik from
   Flaticon](https://www.flaticon.com/free-icons/sos) to the club logo; its
   free licence asks for this credit.
+- Chrome shows a richer install dialog with each manifest's description and
+  screenshots: `internal/web/static/screenshots/membres/` and `comite/`, one
+  for phones (`etroite.png`, 824 × 1830, a 412 × 915 page at twice the
+  density) and one for desktops (`large.png`, 1280 × 800). Make them on a
+  local instance filled with the synthetic files of `testdata/fixtures/`,
+  never with real requests, and keep those sizes: a test checks them.
 - Browsers older than Chrome 111, Safari 16.4 or Firefox 128 get a short
   notice with the club's address instead of the page.
 - The request form keeps what a member types in the browser's storage until
