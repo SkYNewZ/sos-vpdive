@@ -260,6 +260,31 @@ func TestCommitteeBanners(t *testing.T) {
 	assert.Contains(t, home(), "Pense à refaire l")
 }
 
+// A password change keeps its session by rewriting the row's credential
+// hash. sessionOf and RevokeStale read the row, then delete it when stale: a
+// change committed in between must leave the row in place. The race has no
+// hook, so deleteStaleSession, which both delete through, is tested directly.
+func TestDeleteStaleSessionKeepsARowChangedSinceTheRead(t *testing.T) {
+	e := newTestEnv(t)
+	ctx := context.Background()
+	hash, read, kept := secure.TokenHash("kept"), []byte("read before the change"), []byte("set by the change")
+	_, err := e.db.ExecContext(ctx,
+		`INSERT INTO sessions (token_hash, username, credential_hash, created_at, expires_at) VALUES (?, 'alice', ?, 1, 9999999999)`,
+		hash, read)
+	require.NoError(t, err)
+	_, err = e.db.ExecContext(ctx, `UPDATE sessions SET credential_hash = ? WHERE token_hash = ?`, kept, hash)
+	require.NoError(t, err)
+
+	deleted, err := deleteStaleSession(ctx, e.db, hash, read)
+	require.NoError(t, err)
+	assert.False(t, deleted)
+	assert.Equal(t, 1, e.count(t, "sessions"), "the kept session stays")
+	deleted, err = deleteStaleSession(ctx, e.db, hash, kept)
+	require.NoError(t, err)
+	assert.True(t, deleted)
+	assert.Zero(t, e.count(t, "sessions"))
+}
+
 func TestRevokeStaleSessionsAtStart(t *testing.T) {
 	e := newTestEnv(t, withPush(t))
 	ctx := context.Background()

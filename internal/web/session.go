@@ -97,10 +97,29 @@ func (s *Server) sessionOf(r *http.Request) (session, bool) {
 	}
 	a, ok := s.admins.Current(username, credential)
 	if !ok || s.now().Unix() >= expires {
-		s.deleteSession(ctx, hash)
+		if _, err := deleteStaleSession(ctx, s.db, hash, credential); err != nil {
+			s.logger.ErrorContext(ctx, "delete session", "error", err)
+		}
 		return session{}, false
 	}
 	return session{account: a, hash: hash}, true
+}
+
+// deleteStaleSession deletes a session found stale or expired, only while it
+// still holds credential, the hash read to decide so: a password change may
+// have kept the session since. It reports whether the session was deleted.
+func deleteStaleSession(ctx context.Context, db execer, hash, credential []byte) (bool, error) {
+	res, err := db.ExecContext(ctx, `DELETE FROM sessions WHERE token_hash = ? AND credential_hash = ?`, hash, credential)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
+// execer is what *sql.DB and *sql.Tx share for writes.
+type execer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
 func (s *Server) deleteSession(ctx context.Context, hash []byte) {
@@ -179,10 +198,13 @@ func (s *Server) RevokeStale(ctx context.Context) error {
 			if _, ok := s.admins.Current(st.username, st.credential); ok {
 				continue
 			}
-			if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE token_hash = ?`, st.hash); err != nil {
+			deleted, err := deleteStaleSession(ctx, tx, st.hash, st.credential)
+			if err != nil {
 				return fmt.Errorf("revoke stale session: %w", err)
 			}
-			gone = append(gone, string(st.hash))
+			if deleted {
+				gone = append(gone, string(st.hash))
+			}
 		}
 		return nil
 	})
