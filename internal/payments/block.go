@@ -33,6 +33,7 @@ type Block struct {
 	ToSettle  []ToSettleLine
 	Cancelled []Line
 	Latest    []Line
+	Lines     []Line // every line of the requester, newest first: the calendar block attaches them
 }
 
 // ToSettleLine is a line still to pay; a partial payment is a line to check
@@ -100,6 +101,7 @@ func (s *Store) Block(ctx context.Context, nameHash []byte) (Block, error) {
 	// Newest first; ties keep the file's order reversed, the later row first.
 	slices.Reverse(lines)
 	slices.SortStableFunc(lines, func(a, b Line) int { return b.Created.Compare(a.Created) })
+	b.Lines = lines
 	b.Latest = lines[:min(latestCount, len(lines))]
 	for _, l := range lines {
 		switch {

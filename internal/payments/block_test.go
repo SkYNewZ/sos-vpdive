@@ -129,3 +129,13 @@ func TestEmptyImportIsNotAPurge(t *testing.T) {
 	assert.False(t, c.Imported)
 	assert.True(t, c.Purged)
 }
+
+func TestBlockKeepsEveryLine(t *testing.T) {
+	f := newFixture(t)
+	memberstest.Import(t, f.members, "members_valid.xlsx")
+	f.importPayments(t, f.valid(t))
+	b, err := f.store.Block(context.Background(), f.nameHash("Bernard", "Hugo"))
+	require.NoError(t, err)
+	assert.Len(t, b.Lines, 12, "every line of Bernard Hugo, not only the latest ten")
+	assert.Equal(t, b.Latest, b.Lines[:len(b.Latest)], "newest first, as Latest")
+}
