@@ -25,8 +25,8 @@ type importAge struct {
 func (s *Server) importAges() []importAge {
 	return []importAge{
 		{imports.Members, s.cfg.MembersMaxAge, "La liste des membres date du %s. Pense à refaire l'import.", importsPath},
-		{imports.Payments, s.cfg.PaymentsMaxAge, "Les paiements datent du %s. Pense à refaire l'import.", "/imports#paiements-titre"},
-		{imports.Mollie, s.cfg.VPayDiveMaxAge, "Les encaissements Mollie datent du %s. Pense à refaire l'import.", "/imports#encaissements-titre"},
+		{imports.Payments, s.cfg.PaymentsMaxAge, "Les paiements datent du %s. Pense à refaire l'import.", importsPath + "#paiements-titre"},
+		{imports.Mollie, s.cfg.VPayDiveMaxAge, "Les encaissements Mollie datent du %s. Pense à refaire l'import.", importsPath + "#encaissements-titre"},
 	}
 }
 

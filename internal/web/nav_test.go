@@ -35,6 +35,8 @@ func TestCommitteeShell(t *testing.T) {
 	body := e.do(t, http.MethodGet, adminHost, "/annulations", nil, withCookie(cookie)).Body.String()
 	assert.Equal(t, 2, strings.Count(body, `href="/annulations" aria-current="page"`), "sidebar and tab bar")
 	assert.Equal(t, 2, strings.Count(body, `aria-current="page"`))
+	assert.Contains(t, body, `<p class="truncate text-xl font-bold" aria-hidden="true">Sorties annulées</p>`,
+		"the phone title bar repeats the page's h1: screen readers read it once")
 	for _, want := range []string{`<symbol id="i-calendar-x"`, `<use href="#i-calendar-x">`, `class="dock`, `data-toasts`, `data-open-banner hidden`} {
 		assert.Contains(t, body, want)
 	}

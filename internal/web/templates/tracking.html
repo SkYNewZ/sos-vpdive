@@ -12,13 +12,13 @@
 <section class="mt-8" aria-labelledby="fil">
 <h2 id="fil" class="text-xl font-semibold">Échanges</h2>
 <ol class="mt-4 flex flex-col gap-4">
-<li class="rounded-box border border-base-300 p-4">
+<li class="panel p-4">
 <p class="text-sm"><span class="font-semibold">Toi</span> · {{formatTime $t.SubmittedAt}}</p>
 <p class="mt-2 whitespace-pre-line break-words">{{$t.Description}}</p>
 {{with $t.Captures}}<ul class="mt-3 flex flex-wrap gap-3">{{range .}}<li><a class="link" href="/suivi/{{$d.Token}}/captures/{{.ID}}" target="_blank" rel="noopener"><img src="/suivi/{{$d.Token}}/captures/{{.ID}}" alt="Capture d'écran jointe à ta demande" class="h-32 w-auto border border-base-300" loading="lazy"></a></li>{{end}}</ul>{{end}}
 </li>
 {{range $d.Messages}}
-<li class="rounded-box border p-4 {{if .FromMember}}border-base-300{{else}}border-primary{{end}}">
+<li class="panel p-4{{if not .FromMember}} border-primary{{end}}">
 <p class="text-sm">{{if .FromMember}}<span class="font-semibold">Toi</span>{{else}}{{with accountOf .Author}}<span class="font-semibold">{{.Name}}</span> · {{.Role}}{{else}}<span class="font-semibold">Le comité</span>{{end}}{{end}} · {{formatTime .CreatedAt}}</p>
 <p class="mt-2 whitespace-pre-line break-words">{{.Body}}</p>
 {{with .Captures}}<ul class="mt-3 flex flex-wrap gap-3">{{range .}}<li><a class="link" href="/suivi/{{$d.Token}}/captures/{{.ID}}" target="_blank" rel="noopener"><img src="/suivi/{{$d.Token}}/captures/{{.ID}}" alt="Capture d'écran jointe au message" class="h-32 w-auto border border-base-300" loading="lazy"></a></li>{{end}}</ul>{{end}}
@@ -47,7 +47,7 @@
 </form>
 </section>
 {{else}}
-<div class="mt-8 rounded-box border border-base-300 p-4">
+<div class="panel mt-8 p-4">
 <p>Cette demande est close depuis plus de 14 jours. Pour une nouvelle question, <a class="link link-primary" href="/">ouvre une nouvelle demande</a>.</p>
 </div>
 {{end}}

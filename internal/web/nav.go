@@ -6,14 +6,15 @@ import (
 )
 
 // navItem is an entry of the committee navigation: the desktop sidebar
-// lists them all, the phone tab bar those with Tab set, then « Plus »
-// (spec §12.2 as amended: icons in the navigation only, with their label).
+// lists them all but « Plus », the phone tab bar those with Tab set (spec
+// §12.2 as amended: icons in the navigation only, with their label).
 type navItem struct {
-	Section string // first path segment of its pages
-	Path    string
-	Label   string
-	Icon    string // symbol of the sprite in templates/layout.html
-	Tab     bool
+	Section   string // first path segment of its pages
+	Path      string
+	Label     string
+	Icon      string // symbol of the sprite in templates/layout.html
+	Tab       bool
+	PhoneOnly bool // « Plus » gathers on phones what the sidebar shows
 }
 
 // importsPath is the imports page, linked from the navigation and from the
@@ -28,6 +29,7 @@ var adminNav = []navItem{
 	{Section: "imports", Path: importsPath, Label: "Imports", Icon: "upload"},
 	{Section: "effacement", Path: "/effacement", Label: "Effacement", Icon: "user-x"},
 	{Section: "notifications", Path: "/notifications", Label: "Notifications", Icon: "bell"},
+	{Section: "plus", Path: "/plus", Label: "Plus", Icon: "ellipsis", Tab: true, PhoneOnly: true},
 }
 
 // navSection tells which sidebar entry and which phone tab a committee path

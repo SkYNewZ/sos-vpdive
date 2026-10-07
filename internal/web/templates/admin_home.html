@@ -61,7 +61,3 @@
 {{end}}
 </div>
 {{end}}
-
-{{define "assignee"}}{{with accountOf .}}<span class="inline-flex items-center gap-2"><img src="{{.Avatar}}" alt="" width="24" height="24" class="size-6"><span>{{.Name}}</span></span>{{else}}{{if .}}{{.}}{{else}}Personne{{end}}{{end}}{{end}}
-
-{{define "assigneeName"}}{{with accountOf .}}{{.Name}}{{else}}{{if .}}{{.}}{{else}}Personne{{end}}{{end}}{{end}}

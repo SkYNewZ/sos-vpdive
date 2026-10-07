@@ -174,7 +174,7 @@ const refreshBoard = async () => {
 
 // Toasts (desktop only, spec §4.2 as amended): a fragment fetched under the
 // session, so the stream itself never carries a name. Three at most; each
-// closes after ten seconds unless the pointer or the focus is on it.
+// closes after ten seconds, later while the pointer or the focus is on it.
 const toasts = document.querySelector("[data-toasts]");
 const wide = window.matchMedia("(min-width: 64rem)");
 const TOAST_MS = 10000;
@@ -186,19 +186,12 @@ const showToast = async (type, id) => {
     if (!toast) return;
     toasts.append(toast);
     while (toasts.children.length > 3) toasts.firstElementChild.remove();
-    let timer;
-    const arm = () => {
-      clearTimeout(timer);
-      timer = setTimeout(() => toast.remove(), TOAST_MS);
+    const expire = () => {
+      if (toast.matches(":hover, :focus-within")) setTimeout(expire, TOAST_MS);
+      else toast.remove();
     };
-    toast.addEventListener("mouseenter", () => clearTimeout(timer));
-    toast.addEventListener("focusin", () => clearTimeout(timer));
-    toast.addEventListener("mouseleave", arm);
-    toast.addEventListener("focusout", (event) => {
-      if (!toast.contains(event.relatedTarget)) arm();
-    });
+    setTimeout(expire, TOAST_MS);
     toast.querySelector("[data-toast-close]").addEventListener("click", () => toast.remove());
-    arm();
   } catch {
     // Network down: no toast; the board catches up on its own.
   }

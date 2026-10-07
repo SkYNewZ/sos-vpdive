@@ -341,7 +341,7 @@ func (s *Server) confirmImport(w http.ResponseWriter, r *http.Request) {
 	})
 	switch {
 	case err == nil:
-		http.Redirect(w, r, "/imports?importe="+kind, http.StatusSeeOther)
+		http.Redirect(w, r, importsPath+"?importe="+kind, http.StatusSeeOther)
 	case errors.Is(err, imports.ErrSecondConfirmRequired):
 		d, perr := s.livePreview(kind, id, username)
 		if perr != nil {

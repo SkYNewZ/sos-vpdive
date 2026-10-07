@@ -59,14 +59,9 @@ func (w *WebPush) Send(ctx context.Context, m mail.Message) error {
 	delivered := 0
 	for i, sub := range subs {
 		switch err := errs[i]; {
-		case err == nil:
+		case w.settle(ctx, sub.ID, err):
 			delivered++
-			if err := w.store.Touch(ctx, sub.ID); err != nil {
-				w.logger.ErrorContext(ctx, "push subscription update", "subscription_id", sub.ID, "error", err)
-			}
-		case errors.Is(err, errGone), errors.Is(err, errEndpointRefused):
-			w.drop(ctx, sub.ID, err)
-		default:
+		case !unusable(err):
 			w.logger.WarnContext(ctx, "push alert not delivered", "subscription_id", sub.ID, "error", err)
 		}
 	}
@@ -90,15 +85,29 @@ func (w *WebPush) Test(ctx context.Context, sessionHash []byte) error {
 		return err
 	}
 	err = w.client.Send(ctx, sub, payload)
+	w.settle(ctx, sub.ID, err)
+	return err
+}
+
+// unusable tells a subscription that will never work again: unknown to its
+// push service, or on a host that left PUSH_ALLOWED_HOSTS.
+func unusable(err error) bool {
+	return errors.Is(err, errGone) || errors.Is(err, errEndpointRefused)
+}
+
+// settle records how a push to subscription id went: a delivered one is
+// touched, an unusable one deleted. It reports whether the push was delivered.
+func (w *WebPush) settle(ctx context.Context, id int64, err error) bool {
 	switch {
 	case err == nil:
-		if err := w.store.Touch(ctx, sub.ID); err != nil {
-			w.logger.ErrorContext(ctx, "push subscription update", "subscription_id", sub.ID, "error", err)
+		if err := w.store.Touch(ctx, id); err != nil {
+			w.logger.ErrorContext(ctx, "push subscription update", "subscription_id", id, "error", err)
 		}
-	case errors.Is(err, errGone), errors.Is(err, errEndpointRefused):
-		w.drop(ctx, sub.ID, err)
+		return true
+	case unusable(err):
+		w.drop(ctx, id, err)
 	}
-	return err
+	return false
 }
 
 // drop deletes a subscription that cannot be used again.

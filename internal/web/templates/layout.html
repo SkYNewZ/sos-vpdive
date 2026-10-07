@@ -48,7 +48,7 @@
 <aside class="hidden border-r border-base-300 bg-base-300/40 lg:sticky lg:top-0 lg:flex lg:h-dvh lg:w-60 lg:flex-none lg:flex-col lg:px-3 lg:py-5">
 <a class="px-3 pb-5 text-lg font-bold text-primary" href="/">SOS CPP Comité</a>
 <nav aria-label="Navigation du comité">
-<ul class="flex flex-col gap-1 [&_svg]:size-5">{{range navItems}}<li><a class="flex min-h-11 items-center gap-3 rounded-field border-l-4 px-3 {{if eq .Section $.Section}}border-primary bg-base-100 font-bold text-primary{{else}}border-transparent hover:bg-base-100{{end}}" href="{{.Path}}"{{if eq .Section $.Section}} aria-current="page"{{end}}>{{template "icon" .Icon}}<span>{{.Label}}</span></a></li>{{end}}</ul>
+<ul class="flex flex-col gap-1 [&_svg]:size-5">{{range navItems}}{{if not .PhoneOnly}}<li><a class="flex min-h-11 items-center gap-3 rounded-field border-l-4 px-3 {{if eq .Section $.Section}}border-primary bg-base-100 font-bold text-primary{{else}}border-transparent hover:bg-base-100{{end}}" href="{{.Path}}"{{if eq .Section $.Section}} aria-current="page"{{end}}>{{template "icon" .Icon}}<span>{{.Label}}</span></a></li>{{end}}{{end}}</ul>
 </nav>
 <div class="mt-auto border-t border-base-300 px-3 pt-4">
 <div class="flex items-center gap-3"><img src="{{.Account.Avatar}}" alt="" width="32" height="32" class="size-8"><span class="min-w-0 text-sm"><span class="block truncate font-semibold">{{.Account.Name}}</span><span class="block truncate">{{.Account.Role}}</span></span></div>
@@ -61,7 +61,7 @@
 <div class="min-w-0 flex-1">
 <header class="bg-primary text-primary-content lg:hidden">
 <div class="flex min-h-14 items-center justify-between gap-3 px-4">
-<p class="truncate text-xl font-bold">{{.Title}}</p>
+<p class="truncate text-xl font-bold" aria-hidden="true">{{.Title}}</p>
 <a class="flex-none" href="/plus"><img src="{{.Account.Avatar}}" alt="Ton compte" width="32" height="32" class="size-8"></a>
 </div>
 </header>
@@ -73,8 +73,7 @@
 </div>
 <nav class="dock border-t border-base-300 lg:hidden" aria-label="Onglets du comité">
 {{range navItems}}{{if .Tab}}<a class="{{if eq .Section $.Tab}}font-bold text-primary{{else}}text-base-content/70{{end}}" href="{{.Path}}"{{if eq .Section $.Tab}} aria-current="page"{{end}}>{{template "icon" .Icon}}<span class="dock-label">{{.Label}}</span></a>
-{{end}}{{end}}<a class="{{if eq $.Tab "plus"}}font-bold text-primary{{else}}text-base-content/70{{end}}" href="/plus"{{if eq $.Tab "plus"}} aria-current="page"{{end}}>{{template "icon" "ellipsis"}}<span class="dock-label">Plus</span></a>
-</nav>
+{{end}}{{end}}</nav>
 <div data-toasts aria-live="polite" class="fixed right-6 bottom-6 z-20 hidden w-96 flex-col gap-2 lg:flex"></div>{{end}}
 
 {{define "icon"}}<svg class="size-6 flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-{{.}}"></use></svg>{{end}}
@@ -108,5 +107,9 @@
 {{define "purgedPayments"}}Plus de 90 jours sans import : les lignes de paiement ont été effacées.{{end}}
 
 {{define "noPayments"}}<p class="mt-3">{{if .}}{{template "purgedPayments"}}{{else}}Aucun paiement importé.{{end}} <a class="link link-primary inline-flex min-h-11 items-center" href="/imports">Importer l'export des paiements</a></p>{{end}}
+
+{{define "assignee"}}{{with accountOf .}}<span class="inline-flex items-center gap-2"><img src="{{.Avatar}}" alt="" width="24" height="24" class="size-6"><span>{{.Name}}</span></span>{{else}}{{template "assigneeName" .}}{{end}}{{end}}
+
+{{define "assigneeName"}}{{with accountOf .}}{{.Name}}{{else}}{{if .}}{{.}}{{else}}Personne{{end}}{{end}}{{end}}
 
 {{define "age"}}<span class="{{if eq .Level "alert"}}text-error font-bold{{else if eq .Level "warn"}}text-warning{{end}}">{{.Text}}</span>{{end}}
