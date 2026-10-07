@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Review focus: the club's rich text shows as plain lines.
 func TestPlainText(t *testing.T) {
 	assert.Equal(t, "Rendez-vous à 7\u00a0h.\nPrévois ta lampe.",
 		plainText("<p>Rendez-vous à 7&nbsp;h.<br>Prévois ta lampe.</p><p></p><script>x()</script>"))

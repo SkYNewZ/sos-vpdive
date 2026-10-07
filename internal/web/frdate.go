@@ -2,6 +2,7 @@ package web
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"time"
 
@@ -19,7 +20,7 @@ var (
 )
 
 // frWeekdaysMonday heads the columns of the month grid.
-var frWeekdaysMonday = []string{"lun.", "mar.", "mer.", "jeu.", "ven.", "sam.", "dim."}
+var frWeekdaysMonday = slices.Concat(frWeekdaysShort[1:], frWeekdaysShort[:1])
 
 // frClock writes « 8 h 30 », or « 8 h » on the hour.
 func frClock(t time.Time) string {
@@ -88,7 +89,7 @@ func lastDay(ev calendar.Event, loc *time.Location) time.Time {
 // 14/10 » when it ends another day.
 func eventHours(ev calendar.Event, paris *time.Location) string {
 	start, until, last := ev.Start.In(paris), ev.Until().In(paris), lastDay(ev, paris)
-	sameDay := start.Format(time.DateOnly) == last.Format(time.DateOnly)
+	sameDay := parisDay(start, paris) == parisDay(last, paris)
 	s := frClock(start)
 	switch {
 	case ev.AllDay:

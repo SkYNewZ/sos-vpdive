@@ -19,8 +19,8 @@ func (e *testEnv) page(t *testing.T, cookie *http.Cookie, target string) (int, s
 	return rec.Code, html.UnescapeString(rec.Body.String())
 }
 
-// Review focus: a week across the October change of time keeps seven
-// midnights; a month starting on a Saturday needs six weeks.
+// A week across the October change of time keeps seven midnights; a month
+// starting on a Saturday needs six weeks.
 func TestSpanOf(t *testing.T) {
 	paris, err := time.LoadLocation("Europe/Paris")
 	require.NoError(t, err)

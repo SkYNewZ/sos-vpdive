@@ -24,9 +24,8 @@ const (
 type outing struct {
 	calendar.Participation
 
-	Lines   []payments.Line
-	Mollie  []payments.CollectedLine
-	Signals []string
+	Lines  []payments.Line
+	Mollie []payments.CollectedLine
 }
 
 // attach builds the requester's outings (lot 8 part 2): a dated line goes to
@@ -47,9 +46,6 @@ func attach(ps []calendar.Participation, lines []payments.Line, mollie []payment
 		if i := pickOuting(ps, l.Service, l.Starts, paris); i >= 0 {
 			out[i].Mollie = append(out[i].Mollie, l)
 		}
-	}
-	for i := range out {
-		out[i].Signals = signals(out[i])
 	}
 	return out
 }
@@ -88,8 +84,8 @@ func parisDay(t time.Time, paris *time.Location) string { return t.In(paris).For
 // space, trimmed.
 func normTitle(s string) string { return strings.Join(strings.Fields(strings.ToLower(s)), " ") }
 
-// signals lists what the lines of an outing tell, each once.
-func signals(o outing) []string {
+// Signals lists what the lines of an outing tell, each once.
+func (o outing) Signals() []string {
 	var carnet, money, mollie bool
 	if o.Event.Cancelled() {
 		for _, l := range o.Lines {

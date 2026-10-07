@@ -1,7 +1,6 @@
 package web
 
 import (
-	"slices"
 	"testing"
 	"time"
 
@@ -46,8 +45,6 @@ func TestFrenchDates(t *testing.T) {
 	allDay.End = at(10, 12, 18, 0)
 	assert.Equal(t, "Journée", cellHours(allDay, at(10, 10, 0, 0), paris))
 	assert.Equal(t, "jusqu'au 12/10", cellHours(allDay, at(10, 12, 0, 0), paris))
-
-	assert.Equal(t, slices.Concat(frWeekdaysShort[1:], frWeekdaysShort[:1]), frWeekdaysMonday, "the month grid heads: monday first")
 
 	assert.Equal(t, "aucun", cartText(nil))
 	assert.Equal(t, "payé, 60,00\u00a0€", cartText(&calendar.Payment{Status: calendar.PaymentPaid, DueCents: 6000, PaidCents: 6000}))

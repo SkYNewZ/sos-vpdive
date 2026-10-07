@@ -187,6 +187,7 @@ func (s *Store) Participations(ctx context.Context, nameHash []byte) ([]Particip
 		 FROM calendar_participants p JOIN calendar_events e ON e.id = p.event_id
 		 WHERE p.name_hash = ?1 OR (p.name_hash IS NULL AND p.person_hash IN (
 		   SELECT person_hash FROM calendar_participants WHERE name_hash IS NOT NULL
+		     AND person_hash IN (SELECT person_hash FROM calendar_participants WHERE name_hash = ?1)
 		   GROUP BY person_hash HAVING COUNT(DISTINCT name_hash) = 1 AND MIN(name_hash) = ?1))
 		 ORDER BY e.starts_at DESC, e.id, p.id`, nameHash)
 	out, err := store.Collect(rows, err, func(rows *sql.Rows) (pa Participation, err error) {

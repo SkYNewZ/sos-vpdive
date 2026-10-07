@@ -1,6 +1,7 @@
 package web
 
 import (
+	"cmp"
 	"fmt"
 	"io/fs"
 	"slices"
@@ -58,13 +59,9 @@ func (l calendarLabels) category(key string) categoryLabel {
 	return categoryLabel{Label: key}
 }
 
-// label returns the label of key in m, or key itself.
-func label(m map[string]string, key string) string {
-	if v, ok := m[key]; ok {
-		return v
-	}
-	return key
-}
+// label returns the label of key in m, or key itself. Labels are validated
+// non-empty at load, so an empty value means a missing key.
+func label(m map[string]string, key string) string { return cmp.Or(m[key], key) }
 
 // roleNote is what follows a name or a role: its boat and « proposé ».
 func roleNote(r calendar.Role) string {

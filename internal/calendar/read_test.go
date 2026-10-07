@@ -40,8 +40,8 @@ func TestEventEndsAndCancellation(t *testing.T) {
 	}
 }
 
-// Review focus: an event that ends at midnight or starts at the next one
-// belongs to its own day only.
+// An event that ends at midnight or starts at the next one belongs to its
+// own day only.
 func TestRangeOverlapsTheSpan(t *testing.T) {
 	f := newFixture(t)
 	multi := event(t, "evt-multi", "2026-10-10T18:00:00+02:00", registered(101, "Martin", "Léa"))

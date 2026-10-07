@@ -142,7 +142,7 @@ func New(d Deps) (*Server, error) {
 		"age": s.age, "accountOf": s.accountOf, "actor": s.actorName, "isoDate": isoDate,
 		"fieldName": tickets.FieldName, "categoryLabel": func(id string) string { return s.tickets.Catalog.CategoryLabel(id) }, "describe": s.tickets.Describe,
 		"formField": newFormField, "themeColor": func() string { return themeColor }, "methodLabel": methodLabel,
-		"category": s.labels.category, "tint": func(key string) int { return s.labels.category(key).Tint },
+		"category":    s.labels.category,
 		"activity":    func(key string) string { return label(s.labels.Activities, key) },
 		"environment": func(key string) string { return label(s.labels.Environments, key) },
 		"roles":       s.labels.roles, "join": func(v []string) string { return strings.Join(v, ", ") },

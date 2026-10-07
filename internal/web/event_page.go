@@ -55,7 +55,7 @@ var (
 	blankRuns = regexp.MustCompile(`\n[ \t]*(\n[ \t]*)+`)
 )
 
-// plainText turns the club's rich text into plain lines (Review focus).
+// plainText turns the club's rich text into plain lines.
 func plainText(s string) string {
 	s = scripts.ReplaceAllString(s, "")
 	s = lineTags.ReplaceAllString(s, "\n")
@@ -78,30 +78,31 @@ func (s *Server) eventPage(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	default:
+		// A sorted copy: the staff of eventView keeps the pushed order.
+		byName := slices.SortedStableFunc(slices.Values(ev.Participants), func(a, b calendar.Participant) int {
+			return strings.Compare(secure.NormalizeName(a.Name), secure.NormalizeName(b.Name))
+		})
+		var registered, waiting, unregistered []personView
+		for _, p := range byName {
+			pv := personView{Participant: p, Match: matchLabel(p.Members)}
+			switch {
+			case !p.Registered:
+				unregistered = append(unregistered, pv)
+			case p.WaitingList:
+				waiting = append(waiting, pv)
+			default:
+				registered = append(registered, pv)
+			}
+		}
 		data = &eventPageData{
 			eventView:   s.eventView(ev, true),
 			Description: plainText(ev.Description),
 			Back:        calendarLink(viewWeek, midnight(ev.Start, s.paris)),
 			Lists: []peopleList{
-				{Title: "Inscrits", ID: "inscrits"},
-				{Title: "Liste d'attente", ID: "attente"},
-				{Title: "Non inscrits : pilotes et payeurs", ID: "non-inscrits"},
+				{Title: "Inscrits", ID: "inscrits", People: registered},
+				{Title: "Liste d'attente", ID: "attente", People: waiting},
+				{Title: "Non inscrits : pilotes et payeurs", ID: "non-inscrits", People: unregistered},
 			},
-		}
-		for _, p := range ev.Participants {
-			i := 0
-			switch {
-			case !p.Registered:
-				i = 2
-			case p.WaitingList:
-				i = 1
-			}
-			data.Lists[i].People = append(data.Lists[i].People, personView{Participant: p, Match: matchLabel(p.Members)})
-		}
-		for _, l := range data.Lists {
-			slices.SortStableFunc(l.People, func(a, b personView) int {
-				return strings.Compare(secure.NormalizeName(a.Name), secure.NormalizeName(b.Name))
-			})
 		}
 	}
 	p, err := s.adminPage(r, title)

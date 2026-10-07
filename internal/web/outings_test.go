@@ -19,7 +19,7 @@ func outingOn(id, title string, start time.Time) calendar.Participation {
 	return calendar.Participation{Event: calendar.Event{ID: id, Title: title, Start: start, End: start.Add(3 * time.Hour)}}
 }
 
-// Review focus: a title with a tab, double spaces or capitals still matches.
+// A title with a tab, double spaces or capitals still matches.
 func TestAttachLinesToOutings(t *testing.T) {
 	paris, err := time.LoadLocation("Europe/Paris")
 	require.NoError(t, err)
@@ -80,7 +80,7 @@ func TestOutingSignals(t *testing.T) {
 		"Mollie not settled":        {outing{Participation: held, Mollie: []payments.CollectedLine{unsettled}}, []string{signalMollie}},
 		"Mollie checked by someone": {outing{Participation: held, Mollie: []payments.CollectedLine{checked}}, nil},
 	} {
-		assert.Equal(t, c.want, signals(c.o), name)
+		assert.Equal(t, c.want, c.o.Signals(), name)
 	}
 }
 
