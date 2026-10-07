@@ -181,8 +181,12 @@ func (s *Server) adminNotices(ctx context.Context) ([]notice, error) {
 		if st.kind == imports.Members && !has { // the closed form says more
 			continue
 		}
+		linkText := "Refaire l'import"
+		if st.kind == imports.Calendar { // nothing to upload by hand
+			linkText = "Voir le dernier calendrier reçu"
+		}
 		out = append(out, notice{Kind: noticeWarning, Text: fmt.Sprintf(st.banner, s.formatDate(st.last.ImportedAt)),
-			Link: st.link, LinkText: "Refaire l'import"})
+			Link: st.link, LinkText: linkText})
 	}
 	failed, err := s.outbox.FailedCount(ctx)
 	if err != nil {

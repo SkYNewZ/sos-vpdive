@@ -76,6 +76,7 @@ func TestLoadValidProductionAppliesDefaults(t *testing.T) {
 	assert.Equal(t, 336*time.Hour, c.MembersMaxAge)
 	assert.Equal(t, 168*time.Hour, c.PaymentsMaxAge)
 	assert.Equal(t, 168*time.Hour, c.VPayDiveMaxAge)
+	assert.Equal(t, 48*time.Hour, c.CalendarMaxAge)
 	assert.Empty(t, c.ImportToken, "no pushed imports by default")
 	assert.Equal(t, 48*time.Hour, c.AgeWarnAfter)
 	assert.Equal(t, 168*time.Hour, c.AgeAlertAfter)
@@ -148,6 +149,7 @@ func TestLoadProductionRules(t *testing.T) {
 		{"bad duration", func(m map[string]string) { m["MEMBERS_MAX_AGE"] = "two weeks" }, "MEMBERS_MAX_AGE"},
 		{"bad payments age", func(m map[string]string) { m["PAYMENTS_MAX_AGE"] = "a week" }, "PAYMENTS_MAX_AGE"},
 		{"bad VPayDive age", func(m map[string]string) { m["VPAYDIVE_MAX_AGE"] = "a week" }, "VPAYDIVE_MAX_AGE"},
+		{"bad calendar age", func(m map[string]string) { m["CALENDAR_MAX_AGE"] = "two days" }, "CALENDAR_MAX_AGE"},
 		{"short import token", func(m map[string]string) { m["IMPORT_TOKEN"] = strings.Repeat("t", 31) }, "IMPORT_TOKEN"},
 		{"bad log level", func(m map[string]string) { m["LOG_LEVEL"] = "loud" }, "LOG_LEVEL"},
 		{"bad proxy", func(m map[string]string) { m["TRUSTED_PROXIES"] = "10.0.0.0/8, nope" }, "TRUSTED_PROXIES"},

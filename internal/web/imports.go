@@ -47,6 +47,7 @@ type importsData struct {
 	Members  membersSection
 	Payments paymentsSection
 	Mollie   mollieSection
+	Calendar *imports.Info // latest calendar pushed by the script (lot 8)
 }
 
 // importErrors are shown beside the upload and the confirmation of a section.
@@ -149,6 +150,13 @@ func (s *Server) importsView(ctx context.Context, d *importsData) error {
 	}
 	if err := fillLines(ctx, &d.Mollie.linesSection, s.mollie); err != nil {
 		return err
+	}
+	cal, ok, err := imports.Last(ctx, s.db, imports.Calendar)
+	if err != nil {
+		return err
+	}
+	if ok {
+		d.Calendar = &cal
 	}
 	d.Mollie.ToCheck, d.Payments.ToCheck, err = s.checks.Count(ctx)
 	return err

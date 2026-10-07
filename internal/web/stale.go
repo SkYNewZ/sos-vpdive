@@ -27,6 +27,7 @@ func (s *Server) importAges() []importAge {
 		{imports.Members, s.cfg.MembersMaxAge, "La liste des membres date du %s. Pense à refaire l'import.", importsPath},
 		{imports.Payments, s.cfg.PaymentsMaxAge, "Les paiements datent du %s. Pense à refaire l'import.", importsPath + "#paiements-titre"},
 		{imports.Mollie, s.cfg.VPayDiveMaxAge, "Les encaissements Mollie datent du %s. Pense à refaire l'import.", importsPath + "#encaissements-titre"},
+		{imports.Calendar, s.cfg.CalendarMaxAge, "Le calendrier date du %s. Le script d'import est peut-être en panne.", importsPath + "#calendrier-titre"},
 	}
 }
 
@@ -89,8 +90,11 @@ func (s *Server) alertStale(ctx context.Context, last imports.Info) (bool, error
 		case string(done) == id:
 			return nil
 		}
-		text := fmt.Sprintf("Le dernier import (%s) date du %s.\n\nSi un script dépose les exports, il est peut-être en panne. Refais l'import",
-			exportNames[last.Kind], s.formatDate(last.ImportedAt))
+		advice := "Si un script dépose les exports, il est peut-être en panne. Refais l'import"
+		if last.Kind == imports.Calendar { // only the script brings it
+			advice = "Seul le script d'import dépose le calendrier, et il est peut-être en panne. Dernier calendrier reçu"
+		}
+		text := fmt.Sprintf("Le dernier import (%s) date du %s.\n\n%s", exportNames[last.Kind], s.formatDate(last.ImportedAt), advice)
 		if err := s.queueImportsMail(ctx, tx, mail.EventImportStale, "Import ancien : "+exportNames[last.Kind], text); err != nil {
 			return err
 		}
