@@ -317,14 +317,22 @@ func TestWebMCPOnTheMemberForm(t *testing.T) {
 	assert.Contains(t, body, `toolname="envoyerDemandeVPDive" tooldescription="Prépare`)
 	assert.NotContains(t, body, "toolautosubmit", "the member checks the form and sends it")
 	assert.Contains(t, body, `toolparamdescription="Toujours vide."`, "an agent filling the honeypot would have the request refused")
+	assert.NotContains(t, body, "disabled", "WebMCP leaves disabled controls out of the tool: hidden fieldsets stay enabled")
+	assert.NotRegexp(t, `data-required required`, body, "no category chosen yet: no dedicated field is required")
 	assert.Empty(t, rec.Header().Get("Origin-Trial"), "no token, no header")
 
 	e.deps.Config.WebMCPOriginTrial = "token-abc"
 	assert.Equal(t, "token-abc", e.do(t, http.MethodGet, publicHost, "/", nil).Header().Get("Origin-Trial"))
 	short := validRequest(e.formKey(t))
 	short.Set("description", "trop court")
+	for _, c := range e.deps.Tickets.Catalog.Public() {
+		if slices.ContainsFunc(c.Fields, func(f tickets.Field) bool { return f.Required }) {
+			short.Set("categorie", c.ID)
+		}
+	}
 	back := e.sendRequest(t, short)
 	require.Equal(t, http.StatusUnprocessableEntity, back.Code)
+	assert.Contains(t, back.Body.String(), `data-required required`, "the chosen category's required fields are required")
 	assert.Equal(t, "token-abc", back.Header().Get("Origin-Trial"), "the form coming back keeps its tool")
 	assert.Empty(t, e.do(t, http.MethodGet, adminHost, "/connexion", nil).Header().Get("Origin-Trial"), "the committee site exposes no tool")
 }

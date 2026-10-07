@@ -47,7 +47,7 @@
 </div>
 
 {{range $c := $d.Categories}}{{if or $c.Help $c.Fields}}
-<fieldset class="panel flex flex-col gap-4 bg-base-200 p-4" data-category="{{$c.ID}}"{{if ne $c.ID $d.Category}} hidden disabled{{end}}>
+<fieldset class="panel flex flex-col gap-4 bg-base-200 p-4" data-category="{{$c.ID}}"{{if ne $c.ID $d.Category}} hidden{{end}}>
 <legend class="px-1 font-semibold">{{$c.Label}}</legend>
 {{with $c.Help}}<p class="whitespace-pre-line">{{.}}</p>{{end}}
 {{range $f := $c.Fields}}{{template "categoryField" (formField $c.ID $f $d)}}{{end}}
@@ -97,4 +97,4 @@
 {{with .Error}}<p id="err-{{$.Name}}" class="font-semibold text-error">{{.}}</p>{{end}}
 </div>{{end}}
 
-{{define "fieldAttrs"}}{{if .Required}} required{{end}}{{if .Error}} aria-invalid="true" aria-describedby="err-{{.Name}}"{{end}}{{end}}
+{{define "fieldAttrs"}}{{if .Required}} data-required{{if .Shown}} required{{end}}{{end}}{{if .Error}} aria-invalid="true" aria-describedby="err-{{.Name}}"{{end}}{{end}}
