@@ -1,22 +1,19 @@
-// Package admins loads the committee accounts file (spec §4.1): identifier,
-// display name, function and argon2id password hash. Accounts live in this
-// file, not in the database, and the file is reloaded when it changes.
+// Package admins keeps the committee accounts (spec §4.1 as amended):
+// identifier, display name, function and argon2id password hash, in the
+// database. The owner creates them on the committee site; a temporary
+// password is changed at the first sign-in.
 package admins
 
 import (
-	"bytes"
+	"crypto/rand"
 	"crypto/sha256"
-	"errors"
-	"fmt"
 	"html/template"
-	"io"
 	"regexp"
 	"strings"
-
-	dicebear "github.com/dicebear/dicebear-go/v10"
-	"github.com/dicebear/styles/v10"
-	"go.yaml.in/yaml/v3"
 )
+
+// MinPasswordLength is the shortest password a resolver may choose.
+const MinPasswordLength = 12
 
 var (
 	usernamePattern = regexp.MustCompile(`^[a-z0-9._-]{1,32}$`)
@@ -28,95 +25,51 @@ var (
 // account is cited; there are no permission levels. PushoverUserKey, when
 // set, gets the committee alerts on Pushover (spec §6, as amended).
 type Account struct {
-	Username        string       `yaml:"username"`
-	Name            string       `yaml:"name"`
-	Role            string       `yaml:"role"`
-	PasswordHash    string       `yaml:"password_hash"`
-	PushoverUserKey string       `yaml:"pushover_user_key"`
-	Avatar          template.URL `yaml:"-"`
+	Username           string
+	Name               string
+	Role               string
+	PasswordHash       string
+	MustChangePassword bool // a temporary password is in place
+	PushoverUserKey    string
+	Avatar             template.URL
 }
 
 // CredentialHash fingerprints the password hash. A session stores it and
-// stays valid only while it matches the accounts file.
+// stays valid only while it matches the account.
 func (a Account) CredentialHash() []byte {
 	sum := sha256.Sum256([]byte(a.PasswordHash))
 	return sum[:]
 }
 
-type accountsFile struct {
-	Admins []Account `yaml:"admins"`
+// ValidUsername reports whether u can identify an account.
+func ValidUsername(u string) bool {
+	return usernamePattern.MatchString(u)
 }
 
-var yamlLinePattern = regexp.MustCompile(`line (\d+)`)
-
-// yamlError keeps only the line numbers of a decoder error: its text can
-// quote file values (names, password hashes).
-func yamlError(err error) error {
-	matches := yamlLinePattern.FindAllStringSubmatch(err.Error(), -1)
-	lines := make([]string, 0, len(matches))
-	for _, m := range matches {
-		lines = append(lines, m[1])
-	}
-	switch len(lines) {
-	case 0:
-		return errors.New("accounts file: invalid YAML")
-	case 1:
-		return fmt.Errorf("accounts file: invalid YAML at line %s", lines[0])
-	}
-	return fmt.Errorf("accounts file: invalid YAML (lines %s)", strings.Join(lines, ", "))
+// ValidPushoverKey reports whether k looks like a Pushover user key.
+func ValidPushoverKey(k string) bool {
+	return pushoverKeyPattern.MatchString(k)
 }
 
-// Parse decodes and validates an accounts file. Unknown keys are refused.
-// Errors cite accounts by position and never echo a value.
-func Parse(data []byte) ([]Account, error) {
-	dec := yaml.NewDecoder(bytes.NewReader(data))
-	dec.KnownFields(true)
-	var f accountsFile
-	if err := dec.Decode(&f); err != nil {
-		if errors.Is(err, io.EOF) {
-			return nil, errors.New("accounts file is empty")
-		}
-		return nil, yamlError(err)
+// temporaryAlphabet leaves out 0, 1, l and o, easily misread when the
+// password is read aloud or copied from a screen. 32 symbols: a random byte
+// masked to 5 bits picks one uniformly.
+const temporaryAlphabet = "abcdefghijkmnpqrstuvwxyz23456789"
+
+// TemporaryPassword returns 16 random symbols (80 bits) in four groups of
+// four joined by dashes, such as kx7p-29mq-tr4w-hn3c. The dashes are part of
+// the password.
+func TemporaryPassword() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		panic(err) //nolint:forbidigo // unreachable: crypto/rand.Read never returns an error on Go ≥ 1.24
 	}
-	if len(f.Admins) == 0 {
-		return nil, errors.New("accounts file declares no account")
+	var out strings.Builder
+	for i, c := range b {
+		if i > 0 && i%4 == 0 {
+			out.WriteByte('-')
+		}
+		out.WriteByte(temporaryAlphabet[c&31])
 	}
-	var errs []error
-	first := map[string]int{}
-	for i, a := range f.Admins {
-		where := fmt.Sprintf("admins[%d]", i)
-		if !usernamePattern.MatchString(a.Username) {
-			errs = append(errs, fmt.Errorf("%s: username must match %s", where, usernamePattern))
-		}
-		if j, dup := first[a.Username]; dup {
-			errs = append(errs, fmt.Errorf("%s: username duplicates admins[%d]", where, j))
-		} else {
-			first[a.Username] = i
-		}
-		if strings.TrimSpace(a.Name) == "" {
-			errs = append(errs, fmt.Errorf("%s: name is empty", where))
-		}
-		if strings.TrimSpace(a.Role) == "" {
-			errs = append(errs, fmt.Errorf("%s: role is empty", where))
-		}
-		if _, err := parseHash(a.PasswordHash); err != nil {
-			errs = append(errs, fmt.Errorf("%s: password_hash: %w", where, err))
-		}
-		if a.PushoverUserKey != "" && !pushoverKeyPattern.MatchString(a.PushoverUserKey) {
-			errs = append(errs, fmt.Errorf("%s: pushover_user_key must be the 30 letters and digits of a Pushover user key", where))
-		}
-	}
-	if err := errors.Join(errs...); err != nil {
-		return nil, err
-	}
-	style, err := dicebear.NewStyle([]byte(styles.VoxelArt))
-	if err != nil {
-		return nil, fmt.Errorf("avatar style: %w", err)
-	}
-	for i := range f.Admins {
-		if f.Admins[i].Avatar, err = avatarURI(style, f.Admins[i].Username); err != nil {
-			return nil, err
-		}
-	}
-	return f.Admins, nil
+	return out.String()
 }

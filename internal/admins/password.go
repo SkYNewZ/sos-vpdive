@@ -28,7 +28,7 @@ const (
 
 var b64 = base64.RawStdEncoding
 
-var errBadHash = errors.New("not an argon2id hash produced by hash-password")
+var errBadHash = errors.New("not an argon2id hash produced by HashPassword")
 
 type argonParams struct {
 	time    uint32

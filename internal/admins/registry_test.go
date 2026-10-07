@@ -1,112 +1,241 @@
 package admins
 
 import (
+	"bytes"
 	"context"
+	"database/sql"
 	"log/slog"
-	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/SkYNewZ/sos-vpdive/internal/secure"
+	"github.com/SkYNewZ/sos-vpdive/internal/store"
 )
 
-func writeFile(t *testing.T, path, content string) {
+const testPassword = "correct horse battery staple"
+
+// testHash is computed once: argon2id with 64 MiB is slow on purpose.
+var testHash = sync.OnceValue(func() string {
+	h, err := HashPassword(testPassword)
+	if err != nil {
+		return "unreachable"
+	}
+	return h
+})
+
+func alice() Account {
+	return Account{Username: "alice", Name: "Alice", Role: "Présidente", PasswordHash: testHash()}
+}
+
+func bob() Account {
+	return Account{Username: "bob", Name: "Bob", Role: "Trésorier", PasswordHash: testHash()}
+}
+
+func testKeys(t *testing.T) *secure.Keys {
 	t.Helper()
-	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+	keys, err := secure.NewKeys(bytes.Repeat([]byte{7}, 32))
+	require.NoError(t, err)
+	return keys
 }
 
-func newRegistry(t *testing.T, content string) (*Registry, string) {
+func newRegistry(t *testing.T, accounts ...Account) (*Registry, *sql.DB) {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "admins.yaml")
-	writeFile(t, path, content)
-	r, err := Load(path, slog.New(slog.DiscardHandler))
+	ctx := context.Background()
+	db, err := store.Open(ctx, filepath.Join(t.TempDir(), store.FileName))
 	require.NoError(t, err)
-	return r, path
+	t.Cleanup(func() { assert.NoError(t, db.Close()) })
+	r, err := Open(ctx, db, testKeys(t), slog.New(slog.DiscardHandler), time.Now)
+	require.NoError(t, err)
+	for _, a := range accounts {
+		require.NoError(t, r.Insert(ctx, a))
+	}
+	return r, db
 }
 
-func TestLoadRefusesInvalidFileAtStartup(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "admins.yaml")
-	writeFile(t, path, "admins: []\n")
-	_, err := Load(path, slog.Default())
-	require.Error(t, err)
-	_, err = Load(filepath.Join(t.TempDir(), "missing.yaml"), slog.Default())
-	require.Error(t, err)
+func TestInsertSealsNameAndPushoverKey(t *testing.T) {
+	a := alice()
+	a.PushoverUserKey = strings.Repeat("k", 30)
+	r, db := newRegistry(t, a)
+
+	got, ok := r.Get("alice")
+	require.True(t, ok)
+	assert.Equal(t, "Alice", got.Name)
+	assert.Equal(t, a.PushoverUserKey, got.PushoverUserKey)
+	assert.NotEmpty(t, got.Avatar)
+
+	var name, key []byte
+	require.NoError(t, db.QueryRowContext(context.Background(),
+		`SELECT name, pushover_user_key FROM accounts WHERE username = 'alice'`).Scan(&name, &key))
+	assert.NotContains(t, string(name), "Alice")
+	assert.NotContains(t, string(key), a.PushoverUserKey)
 }
 
-func TestReloadReportsRemovedAndChangedAccounts(t *testing.T) {
-	r, path := newRegistry(t, accountsYAML(alice(), bob()))
+func TestInsertRefusesInvalidAndTaken(t *testing.T) {
+	r, _ := newRegistry(t, alice())
+	ctx := context.Background()
+	assert.ErrorIs(t, r.Insert(ctx, alice()), ErrTaken)
+	for _, a := range []Account{
+		{Username: "Alice", Name: "A", Role: "R"},
+		{Username: "", Name: "A", Role: "R"},
+		{Username: "carol", Name: " ", Role: "R"},
+		{Username: "carol", Name: "Carol", Role: ""},
+	} {
+		assert.ErrorIs(t, r.Insert(ctx, a), ErrInvalid, a)
+	}
+}
 
-	changed, err := r.Reload()
+func TestCreateGivesATemporaryPassword(t *testing.T) {
+	r, _ := newRegistry(t)
+	password, err := r.Create(context.Background(), "carol", " Carol ", "Secrétaire")
 	require.NoError(t, err)
-	assert.Empty(t, changed, "unchanged file")
 
-	renamed := alice()
-	renamed.Name = "Alice M."
-	writeFile(t, path, accountsYAML(renamed, bob()))
-	changed, err = r.Reload()
+	a, ok := r.Get("carol")
+	require.True(t, ok)
+	assert.Equal(t, "Carol", a.Name)
+	assert.True(t, a.MustChangePassword)
+	ok, err = VerifyPassword(a.PasswordHash, password)
 	require.NoError(t, err)
-	assert.Empty(t, changed, "a new display name keeps sessions")
+	assert.True(t, ok)
+}
+
+func TestTemporaryPasswordShape(t *testing.T) {
+	seen := map[string]bool{}
+	for range 200 {
+		p := TemporaryPassword()
+		assert.Regexp(t, `^[a-km-np-z2-9]{4}(-[a-km-np-z2-9]{4}){3}$`, p)
+		assert.False(t, seen[p])
+		seen[p] = true
+	}
+}
+
+func TestResetPasswordCallsOnChange(t *testing.T) {
+	r, _ := newRegistry(t, alice(), bob())
+	calls := 0
+	r.OnChange = func(context.Context) { calls++ }
+
+	password, err := r.ResetPassword(context.Background(), "alice")
+	require.NoError(t, err)
+	assert.Equal(t, 1, calls)
 	a, _ := r.Get("alice")
-	assert.Equal(t, "Alice M.", a.Name)
+	assert.True(t, a.MustChangePassword)
+	ok, err := VerifyPassword(a.PasswordHash, password)
+	require.NoError(t, err)
+	assert.True(t, ok)
 
-	newPassword := alice()
-	newPassword.PasswordHash, err = HashPassword("another long password")
+	_, err = r.ResetPassword(context.Background(), "carol")
+	assert.ErrorIs(t, err, ErrNotFound)
+}
+
+func TestChangePasswordKeepsOneSession(t *testing.T) {
+	a := alice()
+	a.MustChangePassword = true
+	r, db := newRegistry(t, a)
+	ctx := context.Background()
+	for _, token := range []string{"kept", "other"} {
+		_, err := db.ExecContext(ctx,
+			`INSERT INTO sessions (token_hash, username, credential_hash, created_at, expires_at) VALUES (?, 'alice', ?, 0, 0)`,
+			[]byte(token), a.CredentialHash())
+		require.NoError(t, err)
+	}
+
+	assert.ErrorIs(t, r.ChangePassword(ctx, "alice", "short", []byte("kept")), ErrTooShort)
+	assert.ErrorIs(t, r.ChangePassword(ctx, "alice", testPassword, []byte("kept")), ErrSamePassword)
+	assert.ErrorIs(t, r.ChangePassword(ctx, "carol", "a brand new password", nil), ErrNotFound)
+
+	require.NoError(t, r.ChangePassword(ctx, "alice", "a brand new password", []byte("kept")))
+	got, _ := r.Get("alice")
+	assert.False(t, got.MustChangePassword)
+	for token, valid := range map[string]bool{"kept": true, "other": false} {
+		var credential []byte
+		require.NoError(t, db.QueryRowContext(ctx, `SELECT credential_hash FROM sessions WHERE token_hash = ?`, []byte(token)).Scan(&credential))
+		_, ok := r.Current("alice", credential)
+		assert.Equal(t, valid, ok, token)
+	}
+}
+
+func TestSetPushoverKey(t *testing.T) {
+	r, _ := newRegistry(t, alice())
+	ctx := context.Background()
+	key := strings.Repeat("a1", 15)
+	assert.ErrorIs(t, r.SetPushoverKey(ctx, "alice", "too short"), ErrPushoverKey)
+	require.NoError(t, r.SetPushoverKey(ctx, "alice", key))
+	a, _ := r.Get("alice")
+	assert.Equal(t, key, a.PushoverUserKey)
+	require.NoError(t, r.SetPushoverKey(ctx, "alice", ""))
+	a, _ = r.Get("alice")
+	assert.Empty(t, a.PushoverUserKey)
+}
+
+func TestDeleteCallsOnChange(t *testing.T) {
+	r, _ := newRegistry(t, alice(), bob())
+	calls := 0
+	r.OnChange = func(context.Context) { calls++ }
+	require.NoError(t, r.Delete(context.Background(), "bob"))
+	assert.Equal(t, 1, calls)
+	_, ok := r.Get("bob")
+	assert.False(t, ok)
+	assert.ErrorIs(t, r.Delete(context.Background(), "bob"), ErrNotFound)
+}
+
+// Inserting an account changes no session: OnChange is not called.
+func TestInsertDoesNotCallOnChange(t *testing.T) {
+	r, _ := newRegistry(t)
+	r.OnChange = func(context.Context) { t.Error("OnChange called on insert") }
+	require.NoError(t, r.Insert(context.Background(), alice()))
+}
+
+// reset-password writes from another process: Reload reports the account and
+// Watch hands the change to OnChange.
+func TestWatchSeesChangesFromAnotherProcess(t *testing.T) {
+	r, db := newRegistry(t, alice(), bob())
+	other, err := Open(context.Background(), db, testKeys(t), slog.New(slog.DiscardHandler), time.Now)
 	require.NoError(t, err)
-	writeFile(t, path, accountsYAML(newPassword))
-	changed, err = r.Reload()
-	require.NoError(t, err)
-	assert.Equal(t, []string{"alice", "bob"}, changed)
+
+	got := make(chan struct{}, 1)
+	r.OnChange = func(context.Context) { got <- struct{}{} }
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		r.Watch(ctx, 10*time.Millisecond)
+		close(done)
+	}()
+
+	require.NoError(t, other.Delete(context.Background(), "bob"))
+	select {
+	case <-got:
+	case <-time.After(5 * time.Second):
+		t.Fatal("OnChange not called")
+	}
+	cancel()
+	<-done
 	_, ok := r.Get("bob")
 	assert.False(t, ok)
 }
 
-// A file read while an editor rewrites it keeps the
-// previous accounts active.
-func TestReloadKeepsAccountsWhenFileBecomesInvalid(t *testing.T) {
-	r, path := newRegistry(t, accountsYAML(alice()))
-	original, err := os.ReadFile(path)
+func TestReloadReportsRemovedAndChangedAccounts(t *testing.T) {
+	r, db := newRegistry(t, alice(), bob())
+	ctx := context.Background()
+	changed, err := r.Reload(ctx)
 	require.NoError(t, err)
+	assert.Empty(t, changed)
 
-	for _, content := range []string{"", "admins:\n  - username: al"} {
-		writeFile(t, path, content)
-		_, err := r.Reload()
-		require.Error(t, err)
-		require.Error(t, r.Err())
-		_, ok := r.Get("alice")
-		assert.True(t, ok)
-	}
-
-	writeFile(t, path, string(original))
-	_, err = r.Reload()
+	_, err = db.ExecContext(ctx, `UPDATE accounts SET password_hash = 'x' WHERE username = 'alice'`)
 	require.NoError(t, err)
-	assert.NoError(t, r.Err())
-}
-
-func TestWatchCallsOnChangeAndStops(t *testing.T) {
-	r, path := newRegistry(t, accountsYAML(alice(), bob()))
-	ctx, cancel := context.WithCancel(context.Background())
-	got := make(chan []string, 1)
-	done := make(chan struct{})
-	go func() {
-		r.Watch(ctx, 10*time.Millisecond, func(_ context.Context, users []string) { got <- users })
-		close(done)
-	}()
-
-	writeFile(t, path, accountsYAML(alice()))
-	select {
-	case users := <-got:
-		assert.Equal(t, []string{"bob"}, users)
-	case <-time.After(5 * time.Second):
-		t.Fatal("onChange not called")
-	}
-	cancel()
-	<-done
+	_, err = db.ExecContext(ctx, `DELETE FROM accounts WHERE username = 'bob'`)
+	require.NoError(t, err)
+	changed, err = r.Reload(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"alice", "bob"}, changed)
 }
 
 func TestAccountsAreSortedByName(t *testing.T) {
-	r, _ := newRegistry(t, accountsYAML(bob(), alice()))
+	r, _ := newRegistry(t, bob(), alice())
 	accounts := r.Accounts()
 	require.Len(t, accounts, 2)
 	assert.Equal(t, "alice", accounts[0].Username)
@@ -114,15 +243,12 @@ func TestAccountsAreSortedByName(t *testing.T) {
 }
 
 func TestCurrentChecksAccountAndPassword(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "admins.yaml")
-	require.NoError(t, os.WriteFile(path, []byte(accountsYAML(alice())), 0o600))
-	r, err := Load(path, slog.New(slog.DiscardHandler))
-	require.NoError(t, err)
+	r, _ := newRegistry(t, alice())
 	a, ok := r.Current("alice", alice().CredentialHash())
 	require.True(t, ok)
 	assert.Equal(t, "Alice", a.Name)
 	_, ok = r.Current("alice", []byte("an older password hash"))
 	assert.False(t, ok, "the password changed since the session began")
 	_, ok = r.Current("bob", bob().CredentialHash())
-	assert.False(t, ok, "the account left the file")
+	assert.False(t, ok, "no such account")
 }
