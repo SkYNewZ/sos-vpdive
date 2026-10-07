@@ -8,6 +8,7 @@ import (
 	"html"
 	"net/http"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -120,11 +121,16 @@ func TestImportsPageShowsTheCalendar(t *testing.T) {
 	}
 	assert.Contains(t, page(), "Aucun calendrier reçu pour l'instant.")
 	require.Equal(t, http.StatusOK, e.push(t, "calendar", fixtureBytes(t, "calendar_valid.json"), importToken).Code)
-	body := page()
-	for _, want := range []string{`id="calendrier-titre"`, "du 02/09/2024 au 02/09/2027", `sm:mb-0">script</dd>`, `sm:mb-0">3</dd>`} {
-		assert.Contains(t, body, want)
+	_, rest, found := strings.Cut(page(), `id="calendrier-titre"`)
+	require.True(t, found, "the calendar section is on the page")
+	section, _, found := strings.Cut(rest, "</section>")
+	require.True(t, found, "the calendar section ends")
+	for _, want := range []string{"du 02/09/2024 au 02/09/2027", `sm:mb-0">script</dd>`, `sm:mb-0">3</dd>`} {
+		assert.Contains(t, section, want)
 	}
-	assert.NotContains(t, body, `value="calendar"`, "no upload form for the calendar")
+	assert.NotContains(t, section, "Aucun calendrier reçu pour l'instant.")
+	assert.NotContains(t, section, "<form", "no upload form for the calendar")
+	assert.NotContains(t, section, `type="file"`, "no file input for the calendar")
 }
 
 // Past CALENDAR_MAX_AGE, a banner says the script may be broken, and the
@@ -144,9 +150,11 @@ func TestCalendarAges(t *testing.T) {
 	body := home()
 	assert.Contains(t, body, "Le calendrier date du 02/09/2026. Le script d'import est peut-être en panne.")
 	assert.Contains(t, body, "#calendrier-titre")
+	assert.Contains(t, body, "Voir le dernier calendrier reçu")
 
 	mails := e.staleMails(t)
 	require.Len(t, mails, 1)
 	assert.Equal(t, "Import ancien : calendrier", mails[0].Subject)
 	assert.NotContains(t, mails[0].Text, "Refais l'import")
+	assert.Contains(t, mails[0].Text, "Dernier calendrier reçu")
 }
