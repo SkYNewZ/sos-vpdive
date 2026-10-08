@@ -1,0 +1,24 @@
+{{define "main"}}{{$d := .Data}}
+<h1 class="text-2xl font-bold text-primary">Journal de l'assistant</h1>
+<p class="mt-2">Qui a posé des questions, quand, et ce qu'elles ont coûté. Le journal ne garde ni les questions ni les réponses, et s'efface après 12 mois.</p>
+<section class="panel mt-6 p-4 lg:p-5" aria-labelledby="totaux">
+<h2 id="totaux" class="text-xl font-semibold">Totaux</h2>
+<div class="mt-3 overflow-x-auto"><table class="table">
+<thead><tr><th>Période</th><th>Compte</th><th>Questions</th><th>Jetons (entrée · sortie · cache)</th><th>Coût estimé</th></tr></thead>
+<tbody>
+{{range $d.Today}}<tr><td>Aujourd'hui</td><td>{{author .Account}}</td><td>{{.Questions}} questions</td><td>{{.Input}} · {{.Output}} · {{.CacheRead}}</td><td>{{dollars .Cost}}</td></tr>{{end}}
+{{range $d.Month}}<tr><td>Ce mois-ci</td><td>{{author .Account}}</td><td>{{.Questions}} questions</td><td>{{.Input}} · {{.Output}} · {{.CacheRead}}</td><td>{{dollars .Cost}}</td></tr>{{end}}
+{{if not $d.Month}}<tr><td colspan="5">Aucune question ce mois-ci.</td></tr>{{end}}
+</tbody></table></div>
+</section>
+<section class="panel mt-6 p-4 lg:p-5" aria-labelledby="questions">
+<h2 id="questions" class="text-xl font-semibold">100 dernières questions</h2>
+<div class="mt-3 overflow-x-auto"><table class="table table-sm">
+<thead><tr><th>Quand</th><th>Compte</th><th>Origine</th><th>Modèle</th><th>Appels</th><th>Outils</th><th>Jetons</th><th>Premier mot · durée</th><th>Coût</th><th>Issue</th></tr></thead>
+<tbody>{{range $d.Rows}}<tr>
+<td class="whitespace-nowrap">{{formatTime .At}}</td><td>{{author .Account}}</td><td>{{if eq .Origin "demande"}}Demande{{else}}Page{{end}}</td>
+<td>{{.Model}}{{if .Thinking}} · réflexion{{end}}</td><td>{{.Calls}}</td><td>{{.Tools}}</td><td>{{.Input}} · {{.Output}} · {{.CacheRead}}</td>
+<td>{{with .FirstMS}}{{if .Valid}}{{.Int64}} ms · {{end}}{{end}}{{.DurationMS}} ms</td><td>{{dollars .Cost}}</td><td>{{.Outcome}}</td>
+</tr>{{end}}</tbody></table></div>
+</section>
+{{end}}

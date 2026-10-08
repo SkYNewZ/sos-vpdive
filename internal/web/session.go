@@ -222,5 +222,9 @@ func (s *Server) Purge(ctx context.Context) error {
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE expires_at < ?`, cutoff); err != nil {
 		return fmt.Errorf("purge sessions: %w", err)
 	}
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM assistant_usage WHERE at < ?`,
+		s.now().AddDate(0, -usageRetention, 0).Unix()); err != nil {
+		return fmt.Errorf("purge assistant usage: %w", err)
+	}
 	return s.limiter.purge(ctx)
 }

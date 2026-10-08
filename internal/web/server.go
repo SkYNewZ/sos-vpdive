@@ -18,6 +18,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/admins"
+	"github.com/SkYNewZ/sos-vpdive/internal/assistant"
 	"github.com/SkYNewZ/sos-vpdive/internal/calendar"
 	"github.com/SkYNewZ/sos-vpdive/internal/config"
 	"github.com/SkYNewZ/sos-vpdive/internal/kb"
@@ -78,6 +79,10 @@ type Server struct {
 	paris     *time.Location
 	tracer    trace.Tracer
 
+	assistant       *assistant.Client // nil when the assistant is off
+	convs           *assistant.Store
+	assistantPrompt string
+
 	turnstile *Turnstile
 	limiter   *limiter
 	dummyHash string
@@ -137,6 +142,11 @@ func New(d Deps) (*Server, error) {
 	for _, f := range d.KB.Fiches {
 		s.fiches = append(s.fiches, suggest.Fiche{ID: f.ID, Title: f.Title, Answer: f.AnswerText})
 	}
+	if a := d.Config.Assistant; a != nil {
+		s.assistant = assistant.NewClient(d.Config.LLM, a.Model, a.Thinking)
+		s.convs = assistant.NewStore(d.Now)
+		s.assistantPrompt = assistantSystem(d.KB.Fiches)
+	}
 	funcs := template.FuncMap{
 		"static": s.assets.URL, "formatTime": s.formatTime, "formatDate": s.formatDate, "shortPeriod": payments.ShortPeriod, "author": s.tickets.AccountName,
 		"age": s.age, "accountOf": s.accountOf, "actor": s.actorName, "isoDate": isoDate,
@@ -152,6 +162,7 @@ func New(d Deps) (*Server, error) {
 		"shortDay":  func(t time.Time) string { return frShortDay(t.In(s.paris)) },
 		"longDay":   func(t time.Time) string { return frLongDay(t.In(s.paris)) },
 		"cart":      cartText,
+		"dollars":   dollars,
 	}
 	if s.pages, err = parsePages(funcs); err != nil {
 		return nil, err
@@ -248,6 +259,9 @@ func (s *Server) adminRoutes() *http.ServeMux {
 	s.handle(mux, "POST /envois/{id}/relancer", s.signedIn(s.retryMail))
 	// The event stream is neither traced nor logged (spec §9.9).
 	mux.HandleFunc("GET /evenements", s.events)
+	if s.assistant != nil {
+		s.handle(mux, "GET /assistant/journal", s.ownerOnly(s.assistantJournal))
+	}
 	s.handle(mux, "GET /{$}", s.signedIn(s.board))
 	return mux
 }
