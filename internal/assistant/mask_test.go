@@ -1,6 +1,7 @@
 package assistant
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -36,6 +37,40 @@ func TestMaskKeepsWholeAddresses(t *testing.T) {
 func TestMaskSeparatorsAndCase(t *testing.T) {
 	text, _ := Mask("+33-6-12-34-56-78, +33.6.12.34.56.78, 0033 6 12 34 56 78, +33 (0)6 12 34 56 78, fr7630006000011234567890189, Fr76 3000 6000 0112 3456 7890 189", nil)
 	assert.Equal(t, "[téléphone], [téléphone], [téléphone], [téléphone], [iban], [iban]", text)
+}
+
+func TestMaskUnicodeSpacesAndForeignNumbers(t *testing.T) {
+	cases := map[string]string{
+		"no-break space phone":        "06\u00a012\u00a034\u00a056\u00a078",
+		"narrow no-break space phone": "06\u202f12\u202f34\u202f56\u202f78",
+		"no-break space +33 phone":    "+33\u00a06\u00a012\u00a034\u00a056\u00a078",
+		"parenthesised +33":           "(+33) 6 12 34 56 78",
+		"parenthesised +33 glued":     "(+33)6 12 34 56 78",
+		"parenthesised 0033":          "(0033) 6 12 34 56 78",
+		"parenthesised +33 and (0)":   "(+33) (0)6 12 34 56 78",
+		"belgian":                     "+32 475 12 34 56",
+		"belgian with 00":             "0032 475 12 34 56",
+		"swiss":                       "+41 79 123 45 67",
+		"british":                     "+44 7911 123456",
+		"parenthesised belgian":       "(+32) 475 12 34 56",
+		"no-break space iban":         "FR76\u00a03000\u00a06000\u00a00112\u00a03456\u00a07890\u00a0189",
+		"narrow no-break space iban":  "FR76\u202f3000\u202f6000\u202f0112\u202f3456\u202f7890\u202f189",
+	}
+	for name, in := range cases {
+		want := "[téléphone]"
+		if strings.Contains(name, "iban") {
+			want = "[iban]"
+		}
+		text, _ := Mask("Appelle "+in+".", nil)
+		assert.Equal(t, "Appelle "+want+".", text, name)
+	}
+}
+
+func TestMaskLeavesDatesAmountsAndRequestNumbers(t *testing.T) {
+	in := "Sortie 05/01/2026, 05.01.2026, 15/08/2026 à 8h30, 0,50 €, 120 €, 1\u00a0250,00 €, CPP-0042, version 3.12.1."
+	text, emails := Mask(in, nil)
+	assert.Equal(t, in, text)
+	assert.Empty(t, emails)
 }
 
 func TestPlaceholder(t *testing.T) {
