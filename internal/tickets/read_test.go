@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/mail"
+	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 )
 
 func refs(rows []Row) []string {
@@ -262,4 +263,27 @@ func joinTexts(msgs []mail.Message) string {
 		b.WriteString(m.Text)
 	}
 	return b.String()
+}
+
+func TestByEmail(t *testing.T) {
+	e := newTestStore(t)
+	ctx := context.Background()
+	first, _ := e.submit(t)
+	e.submit(t)
+	e.submit(t)
+	require.NoError(t, e.apply(t, first, Command{Action: ActionClose}))
+	sub := submission(t)
+	sub.Email = "someone.else@example.org"
+	_, err := e.store.Submit(ctx, sub, nil)
+	require.NoError(t, err)
+
+	rows, err := e.store.ByEmail(ctx, "  "+strings.ToUpper(memberAddress))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"CPP-0003", "CPP-0002", "CPP-0001"}, refs(rows), "open first, then done; never another address")
+
+	rows, err = e.store.ByEmail(ctx, "nobody@example.org")
+	require.NoError(t, err)
+	assert.Empty(t, rows)
+	_, err = e.store.ByEmail(ctx, "two words@example.org")
+	require.ErrorIs(t, err, secure.ErrEmailSpace)
 }

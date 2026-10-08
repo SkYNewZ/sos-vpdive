@@ -220,3 +220,27 @@ func TestParticipationsCarryUnregistrations(t *testing.T) {
 	assert.Equal(t, []seen{{event: "evt-c", present: true}}, read("Bernard", "Hugo"),
 		"another person's unregistration stays on its own name")
 }
+
+func TestUnregistrations(t *testing.T) {
+	f := newFixture(t)
+	a := event(t, "evt-a", "2026-10-11T08:00:00+02:00", registered(101, "Martin", "Léa"))
+	a.Unregistrations = []Unregistration{
+		unreg("MARTIN", "Léa", "2026-10-03T09:00:00+02:00", "Paul GARNIER"),
+		unreg("Petit", "Chloé", "2026-10-01T18:42:00+02:00", ""),
+	}
+	require.NoError(t, f.push(t, window(a, event(t, "evt-b", "2026-11-15T08:00:00+01:00"))))
+	ctx := context.Background()
+
+	got, err := f.store.Unregistrations(ctx, "evt-a")
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Equal(t, "Petit", got[0].LastName, "oldest first, whatever the pushed order")
+	assert.Equal(t, time.Date(2026, 10, 3, 7, 0, 0, 0, time.UTC), got[1].Time.UTC(), "time read back")
+	assert.Equal(t, "Paul GARNIER", got[1].By)
+
+	for _, id := range []string{"evt-b", "evt-unknown"} {
+		got, err = f.store.Unregistrations(ctx, id)
+		require.NoError(t, err)
+		assert.Empty(t, got, id)
+	}
+}

@@ -175,6 +175,25 @@ func (s *Store) Event(ctx context.Context, id string) (_ Event, err error) {
 	return ev, nil
 }
 
+// Unregistrations returns the people who left event id, oldest first (lot 8
+// part 3). The outing page does not show them; the committee assistant does.
+func (s *Store) Unregistrations(ctx context.Context, id string) ([]Unregistration, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT data FROM calendar_unregistrations WHERE event_id = ? ORDER BY id`, id)
+	out, err := store.Collect(rows, err, func(rows *sql.Rows) (Unregistration, error) {
+		var sealed []byte
+		if err := rows.Scan(&sealed); err != nil {
+			return Unregistration{}, err
+		}
+		return s.openUnregistration(sealed)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("read unregistrations of a calendar event: %w", err)
+	}
+	// The script pushes them in its own order: the stable sort keeps it for equal times.
+	slices.SortStableFunc(out, func(a, b Unregistration) int { return a.Time.Compare(b.Time) })
+	return out, nil
+}
+
 // Participations returns the participations of the person of nameHash,
 // newest event first, by the rule of Event: the rows of the name hash itself,
 // and the unregistered ones (a pilot, a payer) of the VPDive accounts whose

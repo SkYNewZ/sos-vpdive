@@ -399,3 +399,53 @@ func TestNameCount(t *testing.T) {
 		assert.Equal(t, c.want, n, name)
 	}
 }
+
+func TestNameWords(t *testing.T) {
+	assert.Equal(t, []string{"jean", "michel", "roux"}, nameWords("Jean-Michel  ROUX"))
+	assert.Equal(t, []string{"lea", "martin"}, nameWords("Léa Martin"))
+	assert.Equal(t, []string{"oconnor"}, nameWords("O'Connor"), "an apostrophe joins, as NormalizeName does")
+	assert.Equal(t, []string{"lea"}, nameWords("Léa"), "a decomposed accent stays in its word")
+	assert.Empty(t, nameWords(" - "))
+}
+
+func TestSearch(t *testing.T) {
+	f := newFixture(t)
+	f.importFixture(t, "members_valid.xlsx")
+	ctx := context.Background()
+
+	got, err := f.store.Search(ctx, "MARTIN léa", 10)
+	require.NoError(t, err)
+	require.Len(t, got, 2, "the homonyms of the fixture")
+	for _, m := range got {
+		assert.True(t, m.Exact)
+		assert.Equal(t, 2, m.Shared)
+		assert.NotEmpty(t, m.Email)
+		assert.NotEmpty(t, m.NameHash)
+	}
+
+	got, err = f.store.Search(ctx, "hugo", 10)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "hugo.bernard@example.org", got[0].Email)
+	assert.Equal(t, "Bernard", got[0].LastName)
+	require.NotNil(t, got[0].Seasons)
+	assert.Equal(t, 1, got[0].Shared)
+
+	got, err = f.store.Search(ctx, "Paul Bernard", 10)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.False(t, got[0].Exact, "one word of two: partial")
+
+	got, err = f.store.Search(ctx, "Martin Durand", 1)
+	require.NoError(t, err)
+	assert.Len(t, got, 1, "the limit holds")
+	got, err = f.store.Search(ctx, "Martin", -1)
+	require.NoError(t, err)
+	assert.Empty(t, got, "a negative limit returns nothing instead of panicking")
+
+	for _, q := range []string{"Zoé Inconnue", "", "  "} {
+		got, err = f.store.Search(ctx, q, 10)
+		require.NoError(t, err)
+		assert.Empty(t, got, q)
+	}
+}
