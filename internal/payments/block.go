@@ -25,7 +25,8 @@ const (
 )
 
 // Block is the « Paiements VPDive » block of a request page: what the last
-// import says of the requester, never shown to members or sent to the model.
+// import says of the requester, never shown to members. The committee
+// assistant reads it, masked, as the member_payments tool.
 type Block struct {
 	State     BlockState
 	Import    imports.Info // the payments import in place
