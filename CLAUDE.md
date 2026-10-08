@@ -6,16 +6,13 @@ requests a day. Simplicity and robustness beat features.
 
 ## Source of truth
 
-The spec is `.local/spec.md` (French, not in this repo). It was reviewed and
-validated: it wins over this file, over existing code, and over preference.
+The user's requests. The spec `.local/spec.md` (French, not in this repo)
+described the initial lots, all delivered: it is background on why things work
+the way they do, not a gate. A request that departs from it needs no spec
+amendment; follow the request and name the departure in one line. If a request
+is ambiguous, ask.
 
-- It opens with a reading guide. Work is split into lots (§15), one at a time.
-- A lot is done when its §13 criteria pass.
-- If the spec is ambiguous, contradictory, or looks wrong: stop and ask. Do not
-  deviate silently.
-- Open questions live in §14. They are not yours to resolve.
-
-### Spec amendments decided by the user (they win over the spec text)
+### Decisions taken on top of the spec
 
 - `Referrer-Policy: same-origin` on every response, tracking pages included:
   `no-referrer` (§11.1) makes browsers send `Origin: null` on form posts, which
@@ -129,11 +126,11 @@ validated: it wins over this file, over existing code, and over preference.
 - This repo is public. README and docs are written as if for another club
   reusing the tool.
 
-## Stack, fixed by the spec
+## Stack
 
 - Go, standard library first (`net/http`, `html/template`, `log/slog`).
 - SQLite with a pure-Go driver, no CGO. Single binary, single instance.
-- Server-rendered HTML. Vanilla JS only where the spec requires it.
+- Server-rendered HTML. Vanilla JS only where a page needs it.
 - Tailwind CSS 4 + daisyUI 5, built with the Tailwind standalone CLI. No Node
   in the build.
 - Distroless image, non-root. One binary serves two hostnames.
@@ -157,12 +154,12 @@ No i18n framework.
 - The tool never connects to VPDive and never sends anything to its vendor.
 - Model output is never shown to members: it only selects articles and writes
   a summary for the committee (§5).
-- Design constraints of §12 override the defaults of any design skill.
+- §12 is the house style (club navy, one self-hosted font, theme `cpp`): new
+  pages stay in it, but a UX the user asks for wins over its bans.
 
 ## Out of bounds
 
 - `.env`, database files, or `.xlsx` outside `testdata/fixtures/` in git.
-- Anything the spec lists as out of scope (§2).
 - Key rotation, an ORM, a JS framework, a second datastore.
 
 ## Architecture
