@@ -237,8 +237,8 @@ Any provider that speaks Anthropic's Messages API works:
 | Anthropic (default) | `https://api.anthropic.com` | `claude-haiku-4-5-20251001` |
 | DeepSeek | `https://api.deepseek.com/anthropic` | `deepseek-flash` |
 
-Every call turns reasoning off. DeepSeek reasons by default and would
-otherwise spend the 400-token answer budget before writing anything.
+Every suggestion call turns reasoning off. DeepSeek reasons by default and
+would otherwise spend the 400-token answer budget before writing anything.
 
 ### Committee assistant
 
@@ -253,14 +253,15 @@ The model provider receives the resolver's text and the text of the request
 being analysed, with email addresses, phone numbers and IBANs masked. Every
 string a tool returns is masked the same way. The tools return member and
 participant names, seasons and licence end, payment lines, outings and carts,
-summaries of past requests and the fiches. One answer reads at most three
-people. Email addresses, phone numbers, IBANs, screenshots and internal notes
-never leave.
+summaries of past requests and the fiches. One answer reads the payments,
+outings and requests of three people at most; an outing it opens lists the
+names of all its participants. Email addresses, phone numbers and IBANs are
+masked before leaving. Screenshots and internal notes are never sent.
 
 Conversations live in the server's memory only: 30 minutes after the last
-question, 2 hours at most, and they go at logout, on an erasure and on
-restart. Each account gets `ASSISTANT_DAILY_QUESTIONS` questions a day (50 by
-default). The owner sees a usage journal at `/assistant/journal`: who asked,
+question, 2 hours at most, and they go at logout, on an erasure or a
+deletion, and on restart. Each account gets `ASSISTANT_DAILY_QUESTIONS`
+questions a day (50 by default). The owner sees a usage journal at `/assistant/journal`: who asked,
 when, tokens and an estimated cost (`ASSISTANT_PRICE_*`), never the questions.
 `ASSISTANT_MODEL` picks the model (`LLM_MODEL` when empty) and
 `ASSISTANT_THINKING` turns its reasoning on. The provider must support tool
@@ -346,8 +347,9 @@ On a real Android phone and a real iPhone:
 - Suggestions send the model provider a request's category, extra fields and
   description, never the requester's name, email address or screenshots. With
   the committee assistant on, it also gets the resolver's masked text and the
-  names and data the tools read. Email addresses, phone numbers, IBANs,
-  screenshots and internal notes are never sent (see « Committee assistant »).
+  names and data the tools read. Email addresses, phone numbers and IBANs are
+  masked before leaving; screenshots and internal notes are never sent (see
+  « Committee assistant »).
 - Erasing a person on the « Effacement » page deletes their requests, their
   member entry and every payment, Mollie line, calendar participation and
   unregistration under their name, a namesake's included. Where they

@@ -119,9 +119,11 @@ is ambiguous, ask.
   journal `/assistant/journal` without content. The model gets masked text
   (`assistant.Mask`) and opaque refs (`m1`), never an address. Tool results are
   masked string by string (`assistant.MaskJSON`): masking the encoded JSON
-  missed a phone number after a newline escape. An answer reads at most 3
-  people. Its output is rendered by `assistant.Render` only (links and images
-  neutralised). §5.2's « no tools » and §12.4's bans no longer hold for it.
+  missed a phone number after a newline escape. An answer reads the payments,
+  outings and requests of at most 3 people (the `outing` tool still lists every
+  participant). Its output is rendered by `assistant.Render` only (links and
+  images neutralised). §5.2's « no tools » and §12.4's bans no longer hold for
+  it.
 
 ## Private material: `.local/` is gitignored
 
