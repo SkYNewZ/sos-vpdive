@@ -20,6 +20,7 @@ commands:
   healthcheck      exit 0 when the local server answers /healthz
   validate-kb      check the fiches of kb/ and list the marks left to fill in
   vapid-keys       print a new key pair for the committee's push notifications
+  assistant-bench  answer message files with the assistant, headless (-messages DIR -out DIR)
 `
 
 // version names the build in logs and Sentry events. The Makefile and the
@@ -69,6 +70,8 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout 
 		return validateKB(stdout)
 	case "vapid-keys":
 		return vapidKeys(stdout)
+	case "assistant-bench":
+		return assistantBench(ctx, getenv, args[1:], stdout)
 	default:
 		return usageError{fmt.Sprintf("unknown command %q", args[0])}
 	}
