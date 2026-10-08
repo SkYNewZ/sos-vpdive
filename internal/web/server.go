@@ -260,7 +260,10 @@ func (s *Server) adminRoutes() *http.ServeMux {
 	// The event stream is neither traced nor logged (spec §9.9).
 	mux.HandleFunc("GET /evenements", s.events)
 	if s.assistant != nil {
+		s.handle(mux, "GET /assistant", s.signedIn(s.assistantPage))
 		s.handle(mux, "GET /assistant/journal", s.ownerOnly(s.assistantJournal))
+		s.handle(mux, "GET /assistant/{id}", s.signedIn(s.assistantConversation))
+		s.handle(mux, "POST /assistant/messages", s.signedIn(s.assistantAsk))
 	}
 	s.handle(mux, "GET /{$}", s.signedIn(s.board))
 	return mux

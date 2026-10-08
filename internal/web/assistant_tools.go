@@ -176,9 +176,9 @@ func (t *toolbox) run(ctx context.Context, name string, input json.RawMessage) (
 func failureCode(ctx context.Context) string {
 	switch err := ctx.Err(); {
 	case errors.Is(err, context.DeadlineExceeded):
-		return "timeout"
+		return outcomeTimeout
 	case errors.Is(err, context.Canceled):
-		return "canceled"
+		return outcomeCanceled
 	}
 	return "store"
 }

@@ -10,7 +10,10 @@ import (
 	"strings"
 )
 
-//go:embed static templates
+// An embedded directory leaves out its files starting with "_": the
+// template partials are listed on their own.
+//
+//go:embed static templates templates/_*.html
 var embedded embed.FS
 
 // assets serves the embedded static files with versioned URLs: a URL that

@@ -52,13 +52,18 @@ func parsePages(funcs template.FuncMap) (map[string]*template.Template, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list templates: %w", err)
 	}
+	partials, err := fs.Glob(embedded, "templates/_*.html")
+	if err != nil {
+		return nil, fmt.Errorf("list partials: %w", err)
+	}
 	pages := map[string]*template.Template{}
 	for _, n := range names {
 		base := path.Base(n)
-		if base == "layout.html" {
+		if base == "layout.html" || strings.HasPrefix(base, "_") {
 			continue
 		}
-		t, err := template.New(base).Funcs(funcs).ParseFS(embedded, "templates/layout.html", n)
+		files := append([]string{"templates/layout.html"}, partials...)
+		t, err := template.New(base).Funcs(funcs).ParseFS(embedded, append(files, n)...)
 		if err != nil {
 			return nil, fmt.Errorf("parse %s: %w", base, err)
 		}

@@ -85,17 +85,22 @@ type journalData struct {
 	Rows         []journalRow
 }
 
-// Outcomes the journal stores besides the error codes of assistant.Code.
+// Outcomes the journal stores: answered, refused by the quota, or a code
+// of assistant.Code.
 const (
 	outcomeOK       = "ok"
 	outcomeLimit    = "limit"
 	outcomeInternal = "internal"
+	outcomeTimeout  = "timeout"
+	outcomeCanceled = "canceled"
+	outcomeHTTP     = "http_error"
+	outcomeInvalid  = "invalid_output"
 )
 
 // outcomeLabel says how a question ended, in the journal.
 var outcomeLabel = map[string]string{
-	outcomeOK: "répondu", "timeout": "délai dépassé", "http_error": "erreur du fournisseur", "invalid_output": "réponse illisible",
-	outcomeLimit: "quota atteint", "canceled": "arrêté", outcomeInternal: "erreur interne",
+	outcomeOK: "répondu", outcomeTimeout: "délai dépassé", outcomeHTTP: "erreur du fournisseur", outcomeInvalid: "réponse illisible",
+	outcomeLimit: "quota atteint", outcomeCanceled: "arrêté", outcomeInternal: "erreur interne",
 }
 
 // assistantJournal shows the owner who used the assistant, when, and what
