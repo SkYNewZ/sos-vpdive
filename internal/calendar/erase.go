@@ -75,8 +75,8 @@ func (s *Store) EraseTx(ctx context.Context, tx *sql.Tx, nameHash []byte, last, 
 // participants; never with an empty name part. The next push whose bytes
 // differ brings the name back while VPDive keeps it.
 func (s *Store) forgetAuthor(ctx context.Context, tx *sql.Tx, last, first string) error {
-	l, f := secure.NormalizeName(last), secure.NormalizeName(first)
-	if l == "" || f == "" {
+	isMember := fullName(last, first)
+	if isMember == nil {
 		return nil
 	}
 	type row struct {
@@ -96,7 +96,7 @@ func (s *Store) forgetAuthor(ctx context.Context, tx *sql.Tx, last, first string
 		if err != nil {
 			return err
 		}
-		if n := secure.NormalizeName(u.By); n != l+f && n != f+l {
+		if !isMember(u.By) {
 			continue
 		}
 		u.By = ""
@@ -130,8 +130,8 @@ func (s *Store) persons(ctx context.Context, q store.Querier, nameHash []byte, l
 	for _, h := range named {
 		out[string(h)] = true
 	}
-	l, f := secure.NormalizeName(last), secure.NormalizeName(first)
-	if l == "" || f == "" {
+	isMember := fullName(last, first)
+	if isMember == nil {
 		return out, nil
 	}
 	rows, err = q.QueryContext(ctx, `SELECT person_hash, data FROM calendar_participants WHERE name_hash IS NULL`)
@@ -147,10 +147,23 @@ func (s *Store) persons(ctx context.Context, q store.Querier, nameHash []byte, l
 		if err != nil {
 			return nil, err
 		}
-		// NormalizeName keeps letters only: "MARTIN Léa" gives "martinlea".
-		if n := secure.NormalizeName(p.Name); n == l+f || n == f+l {
+		if isMember(p.Name) {
 			out[string(r[0])] = true
 		}
 	}
 	return out, nil
+}
+
+// fullName tells whether a name is the member's full name in either order;
+// NormalizeName keeps letters only: "MARTIN Léa" is Léa Martin's. Nil when a
+// name part is empty: never on half a name. For erasure only, never matching.
+func fullName(last, first string) func(name string) bool {
+	l, f := secure.NormalizeName(last), secure.NormalizeName(first)
+	if l == "" || f == "" {
+		return nil
+	}
+	return func(name string) bool {
+		n := secure.NormalizeName(name)
+		return n == l+f || n == f+l
+	}
 }

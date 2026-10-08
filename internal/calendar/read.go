@@ -37,13 +37,9 @@ func (e Event) Cancelled() bool { return strings.Contains(strings.ToLower(e.Titl
 // participant row, and their unregistrations from it (lot 8 part 3).
 type Participation struct {
 	Event           Event
-	Participant     Participant      // zero when only Unregistrations place the person there
+	Participant     *Participant     // nil when only Unregistrations place the person there
 	Unregistrations []Unregistration // oldest first
 }
-
-// Present reports a participant row: a stored participant always has a
-// VPDive id, a participation built from unregistrations alone has none.
-func (p Participation) Present() bool { return p.Participant.VPDiveID != 0 }
 
 // overlaps selects the events that overlap [?1, ?2), in Unix seconds: an
 // event that ends at ?1 or starts at ?2 is outside.
@@ -203,19 +199,13 @@ func (s *Store) Participations(ctx context.Context, nameHash []byte) (_ []Partic
 		     AND person_hash IN (SELECT person_hash FROM calendar_participants WHERE name_hash = ?1)
 		   GROUP BY person_hash HAVING COUNT(DISTINCT name_hash) = 1 AND MIN(name_hash) = ?1))
 		 ORDER BY e.starts_at DESC, e.id, p.id`, nameHash)
-	out, err := store.Collect(rows, err, func(rows *sql.Rows) (pa Participation, err error) {
-		var (
-			start, end    int64
-			event, person []byte
-		)
-		if err = rows.Scan(&start, &end, &event, &person); err != nil {
-			return pa, err
+	out, err := store.Collect(rows, err, func(rows *sql.Rows) (Participation, error) {
+		ev, sealed, err := s.scanEvent(rows)
+		if err != nil {
+			return Participation{}, err
 		}
-		if pa.Event, err = s.openEvent(start, end, event); err != nil {
-			return pa, err
-		}
-		pa.Participant, err = s.openParticipant(person)
-		return pa, err
+		p, err := s.openParticipant(sealed)
+		return Participation{Event: ev, Participant: &p}, err
 	})
 	if err != nil {
 		return nil, fmt.Errorf("read participations of a person: %w", err)
@@ -224,20 +214,13 @@ func (s *Store) Participations(ctx context.Context, nameHash []byte) (_ []Partic
 		`SELECT e.starts_at, e.ends_at, e.data, u.data
 		 FROM calendar_unregistrations u JOIN calendar_events e ON e.id = u.event_id
 		 WHERE u.name_hash = ? ORDER BY u.id`, nameHash)
-	left, err := store.Collect(rows, err, func(rows *sql.Rows) (pa Participation, err error) {
-		var (
-			start, end    int64
-			event, sealed []byte
-		)
-		if err = rows.Scan(&start, &end, &event, &sealed); err != nil {
-			return pa, err
-		}
-		if pa.Event, err = s.openEvent(start, end, event); err != nil {
-			return pa, err
+	left, err := store.Collect(rows, err, func(rows *sql.Rows) (Participation, error) {
+		ev, sealed, err := s.scanEvent(rows)
+		if err != nil {
+			return Participation{}, err
 		}
 		u, err := s.openUnregistration(sealed)
-		pa.Unregistrations = []Unregistration{u}
-		return pa, err
+		return Participation{Event: ev, Unregistrations: []Unregistration{u}}, err
 	})
 	if err != nil {
 		return nil, fmt.Errorf("read unregistrations of a person: %w", err)
@@ -245,11 +228,28 @@ func (s *Store) Participations(ctx context.Context, nameHash []byte) (_ []Partic
 	return withUnregistrations(out, left), nil
 }
 
-// withUnregistrations adds each unregistration to the first participation of
-// its event, or as a participation without a participant row, then keeps the
-// newest event first (the order of Participations' query, rows of an event
-// kept in theirs) and each event's unregistrations oldest first.
+// scanEvent reads a row of starts_at, ends_at, the event's data and another
+// sealed value: the event, and that value for the caller to open.
+func (s *Store) scanEvent(rows *sql.Rows) (Event, []byte, error) {
+	var (
+		start, end    int64
+		event, sealed []byte
+	)
+	if err := rows.Scan(&start, &end, &event, &sealed); err != nil {
+		return Event{}, nil, err
+	}
+	ev, err := s.openEvent(start, end, event)
+	return ev, sealed, err
+}
+
+// withUnregistrations adds each unregistration, oldest first, to the first
+// participation of its event, or as a participation without a participant
+// row, then keeps the newest event first (the order of Participations' query,
+// rows of an event kept in theirs).
 func withUnregistrations(ps, left []Participation) []Participation {
+	slices.SortStableFunc(left, func(a, b Participation) int {
+		return a.Unregistrations[0].Time.Compare(b.Unregistrations[0].Time)
+	})
 	for _, l := range left {
 		if i := slices.IndexFunc(ps, func(p Participation) bool { return p.Event.ID == l.Event.ID }); i >= 0 {
 			ps[i].Unregistrations = append(ps[i].Unregistrations, l.Unregistrations...)
@@ -260,9 +260,6 @@ func withUnregistrations(ps, left []Participation) []Participation {
 	slices.SortStableFunc(ps, func(a, b Participation) int {
 		return cmp.Or(b.Event.Start.Compare(a.Event.Start), cmp.Compare(a.Event.ID, b.Event.ID))
 	})
-	for i := range ps {
-		slices.SortStableFunc(ps[i].Unregistrations, func(a, b Unregistration) int { return a.Time.Compare(b.Time) })
-	}
 	return ps
 }
 

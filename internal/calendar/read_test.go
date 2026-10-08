@@ -203,7 +203,7 @@ func TestParticipationsCarryUnregistrations(t *testing.T) {
 		require.NoError(t, err)
 		out := make([]seen, 0, len(got))
 		for _, p := range got {
-			s := seen{event: p.Event.ID, present: p.Present()}
+			s := seen{event: p.Event.ID, present: p.Participant != nil}
 			for _, u := range p.Unregistrations {
 				s.left = append(s.left, u.Time.In(paris(t)).Format("02/01 15:04")+"|"+u.By)
 			}
