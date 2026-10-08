@@ -30,6 +30,8 @@ func TestAttachLinesToOutings(t *testing.T) {
 		outingOn("bapteme-a", "Baptêmes", at(13, 9)),
 		outingOn("bapteme-b", "Baptêmes", at(13, 14)),
 		outingOn("seule", "Sortie Levant", at(20, 9)),
+		outingOn("double", "Sortie Porquerolles", at(27, 9)),
+		outingOn("double", "Sortie Porquerolles", at(27, 9)),
 	}
 	lines := []payments.Line{
 		{Product: "sortie du soir", Starts: at(6, 0)},
@@ -38,6 +40,7 @@ func TestAttachLinesToOutings(t *testing.T) {
 		{Product: "SORTIE ANNULÉE - Levant", Starts: at(20, 0)},
 		{Product: "Carte 10 plongées"},
 		{Product: "Sortie du matin", Starts: at(7, 0)},
+		{Product: "Supplément", Starts: at(27, 0)},
 	}
 	mollie := []payments.CollectedLine{{Service: "Sortie du matin", Starts: at(6, 0)}}
 
@@ -50,8 +53,8 @@ func TestAttachLinesToOutings(t *testing.T) {
 		}
 		products = append(products, p)
 	}
-	assert.Equal(t, [][]string{{}, {"sortie du soir"}, {}, {}, {"SORTIE ANNULÉE - Levant"}}, products,
-		"two outings that day: by title; same title twice or none: no outing; alone that day: whatever the title; undated or no outing that day: none")
+	assert.Equal(t, [][]string{{}, {"sortie du soir"}, {}, {}, {"SORTIE ANNULÉE - Levant"}, {"Supplément"}, {}}, products,
+		"two outings that day: by title; same title twice or none: no outing; alone that day: whatever the title; undated or no outing that day: none; one outing with two seats: its first")
 	assert.Len(t, got[0].Mollie, 1, "a Mollie line by its outing's title")
 	assert.Empty(t, got[1].Mollie)
 }

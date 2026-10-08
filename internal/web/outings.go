@@ -52,7 +52,8 @@ func attach(ps []calendar.Participation, lines []payments.Line, mollie []payment
 }
 
 // pickOuting returns the index of the outing a line of title dated starts
-// goes to, or -1.
+// goes to, or -1. An outing the requester holds two seats in counts once,
+// at its first.
 func pickOuting(ps []calendar.Participation, title string, starts time.Time, paris *time.Location) int {
 	if starts.IsZero() {
 		return -1
@@ -61,7 +62,8 @@ func pickOuting(ps []calendar.Participation, title string, starts time.Time, par
 	sameDay := make([]int, 0, len(ps))
 	sameTitle := make([]int, 0, len(ps))
 	for i, p := range ps {
-		if parisDay(p.Event.Start, paris) != day {
+		if parisDay(p.Event.Start, paris) != day ||
+			slices.ContainsFunc(sameDay, func(j int) bool { return ps[j].Event.ID == p.Event.ID }) {
 			continue
 		}
 		sameDay = append(sameDay, i)
