@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"html"
 	"net/http"
 	"net/url"
 	"strings"
@@ -94,6 +95,8 @@ func TestAssistantAnswersWithTools(t *testing.T) {
 	require.NotEmpty(t, dossiers)
 	assert.Contains(t, dossiers[len(dossiers)-1]["html"], "hugo.bernard@example.org", "the resolver sees the address")
 	assert.Equal(t, "Dossier · 1 adhérent", dossiers[len(dossiers)-1]["summary"], "the phone bar follows the column")
+	assert.Equal(t, "Il te reste 49 questions aujourd'hui.", start[0]["remaining"], "the question counts from the start")
+	assert.Contains(t, html.UnescapeString(dossiers[0]["html"].(string)), "Il te reste 49 questions aujourd'hui.", "the column never reads blank while streaming")
 	assert.Nil(t, start[0]["question"], "a typed question is not sent back")
 
 	calls := stub.calls()
@@ -119,8 +122,13 @@ func TestAssistantFollowUpKeepsTheConversation(t *testing.T) {
 	_, ev, _ := e.ask(t, cookie, url.Values{"text": {"Q1"}})
 	id := ev.of("start")[0]["conversation"].(string)
 	stub.script(sseText(t, "Seconde."))
+	e.clock.advance(10 * time.Minute)
 	_, ev, _ = e.ask(t, cookie, url.Values{"text": {"Q2"}, "conversation": {id}})
 	assert.Equal(t, id, ev.of("start")[0]["conversation"])
+	dossiers := ev.of("dossier")
+	require.NotEmpty(t, dossiers)
+	erased := e.clock.now().Add(30 * time.Minute).In(e.srv.paris).Format("15:04")
+	assert.Contains(t, html.UnescapeString(dossiers[len(dossiers)-1]["html"].(string)), "S'efface à "+erased+" sans nouvelle question", "the expiry runs from this answer, as a reload shows")
 	second := stub.calls()[1]
 	assert.Contains(t, second, "Première.", "the history goes back")
 	assert.Equal(t, 1, strings.Count(second, "Nous sommes le"), "the context comes once")
@@ -162,6 +170,7 @@ func TestAssistantQuota(t *testing.T) {
 	_, ev, _ = e.ask(t, cookie, url.Values{"text": {"Q"}})
 	require.Len(t, ev.of("error"), 1)
 	assert.Contains(t, ev.of("error")[0]["message"], "Quota atteint : 1 question par jour")
+	assert.Equal(t, "Plus de question aujourd'hui : le quota repart à minuit.", ev.of("error")[0]["remaining"])
 	assert.Len(t, stub.calls(), 1, "a refused question costs nothing")
 	var outcome string
 	require.NoError(t, e.db.QueryRowContext(context.Background(), `SELECT outcome FROM assistant_usage ORDER BY id DESC LIMIT 1`).Scan(&outcome))
@@ -177,6 +186,7 @@ func TestAssistantFailureRollsBack(t *testing.T) {
 	_, ev, _ := e.ask(t, cookie, url.Values{"text": {"Q1"}})
 	require.Len(t, ev.of("error"), 1)
 	assert.Contains(t, ev.of("error")[0]["message"], "fournisseur")
+	assert.Equal(t, "Il te reste 49 questions aujourd'hui.", ev.of("error")[0]["remaining"], "a failed question counted: the page says so")
 	id := ev.of("start")[0]["conversation"].(string)
 	stub.script(sseText(t, "R"))
 	_, ev, _ = e.ask(t, cookie, url.Values{"text": {"Q2"}, "conversation": {id}})

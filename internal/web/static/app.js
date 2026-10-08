@@ -356,6 +356,7 @@ const assistantBox = (box) => {
   const thread = box.querySelector("[data-assistant-thread]");
   const shape = box.querySelector("template[data-assistant-new]");
   const send = form.querySelector("[data-assistant-send]");
+  const sticky = box.querySelector("[data-assistant-sticky]"); // the composer of /assistant, over the page
   let running = null; // AbortController of the answer in flight
 
   const busy = (on) => {
@@ -363,6 +364,20 @@ const assistantBox = (box) => {
     send.querySelector("[data-label-stop]").hidden = !on;
     // On the live region itself: a screen reader waits for the end of the answer.
     thread.setAttribute("aria-busy", on ? "true" : "false");
+  };
+
+  // Where the visible thread ends: above the sticky composer of /assistant,
+  // or at the foot of the box that scrolls in the request panel.
+  const floor = () => (sticky ? sticky.getBoundingClientRect().top : thread.parentElement.getBoundingClientRect().bottom);
+  // Brings the foot of an exchange above the composer, which scrollIntoView
+  // ignores: its height (and the phone tab bar's) becomes the scroll margin.
+  const toEnd = (node) => {
+    if (sticky) node.style.scrollMarginBottom = `${window.innerHeight - floor() + 16}px`;
+    node.scrollIntoView({ block: "end" });
+  };
+  const atEnd = (node) => node.getBoundingClientRect().bottom <= floor() + 40;
+  const setRemaining = (text) => {
+    if (text) for (const r of document.querySelectorAll("[data-assistant-remaining]")) r.textContent = text;
   };
 
   const ask = async (question) => {
@@ -379,6 +394,12 @@ const assistantBox = (box) => {
     const answer = node.querySelector("[data-answer]");
     const error = node.querySelector("[data-error]");
     let ended = false; // a "done" or an "error" event came
+    // Applies a change to the exchange and keeps its foot in view, unless the resolver scrolled away.
+    const grow = (change) => {
+      const follow = atEnd(node);
+      change();
+      if (follow) toEnd(node);
+    };
     const tally = () => {
       const n = steps.children.length;
       summary.textContent = n === 0 ? "Aucune donnée consultée" : n === 1 ? "1 donnée consultée" : `${n} données consultées`;
@@ -398,6 +419,7 @@ const assistantBox = (box) => {
       switch (event.type) {
         case "start":
           box.dataset.conversation = event.conversation;
+          setRemaining(event.remaining); // counted from now on, even if the answer stops
           if (event.question) {
             asked.textContent = event.question;
             asked.hidden = false;
@@ -427,14 +449,15 @@ const assistantBox = (box) => {
           node.querySelector("[data-sources]").innerHTML = event.sources ?? "";
           stepsBox.open = false;
           tally();
-          for (const r of document.querySelectorAll("[data-assistant-remaining]")) r.textContent = event.remaining ?? "";
+          setRemaining(event.remaining);
           break;
         case "error":
           fail(event.message);
+          setRemaining(event.remaining);
           break;
       }
     };
-    node.scrollIntoView({ block: "end" });
+    toEnd(node);
     const body = new URLSearchParams({
       csrf: form.elements.csrf.value,
       text: question,
@@ -446,7 +469,8 @@ const assistantBox = (box) => {
     try {
       const response = await fetch(form.action, { method: "POST", body, signal: running.signal });
       if (!response.ok) {
-        fail((await response.text()).trim() || "Erreur : réessaie.");
+        const message = (await response.text()).trim() || "Erreur : réessaie.";
+        grow(() => fail(message));
         return;
       }
       const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
@@ -459,17 +483,19 @@ const assistantBox = (box) => {
         while ((end = buffer.indexOf("\n")) >= 0) {
           const line = buffer.slice(0, end);
           buffer = buffer.slice(end + 1);
-          if (line) show(JSON.parse(line));
+          if (line) {
+            const event = JSON.parse(line);
+            grow(() => show(event));
+          }
         }
       }
-      if (!ended) fail("Connexion perdue : réessaie.");
+      if (!ended) grow(() => fail("Connexion perdue : réessaie."));
     } catch (err) {
       // A drop or a stop after "done" leaves the kept answer as it is.
-      if (!ended) fail(err.name === "AbortError" ? "Réponse arrêtée." : "Connexion perdue : réessaie.");
+      if (!ended) grow(() => fail(err.name === "AbortError" ? "Réponse arrêtée." : "Connexion perdue : réessaie."));
     } finally {
       running = null;
       busy(false);
-      node.scrollIntoView({ block: "end" });
     }
   };
 

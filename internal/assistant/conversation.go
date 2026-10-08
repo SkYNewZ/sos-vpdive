@@ -163,9 +163,10 @@ func (s *Store) DropAll() {
 	}
 }
 
-// Finish stores c, grown by an answer, and frees its account's slot. A
-// conversation dropped meanwhile (logout) stays dropped.
-func (s *Store) Finish(c Conversation) {
+// Finish stores c, grown by an answer, frees its account's slot and returns
+// c as stored, with its new Seen. A conversation dropped meanwhile (logout)
+// stays dropped.
+func (s *Store) Finish(c Conversation) Conversation {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.busy, c.Account)
@@ -173,6 +174,7 @@ func (s *Store) Finish(c Conversation) {
 		c.Seen = s.now()
 		*stored = c
 	}
+	return c
 }
 
 // Abort frees c's account slot and keeps the conversation as it was.

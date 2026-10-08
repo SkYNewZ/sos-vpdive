@@ -34,7 +34,7 @@
 {{define "assistantComposer"}}<form method="post" action="/assistant/messages" class="flex flex-col gap-2 border-t border-base-300 bg-base-100 p-3" data-assistant-form>
 <input type="hidden" name="csrf" value="{{.CSRF}}">
 <label class="sr-only" for="assistant-text-{{.TicketID}}">Ta question, ou le message d'un adhérent</label>
-<textarea class="textarea w-full resize-none" id="assistant-text-{{.TicketID}}" name="text" rows="2" maxlength="8000" placeholder="Colle le message d'un adhérent ou pose ta question" data-assistant-text></textarea>
+<textarea class="textarea max-h-[40dvh] w-full resize-none" id="assistant-text-{{.TicketID}}" name="text" rows="2" maxlength="8000" placeholder="Colle le message d'un adhérent ou pose ta question" data-assistant-text></textarea>
 <div class="flex items-center justify-between gap-3">
 <p class="text-sm text-base-content/80" data-assistant-remaining>{{.Remaining}}</p>
 <button class="btn btn-primary min-h-11" type="submit" data-assistant-send><span data-label-send>Envoyer</span><span data-label-stop hidden>Arrêter</span></button>

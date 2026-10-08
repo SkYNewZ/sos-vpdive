@@ -26,11 +26,17 @@ const (
 	assistantPath = "/assistant"
 )
 
-// assistantStarters fill the composer of an empty page.
-var assistantStarters = []string{
-	"Qui n'a pas encore réglé la sortie de samedi ?",
-	"Quelles sorties annulées restent à supprimer dans VPDive ?",
-	"Où en est le carnet de ",
+// starter fills the composer of an empty page; an Open one ends on a word
+// the resolver completes.
+type starter struct {
+	Text string
+	Open bool
+}
+
+var assistantStarters = []starter{
+	{Text: "Qui n'a pas encore réglé la sortie de samedi ?"},
+	{Text: "Quelles sorties annulées restent à supprimer dans VPDive ?"},
+	{Text: "Où en est le carnet de", Open: true},
 }
 
 // exchangeView is an exchange as a page shows it.
@@ -64,7 +70,7 @@ type dossierView struct {
 type assistantPageData struct {
 	Panel    assistantPanel
 	Dossier  dossierView
-	Starters []string
+	Starters []starter
 	Gone     bool // the conversation asked for is erased
 	Owner    bool // shows the link to the usage journal
 }
@@ -354,10 +360,11 @@ func (s *Server) streamAnswer(ctx context.Context, out *ndjson, c assistant.Conv
 			telemetry.Fail(span, entry.Outcome)
 		}
 	}()
+	var left string // the questions left today, this one counted
 	fail := func(code string) {
 		s.convs.Abort(c)
 		entry.Outcome = code
-		out.send(streamEvent{Type: "error", Message: failureText(code, s.cfg.Assistant.DailyQuestions)})
+		out.send(streamEvent{Type: "error", Message: failureText(code, s.cfg.Assistant.DailyQuestions), Remaining: left})
 	}
 	allowed, err := s.limiter.allow(ctx, s.quotaKey(account), s.cfg.Assistant.DailyQuestions, counterRetention)
 	if err != nil {
@@ -365,12 +372,17 @@ func (s *Server) streamAnswer(ctx context.Context, out *ndjson, c assistant.Conv
 		fail(outcomeInternal)
 		return
 	}
+	// A stopped answer sends nothing more: the count goes out first, so that
+	// the page can show it whatever happens next.
+	if left, err = s.remaining(ctx, account); err != nil {
+		s.logger.ErrorContext(ctx, "assistant quota", "error", err)
+	}
 	if !allowed {
 		s.logger.InfoContext(ctx, "assistant quota reached")
 		fail(outcomeLimit)
 		return
 	}
-	first := streamEvent{Type: "start", Conversation: c.ID}
+	first := streamEvent{Type: "start", Conversation: c.ID, Remaining: left}
 	if text == "" {
 		first.Question = questionOf(text, ticket)
 	}
@@ -396,7 +408,7 @@ func (s *Server) streamAnswer(ctx context.Context, out *ndjson, c assistant.Conv
 			Step: func(label string) {
 				out.send(streamEvent{Type: "step", Label: label})
 				if standalone {
-					s.sendDossier(ctx, out, s.dossier(*tb.c, tb.sources, ""))
+					s.sendDossier(ctx, out, s.dossier(*tb.c, tb.sources, left))
 				}
 			},
 		}
@@ -419,12 +431,8 @@ func (s *Server) streamAnswer(ctx context.Context, out *ndjson, c assistant.Conv
 		return
 	}
 	c.Exchanges = append(c.Exchanges, ex)
-	s.convs.Finish(c)
+	c = s.convs.Finish(c) // the Dossier shows the stored expiry
 	entry.Outcome = outcomeOK
-	left, err := s.remaining(ctx, account)
-	if err != nil {
-		s.logger.ErrorContext(ctx, "assistant quota", "error", err)
-	}
 	sources, err := s.fragment("assistantSources", ex.Sources)
 	if err != nil {
 		s.logger.ErrorContext(ctx, "render assistant sources", "error", err)
