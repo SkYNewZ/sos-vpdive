@@ -497,7 +497,7 @@ func (p *parser) llm(env Env) *LLM {
 // An invalid value warns and keeps its default; an assistant without
 // LLM_API_KEY warns and stays off, like the other optional tools.
 func (p *parser) assistant(llm *LLM) *Assistant {
-	if !p.flag("ASSISTANT_ENABLED") {
+	if !p.flag("ASSISTANT_ENABLED", false) {
 		return nil
 	}
 	if llm == nil {
@@ -505,7 +505,7 @@ func (p *parser) assistant(llm *LLM) *Assistant {
 		return nil
 	}
 	a := &Assistant{Model: p.optional("ASSISTANT_MODEL", llm.Model), DailyQuestions: defaultDailyQuestions}
-	a.Thinking = p.flag("ASSISTANT_THINKING")
+	a.Thinking = p.flag("ASSISTANT_THINKING", true) // the benchmark's best answers
 	a.MaxTokens = defaultMaxTokens
 	if a.Thinking {
 		a.MaxTokens = defaultMaxTokensThink
@@ -536,17 +536,17 @@ func (p *parser) assistant(llm *LLM) *Assistant {
 	return a
 }
 
-// flag reads an optional boolean: false when unset, and when invalid with
-// a warning.
-func (p *parser) flag(name string) bool {
+// flag reads an optional boolean: def when unset, and when invalid with a
+// warning.
+func (p *parser) flag(name string, def bool) bool {
 	raw := p.value(name)
 	if raw == "" {
-		return false
+		return def
 	}
 	v, err := strconv.ParseBool(raw)
 	if err != nil {
 		p.warn(name, errors.New("must be true or false: ignored"))
-		return false
+		return def
 	}
 	return v
 }

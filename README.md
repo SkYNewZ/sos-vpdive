@@ -267,9 +267,10 @@ conversation, and so does a restart. Each account gets
 `ASSISTANT_DAILY_QUESTIONS` questions a day (50 by default). The owner sees a
 usage journal at `/assistant/journal`: who asked, when, tokens and an estimated
 cost (`ASSISTANT_PRICE_*`), never the questions.
-`ASSISTANT_MODEL` picks the model (`LLM_MODEL` when empty) and
-`ASSISTANT_THINKING` turns its reasoning on. `ASSISTANT_MAX_TOKENS` caps each
-model call, reasoning included: 8 000 tokens by default, 32 000 with reasoning
+`ASSISTANT_MODEL` picks the model (`LLM_MODEL` when empty); `deepseek-flash`
+with reasoning gave the best answers in our tests. Reasoning is on by default:
+`ASSISTANT_THINKING=false` turns it off. `ASSISTANT_MAX_TOKENS` caps each model
+call, reasoning included: 32 000 tokens by default, 8 000 without reasoning
 (DeepSeek ignores the reasoning budget, so its reasoning uses up the same cap).
 When an answer hits the cap, the resolver sees what it wrote, with a note that
 it was cut. The provider must support tool use through the Messages API.

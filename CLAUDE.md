@@ -123,7 +123,9 @@ is ambiguous, ask.
   answer reads the payments, outings and requests of at most 3 people (the
   `outing` tool still lists every participant). Its output is rendered by
   `assistant.Render` only (links and images neutralised). §5.2's « no tools »
-  and §12.4's bans no longer hold for it.
+  and §12.4's bans no longer hold for it. Reasoning is on by default
+  (`ASSISTANT_THINKING`) and `.env.example` recommends `deepseek-flash`: the
+  owner's choice after the benchmark (2026-10-09).
 
 ## Private material: `.local/` is gitignored
 

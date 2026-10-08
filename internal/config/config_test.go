@@ -507,7 +507,13 @@ func TestLoadAssistant(t *testing.T) {
 	m["LLM_MODEL"] = "deepseek-flash"
 	c, err = Load(getenv(m))
 	require.NoError(t, err)
-	assert.Equal(t, &Assistant{Model: "deepseek-flash", MaxTokens: 8000, DailyQuestions: 50}, c.Assistant, "LLM_MODEL by default")
+	assert.Equal(t, &Assistant{Model: "deepseek-flash", Thinking: true, MaxTokens: 32000, DailyQuestions: 50}, c.Assistant,
+		"LLM_MODEL by default, reasoning on (owner's choice after the benchmark)")
+
+	m["ASSISTANT_THINKING"] = "false"
+	c, err = Load(getenv(m))
+	require.NoError(t, err)
+	assert.Equal(t, &Assistant{Model: "deepseek-flash", MaxTokens: 8000, DailyQuestions: 50}, c.Assistant, "reasoning turned off")
 
 	m["ASSISTANT_MODEL"] = "deepseek-v4-pro"
 	m["ASSISTANT_THINKING"] = "true"
@@ -553,7 +559,8 @@ func TestLoadAssistantInvalidValuesWarn(t *testing.T) {
 			require.NotNil(t, c.Assistant)
 			require.Len(t, c.Warnings, 1)
 			assert.Contains(t, c.Warnings[0].Error(), name)
-			assert.Equal(t, 8000, c.Assistant.MaxTokens, "the default is kept")
+			assert.True(t, c.Assistant.Thinking, "the default is kept")
+			assert.Equal(t, 32000, c.Assistant.MaxTokens, "the default is kept")
 		})
 	}
 	m := validEnv()
