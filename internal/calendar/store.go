@@ -86,8 +86,8 @@ func (s *Store) save(exp *Export) func(context.Context, *sql.Tx, int64) error {
 
 // saveEvent stores or updates ev and replaces its participants.
 func (s *Store) saveEvent(ctx context.Context, tx *sql.Tx, insert *sql.Stmt, importID int64, ev Event) error {
-	participants := ev.Participants
-	ev.Participants = nil // in their own rows
+	participants, left := ev.Participants, ev.Unregistrations
+	ev.Participants, ev.Unregistrations = nil, nil // in their own rows
 	data, err := json.Marshal(ev)
 	if err != nil {
 		return fmt.Errorf("encode calendar event %s: %w", ev.ID, err)
@@ -109,6 +109,20 @@ func (s *Store) saveEvent(ctx context.Context, tx *sql.Tx, insert *sql.Stmt, imp
 		}
 		if _, err := insert.ExecContext(ctx, ev.ID, s.personHash(p.VPDiveID), s.nameHash(p), s.keys.Seal(data)); err != nil {
 			return fmt.Errorf("store participant of event %s: %w", ev.ID, err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM calendar_unregistrations WHERE event_id = ?`, ev.ID); err != nil {
+		return fmt.Errorf("clear unregistrations of event %s: %w", ev.ID, err)
+	}
+	for _, u := range left {
+		data, err := json.Marshal(u)
+		if err != nil {
+			return fmt.Errorf("encode unregistration of event %s: %w", ev.ID, err)
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO calendar_unregistrations (event_id, name_hash, data) VALUES (?, ?, ?)`,
+			ev.ID, s.keys.Hash(secure.NameKey(u.LastName, u.FirstName)), s.keys.Seal(data)); err != nil {
+			return fmt.Errorf("store unregistration of event %s: %w", ev.ID, err)
 		}
 	}
 	return nil

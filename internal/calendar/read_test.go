@@ -172,3 +172,51 @@ func TestReadsDoNotTakeTheWriteLock(t *testing.T) {
 	_, err = f.store.Event(short, "evt-a")
 	require.NoError(t, err)
 }
+
+// Lot 8 part 3: a person's unregistrations join their participation of the
+// same event, or stand alone; each event's are oldest first, time read back.
+func TestParticipationsCarryUnregistrations(t *testing.T) {
+	f := newFixture(t)
+	a := event(t, "evt-a", "2026-10-11T08:00:00+02:00", registered(101, "Martin", "Léa"))
+	a.Unregistrations = []Unregistration{
+		unreg("MARTIN", "Léa", "2026-10-03T09:00:00+02:00", "Paul GARNIER"),
+		unreg("Martin", "Léa", "2026-10-01T18:42:00+02:00", ""),
+	}
+	b := event(t, "evt-b", "2026-11-15T08:00:00+01:00", unregistered(101, "MARTIN Léa"))
+	b.Unregistrations = []Unregistration{unreg("MARTIN", "Léa", "2026-11-01T10:00:00+01:00", "Léa MARTIN")}
+	c := event(t, "evt-c", "2026-12-06T08:00:00+01:00", registered(202, "Bernard", "Hugo"))
+	c.Unregistrations = []Unregistration{
+		unreg("Martin", "Léa", "2026-12-01T10:00:00+01:00", "Hugo BERNARD"),
+		unreg("Petit", "Chloé", "2026-12-02T10:00:00+01:00", ""),
+	}
+	require.NoError(t, f.push(t, window(a, b, c)))
+	ctx := context.Background()
+
+	type seen struct {
+		event   string
+		present bool
+		left    []string
+	}
+	read := func(last, first string) []seen {
+		t.Helper()
+		got, err := f.store.Participations(ctx, f.keys.Hash(secure.NameKey(last, first)))
+		require.NoError(t, err)
+		out := make([]seen, 0, len(got))
+		for _, p := range got {
+			s := seen{event: p.Event.ID, present: p.Participant != nil}
+			for _, u := range p.Unregistrations {
+				s.left = append(s.left, u.Time.In(paris(t)).Format("02/01 15:04")+"|"+u.By)
+			}
+			out = append(out, s)
+		}
+		return out
+	}
+
+	assert.Equal(t, []seen{
+		{event: "evt-c", present: false, left: []string{"01/12 10:00|Hugo BERNARD"}},
+		{event: "evt-b", present: true, left: []string{"01/11 10:00|Léa MARTIN"}},
+		{event: "evt-a", present: true, left: []string{"01/10 18:42|", "03/10 09:00|Paul GARNIER"}},
+	}, read("Martin", "Léa"), "newest event first; joined to the participation of their event, alone otherwise")
+	assert.Equal(t, []seen{{event: "evt-c", present: true}}, read("Bernard", "Hugo"),
+		"another person's unregistration stays on its own name")
+}

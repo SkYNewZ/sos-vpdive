@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -95,7 +96,7 @@ func TestOpenCreatesSchemaAndIsIdempotent(t *testing.T) {
 	}
 	require.NoError(t, rows.Err())
 	assert.Equal(t, []string{
-		"accounts", "attachments", "calendar_events", "calendar_participants", "counters", "deflections", "dismissed_checks",
+		"accounts", "attachments", "calendar_events", "calendar_participants", "calendar_unregistrations", "counters", "deflections", "dismissed_checks",
 		"events", "imports", "members", "messages", "meta", "online_payment_lines", "outbox", "payment_lines",
 		"push_subscriptions", "sessions", "stats_monthly", "tickets",
 	}, tables)
@@ -176,6 +177,33 @@ func TestMigration6KeepsImportsAndPaymentLines(t *testing.T) {
 	require.Error(t, err, "and the reference is still enforced")
 	_, err = db.ExecContext(ctx, `INSERT INTO online_payment_lines (import_id, name_hash, data) VALUES (99, x'01', x'02')`)
 	require.Error(t, err, "so do Mollie lines")
+}
+
+// TestMigration9ForgetsTheCalendarHash migrates a version-8 database: the
+// last calendar push loses its hash, so that the same body imports again
+// with its unregistrations; other kinds keep theirs.
+func TestMigration9ForgetsTheCalendarHash(t *testing.T) {
+	ctx := context.Background()
+	path := dbAtVersion(t, 8, `
+		INSERT INTO imports (id, kind, imported_at, imported_by, row_count, skipped_count, file_hash)
+		VALUES (1, 'calendar', 100, 'script', 2, 0, x'01'), (2, 'payments', 200, 'script', 2, 0, x'02');`)
+	db, err := Open(ctx, path)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, db.Close()) })
+
+	rows, err := db.QueryContext(ctx, `SELECT kind, file_hash FROM imports ORDER BY id`)
+	got, err := Collect(rows, err, func(rows *sql.Rows) (string, error) {
+		var (
+			kind string
+			hash []byte
+		)
+		err := rows.Scan(&kind, &hash)
+		return fmt.Sprintf("%s:%x", kind, hash), err
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"calendar:", "payments:02"}, got)
+	_, err = db.ExecContext(ctx, `INSERT INTO calendar_unregistrations (event_id, name_hash, data) VALUES ('none', x'01', x'02')`)
+	require.Error(t, err, "an unregistration points at its event")
 }
 
 func TestOpenRefusesNewerSchema(t *testing.T) {

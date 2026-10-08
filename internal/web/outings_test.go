@@ -1,8 +1,10 @@
 package web
 
 import (
+	"context"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -170,4 +172,51 @@ func TestOutingsBlockWordsMollieLikeItsBlock(t *testing.T) {
 	assert.NotContains(t, page, signalMollie)
 	assert.Equal(t, 1, strings.Count(page, "Vérifié par Alice (Présidente) le 02/09/2026."), "the Mollie block")
 	assert.Equal(t, 1, strings.Count(page, ", vérifié par Alice (Présidente) le 02/09/2026,"), "the outing, mid-line")
+}
+
+// Lot 8 part 3: an outing the requester left shows when and by whom, takes
+// its « Annulé » line by title, and has no cart; one they came back to shows
+// « Inscrit » first. Times read in Paris, authors escaped.
+func TestRequestPageShowsUnregistrations(t *testing.T) {
+	e := newTestEnv(t)
+	e.importMembers(t, "members_valid.xlsx")
+	cookie := e.login(t)
+	hugo := e.submitTicket(t, "hugo.bernard@example.org")
+	body := []byte(`{"from": "2026-06-04", "to": "2027-09-02", "events": [
+		{"id": "evt-garonne", "title": "Sortie Cap Garonne",
+		 "starts_at": "2026-06-07T09:00:00+02:00", "ends_at": "2026-06-07T12:00:00+02:00",
+		 "participants": [{"vpdive_id": 101, "name": "MARTIN Léa", "last_name": "Martin", "first_name": "Léa", "registered": true, "people": 1}],
+		 "unregistrations": [{"last_name": "BERNARD", "first_name": "Hugo", "at": "2026-06-05T16:42:00Z", "by": "Alice ORGANISATRICE"}]},
+		{"id": "evt-corse", "title": "Séjour Corse",
+		 "starts_at": "2026-09-20T08:00:00+02:00", "ends_at": "2026-09-27T18:00:00+02:00",
+		 "participants": [{"vpdive_id": 102, "name": "BERNARD Hugo", "last_name": "Bernard", "first_name": "Hugo", "registered": true, "people": 1}],
+		 "unregistrations": [
+			{"last_name": "Bernard", "first_name": "Hugo", "at": "2026-08-02T09:30:00+02:00", "by": "Paul <b>GARNIER</b>"},
+			{"last_name": "Bernard", "first_name": "Hugo", "at": "2026-08-01T10:00:00+02:00", "by": ""}]}]}`)
+	exp, err := calendar.Parse(body, e.srv.paris, e.clock.now())
+	require.NoError(t, err)
+	require.NoError(t, e.deps.Calendar.Import(context.Background(), exp))
+	e.importPayments(t) // Hugo's « Sortie Cap Garonne » line, « Annulé », is dated 07/06/2026 09:00 (serial 46180.375)
+
+	page := e.openTicket(t, cookie, hugo.ID).body
+	start, end := strings.Index(page, `id="sorties"`), strings.Index(page, `id="paiements"`)
+	require.True(t, start >= 0 && end > start, "both blocks on the page")
+	block := page[start:end]
+	at := strings.Index(block, `href="/calendrier/evt-garonne"`)
+	require.Positive(t, at, "the left outing is listed, after the newer one")
+	corse, garonne := block[:at], block[at:]
+
+	assert.Contains(t, garonne, "Désinscrit(e) le 05/06/2026 à 18:42 par Alice ORGANISATRICE")
+	assert.Contains(t, garonne, "VPDive : Sortie Cap Garonne, Annulé", "the « Annulé » line attaches by title")
+	assert.NotContains(t, garonne, "Non inscrit")
+	assert.NotContains(t, garonne, "Panier :", "no participant row, no cart")
+
+	registered := strings.Index(corse, "Inscrit</p>")
+	first := strings.Index(corse, "Désinscrit(e) le 01/08/2026 à 10:00</p>")
+	second := strings.Index(corse, "Désinscrit(e) le 02/08/2026 à 09:30 par Paul <b>GARNIER</b></p>")
+	require.True(t, registered >= 0 && first >= 0 && second >= 0, "status and both unregistrations shown")
+	assert.Less(t, registered, first, "the « Inscrit » line first")
+	assert.Less(t, first, second, "oldest unregistration first")
+	raw := e.do(t, http.MethodGet, adminHost, "/demandes/"+strconv.FormatInt(hugo.ID, 10), nil, withCookie(cookie)).Body.String()
+	assert.Contains(t, raw, "par Paul &lt;b&gt;GARNIER&lt;/b&gt;</p>", "the author is escaped")
 }

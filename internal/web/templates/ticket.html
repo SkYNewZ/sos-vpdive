@@ -259,11 +259,13 @@
 
 {{define "actionFields"}}<input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="version" value="{{.Data.Ticket.Version}}">{{end}}
 
-{{/* One of the requester's outings: their participation, their lines, the signals. */}}
+{{/* One of the requester's outings: their participation and unregistrations, their lines, the signals. */}}
 {{define "outing"}}<li class="py-3">
 <p><span class="font-semibold">{{when .Event}}</span> · <a class="link link-primary break-words" href="/calendrier/{{.Event.ID}}">{{.Event.Title}}</a>{{if .Event.Cancelled}} <span class="badge badge-soft badge-warning">Annulée</span>{{end}}</p>
 <p class="mt-1 text-sm">{{template "category" .Event.Category}}</p>
-{{with .Participant}}<p class="mt-1">{{if not .Registered}}Non inscrit{{else if .WaitingList}}Liste d'attente{{else}}Inscrit{{end}}{{if gt .People 1}}, {{.People}} personnes{{end}}{{if .Guest}}, invité{{end}}{{with .Roles}} · {{roles .}}{{end}}</p>
+{{with .Participant}}{{if or .Registered (not $.Unregistrations)}}<p class="mt-1">{{if not .Registered}}Non inscrit{{else if .WaitingList}}Liste d'attente{{else}}Inscrit{{end}}{{if gt .People 1}}, {{.People}} personnes{{end}}{{if .Guest}}, invité{{end}}{{with .Roles}} · {{roles .}}{{end}}</p>{{end}}{{end}}
+{{range .Unregistrations}}<p class="mt-1">Désinscrit(e) le {{formatTime .Time}}{{with .By}} par {{.}}{{end}}</p>{{end}}
+{{with .Participant}}{{if and (not .Registered) $.Unregistrations}}{{with .Roles}}<p class="mt-1">{{roles .}}</p>{{end}}{{end}}
 <p class="mt-1">Panier : {{cart .Payment}}</p>{{end}}
 {{with .Lines}}<ul class="mt-1 text-sm">{{range .}}<li>VPDive : {{.Product}}, {{.State}}{{with .Method}}, {{methodLabel .}}{{end}}, {{.Settled.Euros}}</li>{{end}}</ul>{{end}}
 {{with .Mollie}}<ul class="mt-1 text-sm">{{range .}}<li>Mollie : {{.Product}}, {{.Amount.Euros}}{{if .Negative}}, remboursement ou remise{{end}}, {{if .Unsettled}}{{with .Dismissal}}vérifié par {{author .By}} le {{formatDate .At}}{{else}}non soldé dans VPDive{{end}}{{else if eq .Settled "Oui"}}soldé dans VPDive{{else if .Settled}}« Payé » vaut « {{.Settled}} » dans l'export{{else}}« Payé » est vide dans l'export{{end}}, payé le {{formatTime .PaidAt}}</li>{{end}}</ul>{{end}}

@@ -51,6 +51,11 @@ func registered(id int64, last, first string) Participant {
 // unregistered is a pilot or payer without registration: a full name only.
 func unregistered(id int64, name string) Participant { return Participant{VPDiveID: id, Name: name} }
 
+// unreg is a person who left an event, as the script pushes it.
+func unreg(last, first, at, by string) Unregistration {
+	return Unregistration{LastName: last, FirstName: first, At: at, By: by}
+}
+
 func TestParseReadsTheContract(t *testing.T) {
 	body := `{"from": "2026-06-04", "to": "2027-09-02", "added_later": true, "events": [{
 		"id": "evt-0001", "url": "https://club.example/agenda/evt-0001", "title": "Sortie épave",
@@ -183,4 +188,36 @@ func TestParseKeepsAnUnregisteredPerson(t *testing.T) {
 	assert.False(t, p.Registered)
 	assert.Empty(t, p.LastName)
 	assert.Empty(t, p.FirstName)
+}
+
+// Lot 8 part 3: each event lists the people who left it, by name only.
+func TestParseReadsUnregistrations(t *testing.T) {
+	ev := event(t, "evt-1", "2026-10-11T08:00:00+02:00")
+	ev.Unregistrations = []Unregistration{unreg("MARTIN", "Léa", "2026-10-01T18:42:07+02:00", "Paul DURAND")}
+	exp, err := Parse(window(ev, event(t, "evt-2", "2026-10-12T08:00:00+02:00")).bytes(t), paris(t), testNow)
+	require.NoError(t, err)
+	require.Len(t, exp.Events[0].Unregistrations, 1)
+	u := exp.Events[0].Unregistrations[0]
+	assert.Equal(t, "MARTIN", u.LastName)
+	assert.Equal(t, "Léa", u.FirstName)
+	assert.Equal(t, "Paul DURAND", u.By)
+	assert.Equal(t, time.Date(2026, 10, 1, 16, 42, 7, 0, time.UTC), u.Time.UTC())
+	assert.Empty(t, exp.Events[1].Unregistrations, "an absent field is no unregistration")
+
+	for name, tc := range map[string]struct {
+		u    Unregistration
+		kind ProblemKind
+	}{
+		"no first name": {unreg("Martin", " ", "2026-10-01T18:42:07+02:00", ""), ProblemPerson},
+		"no last name":  {unreg("-", "Léa", "2026-10-01T18:42:07+02:00", ""), ProblemPerson},
+		"list layout":   {unreg("Martin", "Léa", "01/10/2026 18:42:07", ""), ProblemDates},
+	} {
+		bad := event(t, "evt-1", "2026-10-11T08:00:00+02:00")
+		bad.Unregistrations = []Unregistration{tc.u}
+		_, err := Parse(window(bad).bytes(t), paris(t), testNow)
+		var pe *ParseError
+		require.ErrorAs(t, err, &pe, name)
+		assert.Equal(t, &ParseError{Kind: tc.kind, Event: "evt-1"}, pe, name)
+		assert.NotContains(t, err.Error(), "Martin", name)
+	}
 }
