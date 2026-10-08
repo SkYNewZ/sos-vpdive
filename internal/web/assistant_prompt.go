@@ -104,7 +104,7 @@ func (s *Server) questionText(ctx context.Context, c *assistant.Conversation, te
 		// Masked before it is encoded, where a newline or an angle bracket
 		// becomes an escape that sticks to what follows it. A JSON string:
 		// json.Marshal escapes < and >, so a pasted text cannot close its
-		// frame and pass for the resolver (Codex review).
+		// frame and pass for the resolver.
 		masked, emails := assistant.Mask(text, c.Emails)
 		c.Emails = emails
 		quoted, err := json.Marshal(masked)
@@ -166,21 +166,13 @@ func (s *Server) demandeText(ctx context.Context, c *assistant.Conversation, t *
 	d.Description = t.Description
 	d.NomSaisi = strings.TrimSpace(t.FirstName + " " + t.LastName)
 	d.Adherent.Identification = "adresse de la demande absente de la liste des membres"
-	p, found, err := s.members.Find(ctx, t.Email)
+	found, err := s.memberOf(ctx, t.Email)
 	if err != nil {
 		return "", err
 	}
-	if found {
-		n, err := s.members.NameCount(ctx, p.NameHash)
-		if err != nil {
-			return "", err
-		}
-		view := newProfileView(p)
-		name := strings.TrimSpace(p.FirstName + " " + p.LastName)
-		ref := c.AddPerson(assistant.Person{Name: name, Email: t.Email,
-			NameHash: p.NameHash, Seasons: view.Seasons, Licence: view.Licence, Shared: n})
-		d.Adherent = requesterJSON{candidate: &candidate{Ref: ref, Nom: name, Saisons: view.Seasons, Licence: view.Licence, Homonyme: n > 1},
-			Identification: "par l'adresse de la demande"}
+	if len(found) > 0 {
+		m := candidateOf(c, found[0])
+		d.Adherent = requesterJSON{candidate: &m, Identification: "par l'adresse de la demande"}
 	}
 	raw, err := json.Marshal(d)
 	if err != nil {

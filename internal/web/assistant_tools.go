@@ -292,7 +292,7 @@ func (t *toolbox) findMember(ctx context.Context, input json.RawMessage) (any, s
 	}
 	var matches []members.Match
 	if email, ok := assistant.Placeholder(in.Query, t.c.Emails); ok {
-		matches, err = t.placeholderMatch(ctx, email)
+		matches, err = t.s.memberOf(ctx, email)
 	} else {
 		matches, err = t.s.members.Search(ctx, in.Query, maxCandidates)
 	}
@@ -301,29 +301,37 @@ func (t *toolbox) findMember(ctx context.Context, input json.RawMessage) (any, s
 	}
 	out := findMemberResult{Import: st, Correspondance: "aucune", Candidats: []candidate{}}
 	for _, m := range matches {
-		out.Correspondance = map[bool]string{true: "exacte", false: "partielle"}[m.Exact]
-		view := newProfileView(m.Profile)
-		name := strings.TrimSpace(m.FirstName + " " + m.LastName)
-		ref := t.c.AddPerson(assistant.Person{Name: name, Email: m.Email, NameHash: m.NameHash,
-			Seasons: view.Seasons, Licence: view.Licence, Shared: m.Shared})
-		out.Candidats = append(out.Candidats, candidate{Ref: ref, Nom: name, Saisons: view.Seasons, Licence: view.Licence, Homonyme: m.Shared > 1})
+		out.Correspondance = "partielle"
+		if m.Exact {
+			out.Correspondance = "exacte"
+		}
+		out.Candidats = append(out.Candidats, candidateOf(t.c, m))
 	}
 	return out, "Recherche « " + strings.TrimSpace(in.Query) + " » : " + plural(len(out.Candidats), "candidat", "candidats"), nil
 }
 
-// placeholderMatch is the member of an address the resolver typed (it
-// reaches the model as [email N]): no match when that address is not a
-// member's.
-func (t *toolbox) placeholderMatch(ctx context.Context, email string) ([]members.Match, error) {
-	p, found, err := t.s.members.Find(ctx, email)
+// memberOf is the member of email (an address the resolver typed, which
+// reaches the model as [email N], or a request's), alone in its slice: none
+// when that address is not a member's.
+func (s *Server) memberOf(ctx context.Context, email string) ([]members.Match, error) {
+	p, found, err := s.members.Find(ctx, email)
 	if err != nil || !found {
 		return nil, err
 	}
-	n, err := t.s.members.NameCount(ctx, p.NameHash)
+	n, err := s.members.NameCount(ctx, p.NameHash)
 	if err != nil {
 		return nil, err
 	}
 	return []members.Match{{Profile: p, Email: email, Shared: n, Exact: true}}, nil
+}
+
+// candidateOf adds m to the people of c and describes them for the model.
+func candidateOf(c *assistant.Conversation, m members.Match) candidate {
+	view := newProfileView(m.Profile)
+	name := strings.TrimSpace(m.FirstName + " " + m.LastName)
+	ref := c.AddPerson(assistant.Person{Name: name, Email: m.Email, NameHash: m.NameHash,
+		Seasons: view.Seasons, Licence: view.Licence, Shared: m.Shared})
+	return candidate{Ref: ref, Nom: name, Saisons: view.Seasons, Licence: view.Licence, Homonyme: m.Shared > 1}
 }
 
 // --- shared by the member tools
@@ -396,6 +404,16 @@ func (s *Server) periodRead(from, to time.Time) periodJSON {
 	return p
 }
 
+// paymentBlocks reads the VPDive and Mollie blocks of nameHash.
+func (s *Server) paymentBlocks(ctx context.Context, nameHash []byte) (payments.Block, payments.MollieBlock, error) {
+	pay, err := s.payments.Block(ctx, nameHash)
+	if err != nil {
+		return payments.Block{}, payments.MollieBlock{}, err
+	}
+	mol, err := s.mollie.Block(ctx, nameHash)
+	return pay, mol, err
+}
+
 func within(t, from, to time.Time) bool {
 	return !t.Before(from) && (to.IsZero() || t.Before(to))
 }
@@ -465,11 +483,7 @@ func (t *toolbox) memberPayments(ctx context.Context, input json.RawMessage) (an
 	if problem != nil {
 		return *problem, "Lecture de paiements refusée", nil
 	}
-	pay, err := t.s.payments.Block(ctx, p.NameHash)
-	if err != nil {
-		return nil, "", err
-	}
-	mol, err := t.s.mollie.Block(ctx, p.NameHash)
+	pay, mol, err := t.s.paymentBlocks(ctx, p.NameHash)
 	if err != nil {
 		return nil, "", err
 	}
@@ -589,11 +603,7 @@ func (t *toolbox) memberOutings(ctx context.Context, input json.RawMessage) (any
 	if problem != nil {
 		return *problem, "Lecture de sorties refusée", nil
 	}
-	pay, err := t.s.payments.Block(ctx, p.NameHash)
-	if err != nil {
-		return nil, "", err
-	}
-	mol, err := t.s.mollie.Block(ctx, p.NameHash)
+	pay, mol, err := t.s.paymentBlocks(ctx, p.NameHash)
 	if err != nil {
 		return nil, "", err
 	}

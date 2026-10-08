@@ -504,28 +504,14 @@ func (p *parser) assistant(llm *LLM) *Assistant {
 		p.warn("ASSISTANT_ENABLED", errors.New("needs LLM_API_KEY: the assistant is off"))
 		return nil
 	}
-	a := &Assistant{Model: p.optional("ASSISTANT_MODEL", llm.Model), DailyQuestions: defaultDailyQuestions}
+	a := &Assistant{Model: p.optional("ASSISTANT_MODEL", llm.Model)}
 	a.Thinking = p.flag("ASSISTANT_THINKING", true) // the benchmark's best answers
-	a.MaxTokens = defaultMaxTokens
+	maxTokens := defaultMaxTokens
 	if a.Thinking {
-		a.MaxTokens = defaultMaxTokensThink
+		maxTokens = defaultMaxTokensThink
 	}
-	if raw := p.value("ASSISTANT_MAX_TOKENS"); raw != "" {
-		n, err := strconv.Atoi(raw)
-		if err != nil || n < minMaxTokens || n > maxMaxTokens {
-			p.warn("ASSISTANT_MAX_TOKENS", fmt.Errorf("must be an integer between %d and %d: %d kept", minMaxTokens, maxMaxTokens, a.MaxTokens))
-		} else {
-			a.MaxTokens = n
-		}
-	}
-	if raw := p.value("ASSISTANT_DAILY_QUESTIONS"); raw != "" {
-		n, err := strconv.Atoi(raw)
-		if err != nil || n < 1 || n > 10000 {
-			p.warn("ASSISTANT_DAILY_QUESTIONS", errors.New("must be an integer between 1 and 10000: 50 kept"))
-		} else {
-			a.DailyQuestions = n
-		}
-	}
+	a.MaxTokens = p.optionalInt("ASSISTANT_MAX_TOKENS", maxTokens, minMaxTokens, maxMaxTokens)
+	a.DailyQuestions = p.optionalInt("ASSISTANT_DAILY_QUESTIONS", defaultDailyQuestions, 1, 10000)
 	input, inputSet := p.price("ASSISTANT_PRICE_INPUT")
 	output, outputSet := p.price("ASSISTANT_PRICE_OUTPUT")
 	cached, cachedSet := p.price("ASSISTANT_PRICE_CACHED")
@@ -549,6 +535,21 @@ func (p *parser) flag(name string, def bool) bool {
 		return def
 	}
 	return v
+}
+
+// optionalInt reads an optional integer between minimum and maximum: def
+// when unset, and when invalid with a warning.
+func (p *parser) optionalInt(name string, def, minimum, maximum int) int {
+	raw := p.value(name)
+	if raw == "" {
+		return def
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < minimum || n > maximum {
+		p.warn(name, fmt.Errorf("must be an integer between %d and %d: %d kept", minimum, maximum, def))
+		return def
+	}
+	return n
 }
 
 // price reads an optional price in dollars per million tokens, a comma

@@ -266,11 +266,7 @@ func (s *Store) Run(ctx context.Context, every time.Duration) {
 // sweep erases the expired conversations; s.mu is held.
 func (s *Store) sweep() {
 	now := s.now()
-	for id, c := range s.convs {
-		if !now.Before(c.Expires()) {
-			delete(s.convs, id)
-		}
-	}
+	maps.DeleteFunc(s.convs, func(_ string, c *Conversation) bool { return !now.Before(c.Expires()) })
 }
 
 // release frees c's account slot if c's answer still holds it; s.mu is held.
