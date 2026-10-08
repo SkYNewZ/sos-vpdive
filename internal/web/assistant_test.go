@@ -267,6 +267,30 @@ func TestAssistantRefusesToolCallsWrittenAsText(t *testing.T) {
 	assert.NotContains(t, page, "DSML")
 }
 
+// A tool call written as text gets one more try: the markup that streamed is
+// cleared at once, and the answer of the retry is what stays.
+func TestAssistantRetriesAToolCallWrittenAsText(t *testing.T) {
+	bar := string(rune(0xff5c))
+	markup := sseText(t, "Je regarde.\n<"+bar+bar+"DSML"+bar+bar+` invoke name="member_outings">`)
+	stub := &streamStub{replies: []string{markup, sseText(t, "Hugo est à jour.")}}
+	e, cookie := assistantEnv(t, stub, 50)
+	_, ev, _ := e.ask(t, cookie, url.Values{"text": {"Q"}})
+	require.Len(t, ev.of("done"), 1)
+	assert.Empty(t, ev.of("error"))
+	answers := ev.of("answer")
+	require.Len(t, answers, 3, "the markup, cleared, then the retry's answer")
+	assert.Nil(t, answers[1]["html"], "the markup is cleared before the retry")
+	for _, a := range answers[2:] {
+		assert.NotContains(t, a["html"], "DSML")
+	}
+	assert.NotContains(t, ev.of("done")[0]["html"], "DSML")
+	assert.Contains(t, ev.of("done")[0]["html"], "Hugo est à jour.")
+	assert.Len(t, stub.calls(), 2)
+	var outcome string
+	require.NoError(t, e.db.QueryRowContext(context.Background(), `SELECT outcome FROM assistant_usage`).Scan(&outcome))
+	assert.Equal(t, "ok", outcome)
+}
+
 // A resolver leaving (or an erasure) during the quota check is no failure
 // of ours: journaled canceled, logged below Error.
 func TestAssistantCancelDuringTheQuotaCheck(t *testing.T) {

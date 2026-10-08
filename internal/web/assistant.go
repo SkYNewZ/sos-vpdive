@@ -390,10 +390,12 @@ func (s *Server) streamAnswer(ctx context.Context, out *ndjson, c assistant.Conv
 		}
 	}()
 	var left string // the questions left today, this one counted
+	// clearAnswer takes back what streamed: a tool call written as text is no answer.
+	clearAnswer := func() { out.send(streamEvent{Type: "answer"}) }
 	fail := func(code string) {
 		entry.Outcome = code
 		if code == outcomeInvalid {
-			out.send(streamEvent{Type: "answer"}) // what streamed, a tool call written as text maybe, is no answer
+			clearAnswer()
 		}
 		out.send(streamEvent{Type: "error", Message: failureText(code, s.cfg.Assistant.DailyQuestions), Remaining: left})
 	}
@@ -440,6 +442,7 @@ func (s *Server) streamAnswer(ctx context.Context, out *ndjson, c assistant.Conv
 				answer.Reset()
 				rendered = time.Time{}
 			},
+			Retry: clearAnswer,
 			Step: func(label string) {
 				out.send(streamEvent{Type: "step", Label: label})
 				if standalone {

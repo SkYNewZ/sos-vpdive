@@ -46,12 +46,15 @@ type Tools struct {
 
 // Events receive what the resolver sees while an answer runs; any may be nil.
 // Every turn streams its text; Turn says a new model call starts after tool
-// results, so the text streamed so far was not the answer.
+// results, so the text streamed so far was not the answer. Retry says the
+// last reply wrote a tool call as text: what it streamed must go at once,
+// and the same call runs again (Turn follows).
 type Events struct {
 	Text     func(delta string)
 	Thinking func()
 	Step     func(label string)
 	Turn     func()
+	Retry    func()
 }
 
 // Result is what an answer said and cost.
@@ -67,8 +70,9 @@ type Result struct {
 // Answer runs one question to its answer: history ends with the resolver's
 // message. Past MaxToolCalls the model must answer with what it read: a
 // tool call then ends the answer with ErrInvalid, and so does a last turn
-// the conversation could not keep (see lastTurn). On error, Result keeps
-// what was spent and no History: the conversation rolls back.
+// the conversation could not keep (see lastTurn). A last turn that writes a
+// tool call as text is dropped and its call made again, once. On error,
+// Result keeps what was spent and no History: the conversation rolls back.
 func (c *Client) Answer(ctx context.Context, system string, history []Message, tools Tools, ev Events) (Result, error) {
 	ctx, cancel := context.WithTimeout(ctx, AnswerTimeout)
 	defer cancel()
@@ -76,6 +80,7 @@ func (c *Client) Answer(ctx context.Context, system string, history []Message, t
 	res := Result{Tools: map[string]int{}}
 	msgs := slices.Clone(history)
 	used := 0
+	retried := false // the call to make is a retry
 	onText := func(d string) {
 		if d == "" {
 			return
@@ -99,8 +104,17 @@ func (c *Client) Answer(ctx context.Context, system string, history []Message, t
 		if err != nil {
 			return res, err
 		}
+		last := rep.StopReason != blockToolUse || len(rep.ToolUses) == 0
+		if last && !retried && toolMarkup.MatchString(rep.Text) {
+			retried = true
+			if ev.Retry != nil {
+				ev.Retry()
+			}
+			continue // the reply is dropped: msgs is the same request
+		}
+		retried = false
 		msgs = append(msgs, Message{Role: "assistant", Content: rep.Content})
-		if rep.StopReason != blockToolUse || len(rep.ToolUses) == 0 {
+		if last {
 			if res.Text, err = lastTurn(rep); err != nil {
 				return res, err
 			}

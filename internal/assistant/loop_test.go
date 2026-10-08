@@ -171,6 +171,35 @@ func TestAnswerRefusesATurnTheConversationCannotKeep(t *testing.T) {
 	}
 }
 
+// Benchmark: DeepSeek sometimes writes a tool call as text, then answers
+// when asked again. The bad reply is dropped, neither shown nor stored, and
+// the same request goes out once more; a second one ends the answer.
+func TestAnswerRetriesAToolCallWrittenAsText(t *testing.T) {
+	markup := textStream(`Je regarde.<tool_call>{"name":"find_member"}</tool_call>`)
+	s := &scripted{replies: []string{markup, textStream("Léa est introuvable.")}}
+	var retries, turns int
+	res, err := newTestClient(t, s, false).Answer(context.Background(), "S", userMessages(t, "Q"), (&runner{}).tools(), Events{
+		Retry: func() { retries++ },
+		Turn:  func() { turns++ },
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "Léa est introuvable.", res.Text)
+	assert.Equal(t, 2, res.Calls)
+	assert.Equal(t, 1, retries, "the shown text is cleared")
+	assert.Equal(t, 1, turns, "the retry is a new turn")
+	assert.Equal(t, s.raw(t, 0), s.raw(t, 1), "the same request again")
+	assert.Equal(t, Usage{Input: 240, Output: 84, CacheRead: 160}, res.Usage, "both calls are paid for")
+	require.Len(t, res.History, 2, "question and answer: the bad reply is not stored")
+	assert.NotContains(t, string(res.History[1].Content[0]), "tool_call")
+
+	s = &scripted{replies: []string{markup, markup, textStream("Jamais lu.")}}
+	res, err = newTestClient(t, s, false).Answer(context.Background(), "S", userMessages(t, "Q"), (&runner{}).tools(), Events{})
+	require.ErrorIs(t, err, ErrInvalid)
+	assert.Equal(t, 2, res.Calls, "one retry only")
+	assert.Nil(t, res.History)
+	assert.Empty(t, res.Text)
+}
+
 // An answer cut at max_tokens keeps what it wrote, with a note that says so.
 func TestAnswerKeepsACutAnswer(t *testing.T) {
 	s := &scripted{replies: []string{strings.Replace(textStream("Le solde est ", "de -48,00 €"), "end_turn", "max_tokens", 1)}}
