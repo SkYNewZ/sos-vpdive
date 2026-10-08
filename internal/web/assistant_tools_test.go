@@ -79,7 +79,8 @@ func TestToolMemberPayments(t *testing.T) {
 	assert.Contains(t, mustJSON(t, got["mollie"]), "Sortie Porquerolles")
 
 	got, _ = tb.call(t, "member_payments", `{"ref":"m1","du":"2026-06-01","au":"2026-06-05"}`)
-	assert.Contains(t, mustJSON(t, got["lignes"]), "Formation RIFAP")
+	assert.Contains(t, mustJSON(t, got["lignes"]), "03/06/2026 à 19:00", "Plongée Porquerolles, to pay: not a card line, created in the period")
+	assert.NotContains(t, mustJSON(t, got["lignes"]), "06/06/2026 à 09:00", "the Porquerolles refund, created the 6th")
 	assert.NotContains(t, mustJSON(t, got["lignes"]), "Sortie Sec de la Croix", "created the 9th")
 
 	tb.call(t, "find_member", `{"query":"Léa Martin"}`)
@@ -96,6 +97,15 @@ func TestToolMemberOutings(t *testing.T) {
 	tb.call(t, "find_member", `{"query":"Hugo Bernard"}`)
 	got, _ := tb.call(t, "member_outings", `{"ref":"m1"}`)
 	assert.Equal(t, "ok", got["etat"])
+	for _, key := range []string{"import_calendrier", "import_vpdive", "import_mollie"} {
+		require.Contains(t, got, key, "the lines and signals say which imports they come from")
+		assert.NotEmpty(t, got[key].(map[string]any)["recu"], key)
+	}
+	labels := make([]string, 0, len(tb.sources))
+	for _, src := range tb.sources {
+		labels = append(labels, src.Label)
+	}
+	assert.ElementsMatch(t, []string{"Liste des membres", "Calendrier", "Paiements VPDive", "Encaissements Mollie"}, labels)
 	all := mustJSON(t, got["sorties"])
 	assert.Contains(t, all, "evt-porquerolles")
 	assert.Contains(t, all, "partiel, 40,00 € sur 60,00 €")
@@ -116,6 +126,7 @@ func TestToolMemberRequests(t *testing.T) {
 	require.Len(t, reqs, 2)
 	assert.Contains(t, mustJSON(t, reqs), first.Ref)
 	assert.Contains(t, got["note"], "SMS")
+	assert.NotContains(t, got, "tronque")
 	assert.Contains(t, tb.sources[len(tb.sources)-1].Link, "/demandes/")
 }
 
@@ -221,9 +232,24 @@ func TestToolOutingHeadCount(t *testing.T) {
 	assert.Equal(t, corse, got["sortie"], "one description of an event")
 }
 
+// toolSpans lists the assistant.tool spans recorded, as "name/outcome".
+func toolSpans(spans *tracetest.SpanRecorder) []string {
+	ended := spans.Ended()
+	out := make([]string, 0, len(ended))
+	for _, span := range ended {
+		attrs := map[string]string{}
+		for _, a := range span.Attributes() {
+			attrs[string(a.Key)] = a.Value.AsString()
+		}
+		out = append(out, attrs["assistant.tool.name"]+"/"+attrs["assistant.tool.outcome"])
+	}
+	return out
+}
+
 // The model chooses a tool name: telemetry records the eight known ones and
-// "unknown" for anything else, and the answer to a made-up name is masked.
-func TestToolSpanNamesAreKnownTools(t *testing.T) {
+// "unknown" for anything else, each with its outcome (ok, refused, or the
+// code of a failure), and the answer to a made-up name is masked.
+func TestToolSpansCarryNameAndOutcome(t *testing.T) {
 	_, tb := toolEnv(t)
 	spans := tracetest.NewSpanRecorder()
 	tb.s.tracer = sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spans)).Tracer("test")
@@ -232,15 +258,26 @@ func TestToolSpanNamesAreKnownTools(t *testing.T) {
 	assert.Contains(t, got["erreur"], "inconnu")
 	assert.Contains(t, got["erreur"], "[email 1]")
 	assert.Equal(t, "Outil inconnu demandé", step)
-	var names []string
-	for _, span := range spans.Ended() {
-		for _, a := range span.Attributes() {
-			if a.Key == "assistant.tool.name" {
-				names = append(names, a.Value.AsString())
-			}
-		}
+	tb.call(t, "member_payments", `{"ref":"m9"}`)
+
+	gone, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, _, err := tb.run(gone, "cancellations", json.RawMessage(`{}`))
+	require.Error(t, err)
+	assert.Equal(t, []string{"find_member/ok", "unknown/refused", "member_payments/refused", "cancellations/canceled"}, toolSpans(spans))
+}
+
+// Lists are capped at maxLines, with a flag.
+func TestToolListsAreCapped(t *testing.T) {
+	e, tb := toolEnv(t)
+	for range maxLines + 1 {
+		_, err := e.deps.Tickets.Submit(context.Background(), newSubmission(t, "hugo.bernard@example.org"), nil)
+		require.NoError(t, err)
 	}
-	assert.Equal(t, []string{"find_member", "unknown"}, names)
+	tb.call(t, "find_member", `{"query":"Hugo Bernard"}`)
+	got, _ := tb.call(t, "member_requests", `{"ref":"m1"}`)
+	assert.Len(t, got["demandes"], maxLines)
+	assert.Equal(t, true, got["tronque"])
 }
 
 // A result says when its import was received, and whether it is stale.

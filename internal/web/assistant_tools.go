@@ -115,7 +115,11 @@ func (t *toolbox) run(ctx context.Context, name string, input json.RawMessage) (
 		spanName = name
 	}
 	ctx, span := t.s.tracer.Start(ctx, "assistant.tool", trace.WithAttributes(attribute.String("assistant.tool.name", spanName)))
-	defer span.End()
+	outcome := "ok" // or "refused" for a call the model got wrong, else the error code
+	defer func() {
+		span.SetAttributes(attribute.String("assistant.tool.outcome", outcome))
+		span.End()
+	}()
 	var (
 		out  any
 		step string
@@ -142,12 +146,18 @@ func (t *toolbox) run(ctx context.Context, name string, input json.RawMessage) (
 		out, step = toolProblem{"outil inconnu : " + name}, "Outil inconnu demandé"
 	}
 	if err != nil {
-		telemetry.Fail(span, "store")
+		outcome = failureCode(ctx)
+		telemetry.Fail(span, outcome)
 		return "", "", err
 	}
 	raw, err := json.Marshal(out)
 	if err != nil {
+		outcome = "encode"
+		telemetry.Fail(span, outcome)
 		return "", "", fmt.Errorf("encode tool result: %w", err)
+	}
+	if _, refused := out.(toolProblem); refused {
+		outcome = "refused"
 	}
 	// Every imported text is free: a product, an outing title, an author or
 	// a request summary may hold an address, a phone number or an IBAN. One
@@ -156,6 +166,18 @@ func (t *toolbox) run(ctx context.Context, name string, input json.RawMessage) (
 	result, emails := assistant.Mask(string(raw), t.c.Emails)
 	t.c.Emails = emails
 	return result, step, nil
+}
+
+// failureCode is the stable code of a failed call: the deadline or the
+// resolver's leaving when ctx is done, else the store.
+func failureCode(ctx context.Context) string {
+	switch err := ctx.Err(); {
+	case errors.Is(err, context.DeadlineExceeded):
+		return "timeout"
+	case errors.Is(err, context.Canceled):
+		return "canceled"
+	}
+	return "store"
 }
 
 // decode reads a tool input; ok is false when it is not the expected object.
@@ -214,6 +236,18 @@ func (st importState) describe() string {
 		out += ", périmé"
 	}
 	return out
+}
+
+// paymentImports reads the states of the payments and Mollie imports, which
+// every result built from their lines carries.
+func (t *toolbox) paymentImports(ctx context.Context) (vpdive, mollie importState, err error) {
+	if vpdive, err = t.importOf(ctx, imports.Payments); err != nil {
+		return importState{}, importState{}, err
+	}
+	if mollie, err = t.importOf(ctx, imports.Mollie); err != nil {
+		return importState{}, importState{}, err
+	}
+	return vpdive, mollie, nil
 }
 
 // importOf reads kind's state and records it as a source.
@@ -402,14 +436,15 @@ func (s *Server) mollieJSON(l payments.MollieLine) mollieJSON {
 // --- member_payments
 
 type paymentsResult struct {
-	Import       importState  `json:"import_vpdive"`
-	Etat         string       `json:"etat"`
-	Soldes       []lineJSON   `json:"soldes"`
-	Lignes       []lineJSON   `json:"lignes"`
-	Tronque      bool         `json:"tronque,omitempty"`
-	ImportMollie importState  `json:"import_mollie"`
-	EtatMollie   string       `json:"etat_mollie"`
-	Mollie       []mollieJSON `json:"mollie"`
+	Import        importState  `json:"import_vpdive"`
+	Etat          string       `json:"etat"`
+	Soldes        []lineJSON   `json:"soldes"`
+	Lignes        []lineJSON   `json:"lignes"`
+	Tronque       bool         `json:"tronque,omitempty"`
+	ImportMollie  importState  `json:"import_mollie"`
+	EtatMollie    string       `json:"etat_mollie"`
+	Mollie        []mollieJSON `json:"mollie"`
+	MollieTronque bool         `json:"mollie_tronque,omitempty"`
 }
 
 func (t *toolbox) memberPayments(ctx context.Context, input json.RawMessage) (any, string, error) {
@@ -426,10 +461,7 @@ func (t *toolbox) memberPayments(ctx context.Context, input json.RawMessage) (an
 		return nil, "", err
 	}
 	out := paymentsResult{Etat: blockState[pay.State], EtatMollie: blockState[mol.State], Soldes: []lineJSON{}, Lignes: []lineJSON{}, Mollie: []mollieJSON{}}
-	if out.Import, err = t.importOf(ctx, imports.Payments); err != nil {
-		return nil, "", err
-	}
-	if out.ImportMollie, err = t.importOf(ctx, imports.Mollie); err != nil {
+	if out.Import, out.ImportMollie, err = t.paymentImports(ctx); err != nil {
 		return nil, "", err
 	}
 	for _, l := range pay.Balances {
@@ -446,11 +478,17 @@ func (t *toolbox) memberPayments(ctx context.Context, input json.RawMessage) (an
 		}
 		out.Lignes = append(out.Lignes, t.s.lineJSON(l))
 	}
+mollie:
 	for _, m := range mol.Payments {
 		for _, l := range m.Lines {
-			if within(l.PaidAt, from, to) {
-				out.Mollie = append(out.Mollie, t.s.mollieJSON(l.MollieLine))
+			if !within(l.PaidAt, from, to) {
+				continue
 			}
+			if len(out.Mollie) == maxLines {
+				out.MollieTronque = true
+				break mollie
+			}
+			out.Mollie = append(out.Mollie, t.s.mollieJSON(l.MollieLine))
 		}
 	}
 	return out, "Paiements de " + p.Name + " lus", nil
@@ -481,10 +519,12 @@ type outingJSON struct {
 }
 
 type outingsResult struct {
-	Import  importState  `json:"import_calendrier"`
-	Etat    string       `json:"etat"`
-	Sorties []outingJSON `json:"sorties"`
-	Tronque bool         `json:"tronque,omitempty"`
+	Import       importState  `json:"import_calendrier"`
+	ImportVPDive importState  `json:"import_vpdive"` // the lines and signals of the outings come from it
+	ImportMollie importState  `json:"import_mollie"`
+	Etat         string       `json:"etat"`
+	Sorties      []outingJSON `json:"sorties"`
+	Tronque      bool         `json:"tronque,omitempty"`
 }
 
 var outingsStateName = map[outingsState]string{
@@ -541,6 +581,9 @@ func (t *toolbox) memberOutings(ctx context.Context, input json.RawMessage) (any
 	if out.Import, err = t.importOf(ctx, imports.Calendar); err != nil {
 		return nil, "", err
 	}
+	if out.ImportVPDive, out.ImportMollie, err = t.paymentImports(ctx); err != nil {
+		return nil, "", err
+	}
 	for _, o := range append(b.Recent, b.Older...) {
 		if o.Event.Until().Before(from) || (!to.IsZero() && !o.Event.Start.Before(to)) {
 			continue
@@ -566,6 +609,7 @@ type requestJSON struct {
 
 type requestsResult struct {
 	Demandes []requestJSON `json:"demandes"`
+	Tronque  bool          `json:"tronque,omitempty"`
 	Note     string        `json:"note"`
 }
 
@@ -581,6 +625,10 @@ func (t *toolbox) memberRequests(ctx context.Context, input json.RawMessage) (an
 	out := requestsResult{Demandes: []requestJSON{},
 		Note: "Seules les demandes déposées dans cet outil sont connues : SMS, mails et messages VPDive n'y sont pas."}
 	for _, r := range rows {
+		if len(out.Demandes) == maxLines {
+			out.Tronque = true
+			break
+		}
 		out.Demandes = append(out.Demandes, requestJSON{Ref: r.Ref, Categorie: t.s.tickets.Catalog.CategoryLabel(r.Category),
 			Statut: r.Status.Label(), Deposee: t.s.formatDate(r.SubmittedAt), Resume: cmp.Or(r.Summary, r.Excerpt)})
 		t.addSource(assistant.Source{Label: r.Ref, Link: "/demandes/" + strconv.FormatInt(r.ID, 10)})
