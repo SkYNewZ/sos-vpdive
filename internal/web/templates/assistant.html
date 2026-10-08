@@ -9,7 +9,7 @@
 </div>
 </div>
 {{if $d.Gone}}<div role="status" class="alert alert-soft alert-info mb-4"><span>Cette conversation est effacée : elle disparaît 30 minutes après la dernière question.</span></div>{{end}}
-<details class="panel mb-4 lg:hidden"><summary class="flex min-h-11 cursor-pointer items-center px-4 font-semibold">{{$d.Dossier.Summary}}</summary>
+<details class="panel mb-4 lg:hidden"><summary class="flex min-h-11 cursor-pointer items-center px-4 font-semibold" data-assistant-dossier-summary>{{$d.Dossier.Summary}}</summary>
 <div class="px-4 pb-4" data-assistant-dossier>{{template "assistantDossier" $d.Dossier}}</div></details>
 {{if not $p.Exchanges}}<div class="flex flex-col gap-4 py-6" data-assistant-empty>
 <p class="max-w-prose text-lg">Colle le message d'un adhérent ou pose ta question. L'assistant lit la liste des membres, les paiements, le calendrier et les fiches, sans rien modifier.</p>

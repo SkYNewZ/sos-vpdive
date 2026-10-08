@@ -93,6 +93,8 @@ func TestAssistantAnswersWithTools(t *testing.T) {
 	dossiers := ev.of("dossier")
 	require.NotEmpty(t, dossiers)
 	assert.Contains(t, dossiers[len(dossiers)-1]["html"], "hugo.bernard@example.org", "the resolver sees the address")
+	assert.Equal(t, "Dossier · 1 adhérent", dossiers[len(dossiers)-1]["summary"], "the phone bar follows the column")
+	assert.Nil(t, start[0]["question"], "a typed question is not sent back")
 
 	calls := stub.calls()
 	require.Len(t, calls, 2)
@@ -105,6 +107,7 @@ func TestAssistantAnswersWithTools(t *testing.T) {
 	status, page := e.page(t, cookie, "/assistant/"+id)
 	require.Equal(t, http.StatusOK, status)
 	assert.Contains(t, page, "Hugo Bernard <hugo.bernard@example.org>, 06 12 34 56 78", "the question as typed")
+	assert.Contains(t, page, "data-assistant-dossier-summary>Dossier · 1 adhérent</summary>", "the phone bar, which the stream updates")
 	assert.Contains(t, page, "<strong>membre</strong>")
 	assert.Contains(t, page, "1 donnée consultée</summary>", "the singular for one step")
 	assert.Equal(t, 1, e.count(t, "assistant_usage"))
@@ -186,12 +189,15 @@ func TestAssistantFromARequest(t *testing.T) {
 	_, ev, _ := e.ask(t, cookie, url.Values{"text": {""}, "demande": {itoa(hugo.ID)}})
 	require.Len(t, ev.of("done"), 1)
 	assert.Nil(t, ev.of("start")[0]["url"], "the request page keeps its address")
+	question := "Analyse de la demande " + hugo.Ref
+	assert.Equal(t, question, ev.of("start")[0]["question"], "the live bubble reads as the reloaded one")
 	first := stub.calls()[0]
 	assert.Contains(t, first, `\u003cdemande\u003e\n{\"reference\":`, "the frame, its brackets escaped by JSON")
 	assert.Contains(t, first, "m1, identifié par l'adresse de la demande")
 	page := e.openTicket(t, cookie, hugo.ID).body
 	assert.Contains(t, page, "Voir l'analyse")
 	assert.Contains(t, page, "<h3>Adhérent</h3>")
+	assert.Contains(t, page, question+"</p>", "the reloaded thread shows the same question")
 
 	status, _, _ := e.ask(t, cookie, url.Values{"text": {""}, "demande": {itoa(hugo.ID)}})
 	assert.Equal(t, http.StatusUnprocessableEntity, status, "the analysis runs once; then questions")

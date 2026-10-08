@@ -199,6 +199,8 @@ type streamEvent struct {
 	Conversation string        `json:"conversation,omitempty"`
 	URL          string        `json:"url,omitempty"`
 	Label        string        `json:"label,omitempty"`
+	Question     string        `json:"question,omitempty"` // start: the question « Analyser » stands for
+	Summary      string        `json:"summary,omitempty"`  // dossier: the folded bar on a phone
 	HTML         template.HTML `json:"html,omitempty"`
 	Sources      template.HTML `json:"sources,omitempty"`
 	Remaining    string        `json:"remaining,omitempty"`
@@ -232,6 +234,21 @@ func (s *Server) openStream(w http.ResponseWriter, r *http.Request) *ndjson {
 	w.Header().Set("X-Accel-Buffering", "no") // reverse proxies must not buffer the stream
 	w.WriteHeader(http.StatusOK)
 	return &ndjson{enc: json.NewEncoder(w), rc: rc}
+}
+
+// dossierEvent is the Dossier column of d and the summary of its phone bar.
+func (s *Server) dossierEvent(d dossierView) (streamEvent, error) {
+	html, err := s.fragment("assistantDossier", d)
+	return streamEvent{Type: "dossier", HTML: html, Summary: d.Summary}, err
+}
+
+// questionOf is the question an exchange shows: the resolver's text, or the
+// request « Analyser » stands for when there is none.
+func questionOf(text string, t *tickets.Detail) string {
+	if text == "" && t != nil {
+		return "Analyse de la demande " + t.Ref
+	}
+	return text
 }
 
 // fragment renders a partial of the assistant page.
@@ -367,6 +384,9 @@ func (s *Server) streamAnswer(ctx context.Context, out *ndjson, c assistant.Conv
 		return
 	}
 	first := streamEvent{Type: "start", Conversation: c.ID}
+	if text == "" {
+		first.Question = questionOf(text, ticket)
+	}
 	if standalone {
 		first.URL = assistantPath + "/" + c.ID
 	}
@@ -391,8 +411,8 @@ func (s *Server) streamAnswer(ctx context.Context, out *ndjson, c assistant.Conv
 				if !standalone {
 					return
 				}
-				if html, err := s.fragment("assistantDossier", s.dossier(*tb.c, tb.sources, "")); err == nil {
-					out.send(streamEvent{Type: "dossier", HTML: html})
+				if ev, err := s.dossierEvent(s.dossier(*tb.c, tb.sources, "")); err == nil {
+					out.send(ev)
 				}
 			},
 		}
@@ -427,8 +447,8 @@ func (s *Server) streamAnswer(ctx context.Context, out *ndjson, c assistant.Conv
 	}
 	out.send(streamEvent{Type: "done", HTML: assistant.Render(ex.Answer), Sources: sources, Remaining: left})
 	if standalone {
-		if html, err := s.fragment("assistantDossier", s.dossier(c, nil, left)); err == nil {
-			out.send(streamEvent{Type: "dossier", HTML: html})
+		if ev, err := s.dossierEvent(s.dossier(c, nil, left)); err == nil {
+			out.send(ev)
 		}
 	}
 }
@@ -449,10 +469,7 @@ func (s *Server) runAnswer(ctx context.Context, c *assistant.Conversation, text 
 	}
 	tb := &toolbox{s: s, c: c}
 	ev := events(tb)
-	ex := assistant.Exchange{Question: text}
-	if text == "" && t != nil {
-		ex.Question = "Analyse de la demande " + t.Ref
-	}
+	ex := assistant.Exchange{Question: questionOf(text, t)}
 	step := ev.Step
 	ev.Step = func(label string) {
 		ex.Steps = append(ex.Steps, label)

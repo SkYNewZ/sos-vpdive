@@ -6,6 +6,8 @@
    warning, error), never raw colors. */
 @import "tailwindcss" source(none);
 @source "../templates";
+/* The draft reply button is written by internal/assistant/render.go, which Tailwind does not scan. */
+@source inline("btn btn-sm btn-outline min-h-11");
 @source not "./daisyui{,*}.mjs";
 
 @plugin "./daisyui.mjs" {

@@ -366,10 +366,11 @@ const assistantBox = (box) => {
   };
 
   const ask = async (question) => {
+    if (running) return;
     const node = shape.content.firstElementChild.cloneNode(true);
     const asked = node.querySelector("[data-question]");
     if (question) asked.textContent = question;
-    else asked.remove();
+    else asked.hidden = true; // « Analyser »: the start event names the request
     document.querySelector("[data-assistant-empty]")?.remove();
     thread.append(node);
     const stepsBox = node.querySelector("[data-steps-box]");
@@ -397,6 +398,10 @@ const assistantBox = (box) => {
       switch (event.type) {
         case "start":
           box.dataset.conversation = event.conversation;
+          if (event.question) {
+            asked.textContent = event.question;
+            asked.hidden = false;
+          }
           if (event.url) history.replaceState(null, "", event.url);
           break;
         case "thinking":
@@ -414,6 +419,7 @@ const assistantBox = (box) => {
           break;
         case "dossier":
           for (const d of document.querySelectorAll("[data-assistant-dossier]")) d.innerHTML = event.html;
+          for (const d of document.querySelectorAll("[data-assistant-dossier-summary]")) d.textContent = event.summary;
           break;
         case "done":
           ended = true;
@@ -499,9 +505,9 @@ const assistantBox = (box) => {
       field.focus();
     }
     const pick = event.target.closest("[data-pick]");
-    if (pick && !running) ask(pick.dataset.pick);
+    if (pick) ask(pick.dataset.pick);
   });
-  return { ask, field };
+  return { ask, field, isRunning: () => running !== null };
 };
 
 const assistants = new Map();
@@ -520,7 +526,8 @@ document.addEventListener("click", async (event) => {
 });
 
 // Request page: « Analyser » opens the panel beside the request (a sheet on
-// a phone) and starts the analysis once; closing returns to the same place.
+// a phone) and starts the analysis unless an answer is there already;
+// closing returns to the same place.
 const panel = document.querySelector("aside[data-assistant]");
 const opener = document.querySelector("[data-assistant-open]");
 if (panel && opener) {
@@ -538,8 +545,13 @@ if (panel && opener) {
   opener.addEventListener("click", () => {
     openPanel(true);
     const box = assistants.get(panel);
-    if (!panel.querySelector("[data-exchange]")) box.ask("");
-    else box.field.focus();
+    if (box.isRunning() || panel.querySelector("[data-answer]:not(:empty)")) {
+      box.field.focus();
+      return;
+    }
+    // Never run or failed: start again, without the old error above.
+    for (const ex of panel.querySelectorAll("[data-exchange]")) ex.remove();
+    box.ask("");
   });
   for (const b of panel.querySelectorAll("[data-assistant-close]")) b.addEventListener("click", () => openPanel(false));
   panel.addEventListener("keydown", (event) => {
