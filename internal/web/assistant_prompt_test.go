@@ -19,7 +19,9 @@ func TestAssistantSystem(t *testing.T) {
 	for _, f := range e.deps.KB.Fiches {
 		assert.Contains(t, sys, "- "+f.ID+" : "+f.Title)
 	}
-	for _, rule := range []string{"Ne le recalcule jamais", "<saisie_resolveur>", "```brouillon", "je ne sais pas", "Ne convertis jamais un solde"} {
+	for _, rule := range []string{"Ne le recalcule jamais", "<saisie_resolveur>", "```brouillon", "je ne sais pas", "Ne convertis jamais un solde",
+		"ce n'est jamais l'expéditeur", "demande au résolveur qui l'a écrit", "n'additionne ni ne soustrais", "signale l'écart dans « Pistes »",
+		"nom_saisi"} {
 		assert.Contains(t, sys, rule)
 	}
 	assert.NotContains(t, sys, "'''", "the fence placeholder is replaced")
@@ -69,12 +71,23 @@ func TestQuestionTextFromARequest(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, text, "<demande>")
 	assert.Contains(t, text, `"reference":"`+hugo.Ref+`"`)
-	assert.Contains(t, text, `"adherent":"m1, identifié par l'adresse de la demande"`)
+	assert.Contains(t, text, `"nom_saisi":"Léa Martin"`, "the name typed on the form, whoever it names")
+	assert.Contains(t, text, `"adherent":{"ref":"m1","nom":"Hugo Bernard","saisons":"`, "the requester as find_member describes a member")
+	assert.Contains(t, text, `"licence":"`)
+	assert.Contains(t, text, `"homonyme":false,"identification":"par l'adresse de la demande"}`)
 	assert.Contains(t, text, "[email 1]")
 	assert.NotContains(t, text, "@")
 	assert.True(t, strings.HasSuffix(text, "Analyse cette demande."))
 	require.Len(t, c.People, 1)
 	assert.Equal(t, "hugo.bernard@example.org", c.People[0].Email)
+
+	lea := e.submitTicket(t, "lea.martin@example.org")
+	d, err = e.deps.Tickets.Detail(ctx, lea.ID)
+	require.NoError(t, err)
+	text, err = e.srv.questionText(ctx, &assistant.Conversation{}, "", d)
+	require.NoError(t, err)
+	assert.Contains(t, text, `"nom":"Léa Martin"`)
+	assert.Contains(t, text, `"homonyme":true`, "another member bears her name")
 }
 
 func TestQuestionTextFromAnUnknownAddress(t *testing.T) {
@@ -87,7 +100,8 @@ func TestQuestionTextFromAnUnknownAddress(t *testing.T) {
 	c := &assistant.Conversation{}
 	text, err := e.srv.questionText(ctx, c, "", d)
 	require.NoError(t, err)
-	assert.Contains(t, text, `"adherent":"adresse de la demande absente de la liste des membres ; nom saisi : Léa Martin"`)
+	assert.Contains(t, text, `"nom_saisi":"Léa Martin"`)
+	assert.Contains(t, text, `"adherent":{"identification":"adresse de la demande absente de la liste des membres"}`)
 	assert.Empty(t, c.People, "nobody is identified by the typed name")
 	assert.NotContains(t, text, "@")
 }
