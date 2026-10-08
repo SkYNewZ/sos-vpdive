@@ -79,6 +79,7 @@ func (f *fixture) stored(t *testing.T, id string) Event {
 	var fields map[string]json.RawMessage
 	require.NoError(t, json.Unmarshal(plain, &fields))
 	assert.NotContains(t, fields, "participants", "participants live in their own rows")
+	assert.NotContains(t, fields, "unregistrations", "unregistrations live in their own rows")
 	var ev Event
 	require.NoError(t, json.Unmarshal(plain, &ev))
 	return ev
@@ -98,6 +99,24 @@ func (f *fixture) people(t *testing.T, id string) []Participant {
 			return p, err
 		}
 		return p, json.Unmarshal(plain, &p)
+	})
+	require.NoError(t, err)
+	return out
+}
+
+// unregs decrypts the unregistrations of event id, in insertion order, as
+// "Last First by By".
+func (f *fixture) unregs(t *testing.T, id string) []string {
+	t.Helper()
+	rows, err := f.db.QueryContext(context.Background(),
+		`SELECT data FROM calendar_unregistrations WHERE event_id = ? ORDER BY id`, id)
+	out, err := store.Collect(rows, err, func(rows *sql.Rows) (string, error) {
+		var sealed []byte
+		if err := rows.Scan(&sealed); err != nil {
+			return "", err
+		}
+		u, err := f.store.openUnregistration(sealed)
+		return u.LastName + " " + u.FirstName + " by " + u.By, err
 	})
 	require.NoError(t, err)
 	return out
@@ -216,4 +235,32 @@ func TestPurgeDeletesEventsPastRetention(t *testing.T) {
 	assert.Equal(t, []string{"evt-b"}, f.events(t))
 	assert.Equal(t, 1, f.count(t, `SELECT COUNT(*) FROM calendar_participants`), "participants go with their event")
 	assert.Equal(t, 1, f.count(t, `SELECT COUNT(*) FROM imports`), "the journal stays")
+}
+
+// A push replaces an event's unregistrations; they go with their event,
+// deleted by a push or purged.
+func TestImportStoresUnregistrations(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	a := event(t, "evt-a", "2026-10-11T08:00:00+02:00", registered(101, "Martin", "Léa"))
+	a.Unregistrations = []Unregistration{unreg("BERNARD", "Hugo", "2026-10-01T18:42:00+02:00", "Alice DUPONT")}
+	b := event(t, "evt-b", "2026-11-15T08:00:00+01:00")
+	require.NoError(t, f.push(t, window(a, b)))
+	assert.Equal(t, []string{"BERNARD Hugo by Alice DUPONT"}, f.unregs(t, "evt-a"))
+	assert.Equal(t, 1, f.count(t, `SELECT COUNT(*) FROM calendar_unregistrations WHERE name_hash = ?`,
+		f.keys.Hash(secure.NameKey("Bernard", "Hugo"))), "keyed like a member's name")
+	assert.Empty(t, f.stored(t, "evt-a").Unregistrations)
+
+	a.Unregistrations = []Unregistration{unreg("Petit", "Chloé", "2026-10-02T09:00:00+02:00", "")}
+	require.NoError(t, f.push(t, window(a, b)))
+	assert.Equal(t, []string{"Petit Chloé by "}, f.unregs(t, "evt-a"), "a push replaces them")
+
+	require.NoError(t, f.push(t, window(b)), "evt-a deleted in VPDive")
+	assert.Zero(t, f.count(t, `SELECT COUNT(*) FROM calendar_unregistrations`), "gone with their event")
+
+	b.Unregistrations = []Unregistration{unreg("Petit", "Chloé", "2026-11-02T09:00:00+01:00", "")}
+	require.NoError(t, f.push(t, window(b)))
+	f.clock.t = time.Date(2027, 11, 16, 10, 0, 0, 0, time.UTC)
+	require.NoError(t, f.store.Purge(ctx))
+	assert.Zero(t, f.count(t, `SELECT COUNT(*) FROM calendar_unregistrations`), "purged with their event")
 }

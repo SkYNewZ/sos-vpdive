@@ -237,3 +237,20 @@ func (s *Store) openParticipant(sealed []byte) (Participant, error) {
 	}
 	return p, nil
 }
+
+// openUnregistration decrypts an unregistration and reads its Time back from
+// At, as openEvent rebuilds an event's times. The error never quotes At.
+func (s *Store) openUnregistration(sealed []byte) (Unregistration, error) {
+	plain, err := s.keys.Open(sealed)
+	if err != nil {
+		return Unregistration{}, fmt.Errorf("decrypt unregistration: %w", err)
+	}
+	var u Unregistration
+	if err := json.Unmarshal(plain, &u); err != nil {
+		return Unregistration{}, fmt.Errorf("decode unregistration: %w", err)
+	}
+	if u.Time, err = time.Parse(time.RFC3339, u.At); err != nil {
+		return Unregistration{}, errors.New("read unregistration: unreadable time")
+	}
+	return u, nil
+}

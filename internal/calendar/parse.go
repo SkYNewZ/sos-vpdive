@@ -8,28 +8,31 @@ import (
 	"encoding/json"
 	"slices"
 	"time"
+
+	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 )
 
 // Event is one activity of the calendar, with every field the script sends.
 // Participants are stored in their own rows: the event's sealed data leaves
 // them out.
 type Event struct {
-	ID              string        `json:"id"`
-	URL             string        `json:"url"`
-	Title           string        `json:"title"`
-	Description     string        `json:"description"`
-	StartsAt        string        `json:"starts_at"` // RFC 3339, as pushed
-	EndsAt          string        `json:"ends_at"`   // may precede StartsAt: kept as pushed
-	AllDay          bool          `json:"all_day"`
-	Category        string        `json:"category"`
-	Color           string        `json:"color"`
-	TextColor       string        `json:"text_color"`
-	Activity        string        `json:"activity"`
-	Environment     string        `json:"environment"`
-	Location        string        `json:"location"`
-	MaxParticipants *int          `json:"max_participants"` // nil without a limit
-	Boats           []string      `json:"boats"`
-	Participants    []Participant `json:"participants,omitempty"`
+	ID              string           `json:"id"`
+	URL             string           `json:"url"`
+	Title           string           `json:"title"`
+	Description     string           `json:"description"`
+	StartsAt        string           `json:"starts_at"` // RFC 3339, as pushed
+	EndsAt          string           `json:"ends_at"`   // may precede StartsAt: kept as pushed
+	AllDay          bool             `json:"all_day"`
+	Category        string           `json:"category"`
+	Color           string           `json:"color"`
+	TextColor       string           `json:"text_color"`
+	Activity        string           `json:"activity"`
+	Environment     string           `json:"environment"`
+	Location        string           `json:"location"`
+	MaxParticipants *int             `json:"max_participants"` // nil without a limit
+	Boats           []string         `json:"boats"`
+	Participants    []Participant    `json:"participants,omitempty"`
+	Unregistrations []Unregistration `json:"unregistrations,omitempty"` // in their own rows
 
 	// Start and End are StartsAt and EndsAt read: parsed on a push, from the
 	// stored columns on a read; never in the sealed data. End may precede
@@ -56,6 +59,18 @@ type Participant struct {
 	// Members is how many members the participant's match names (spec §7.3
 	// as amended), set by Store.Event: 0 when nothing matches.
 	Members int `json:"-"`
+}
+
+// Unregistration is a person who left the event: when, and by whom (lot 8
+// part 3). It names them only; no VPDive id.
+type Unregistration struct {
+	LastName  string `json:"last_name"`
+	FirstName string `json:"first_name"`
+	At        string `json:"at"` // RFC 3339, as pushed
+	By        string `json:"by"` // the author as the script writes it; may be empty
+
+	// Time is At read: parsed on a push and on a read, never sealed.
+	Time time.Time `json:"-"`
 }
 
 // Role is a role on the event; Confirmed is false while only proposed.
@@ -122,7 +137,7 @@ const (
 	ProblemWindow     ProblemKind = "window"     // from or to missing, unreadable or reversed
 	ProblemEventID    ProblemKind = "event_id"   // empty or repeated event id
 	ProblemDates      ProblemKind = "dates"      // starts_at or ends_at unreadable
-	ProblemPerson     ProblemKind = "person"     // participant without vpdive_id
+	ProblemPerson     ProblemKind = "person"     // participant without vpdive_id, or unregistration without both names
 )
 
 // ParseError refuses a calendar. Event is the id of the event in cause,
@@ -173,6 +188,9 @@ func Parse(data []byte, paris *time.Location, now time.Time) (*Export, error) {
 		if slices.ContainsFunc(ev.Participants, func(p Participant) bool { return p.VPDiveID <= 0 }) {
 			return nil, &ParseError{Kind: ProblemPerson, Event: ev.ID}
 		}
+		if kind := checkUnregistrations(ev.Unregistrations); kind != "" {
+			return nil, &ParseError{Kind: kind, Event: ev.ID}
+		}
 	}
 	limit := cutoff(now)
 	read := len(doc.Events)
@@ -182,4 +200,22 @@ func Parse(data []byte, paris *time.Location, now time.Time) (*Export, error) {
 		exp.start = limit
 	}
 	return exp, nil
+}
+
+// checkUnregistrations sets the Time of each unregistration and returns the
+// problem of the first bad one, or "": both names must hold a letter, and
+// at must be RFC 3339.
+func checkUnregistrations(us []Unregistration) ProblemKind {
+	for i := range us {
+		u := &us[i]
+		if secure.NormalizeName(u.LastName) == "" || secure.NormalizeName(u.FirstName) == "" {
+			return ProblemPerson
+		}
+		t, err := time.Parse(time.RFC3339, u.At)
+		if err != nil {
+			return ProblemDates
+		}
+		u.Time = t
+	}
+	return ""
 }
