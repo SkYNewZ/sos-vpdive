@@ -95,6 +95,24 @@ func TestMaskIBANAfterADiveLevel(t *testing.T) {
 	}
 }
 
+// Re-review: a dive level whose seven groups end inside an IBAN passed for
+// the IBAN, and the rest of the account number went through unmasked.
+func TestMaskIBANTailAfterADiveLevel(t *testing.T) {
+	const iban = "FR76 3000 6000 0112 3456 7890 189"
+	for _, c := range []struct{ in, want string }{
+		{"PA40 Porquerolles avec " + iban, "PA40 Porquerolles avec [iban]"},
+		{"Sortie PE60 Port Cros " + iban + ".", "Sortie PE60 Port Cros [iban]."},
+		{"pa40 porquerolles avec " + strings.ToLower(iban), "pa40 porquerolles avec [iban]"},
+		{"PA40 Porquerolles avec " + strings.ReplaceAll(iban, " ", "\u00a0"), "PA40 Porquerolles avec [iban]"},
+		{strings.ReplaceAll("PA40 Porquerolles avec "+iban, " ", "\u00a0"), "PA40\u00a0Porquerolles\u00a0avec\u00a0[iban]"},
+		{"PA40 PE40 Porquerolles " + iban, "PA40 PE40 Porquerolles [iban]"},
+	} {
+		text, _ := Mask(c.in, nil)
+		assert.Equal(t, c.want, text, c.in)
+		assert.NotContains(t, text, "7890", c.in)
+	}
+}
+
 // Codex review: Norway's IBANs have 15 characters, the fewest of any.
 func TestMaskShortestIBAN(t *testing.T) {
 	for _, in := range []string{"NO9386011117947", "NO93 8601 1117 947", "no93 8601 1117 947", "NO93\u00a08601\u00a01117\u00a0947"} {

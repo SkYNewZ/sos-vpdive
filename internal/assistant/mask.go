@@ -64,8 +64,9 @@ func Mask(text string, emails []string) (string, []string) {
 }
 
 // maskIBANs replaces the IBANs of text. A match that is none (a dive level
-// and the words after it) may run into the head of one: the search starts
-// again after its first character, not after its end.
+// and the words after it) may run into the head of one, or stop inside one
+// when its groups run out: the search starts again after its first
+// character, not after its end.
 func maskIBANs(text string) string {
 	var b strings.Builder
 	for {
@@ -73,17 +74,25 @@ func maskIBANs(text string) string {
 		if loc == nil {
 			break
 		}
-		if isIBAN(text[loc[0]:loc[1]]) {
+		_, size := utf8.DecodeRuneInString(text[loc[0]:])
+		if isIBAN(text[loc[0]:loc[1]]) && !runsInto(text, loc[0]+size, loc[1]) {
 			b.WriteString(text[:loc[0]] + "[iban]")
 			text = text[loc[1]:]
 			continue
 		}
-		_, size := utf8.DecodeRuneInString(text[loc[0]:])
 		b.WriteString(text[:loc[0]+size])
 		text = text[loc[0]+size:]
 	}
 	b.WriteString(text)
 	return b.String()
+}
+
+// runsInto reports an IBAN that starts in text[from:end], the rest of a
+// match, and ends past it: the match is a dive level and words whose groups
+// ran out inside that IBAN, and masking it would let the IBAN's tail through.
+func runsInto(text string, from, end int) bool {
+	loc := ibanPattern.FindStringIndex(text[from:])
+	return loc != nil && from+loc[0] < end && from+loc[1] > end && isIBAN(text[from+loc[0]:from+loc[1]])
 }
 
 // isIBAN tells an IBAN match from a dive level and the words after it.
