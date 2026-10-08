@@ -113,6 +113,34 @@ func TestMaskIBANTailAfterADiveLevel(t *testing.T) {
 	}
 }
 
+// An IBAN grouped with dashes or dots, as some banks print it, reached the
+// model whole; dive levels joined to their words that way stay.
+func TestMaskIBANGroupedWithDashesOrDots(t *testing.T) {
+	for _, in := range []string{
+		"FR76-3000-6000-0112-3456-7890-189",
+		"FR76.3000.6000.0112.3456.7890.189",
+		"fr76-3000-6000-0112-3456-7890-189",
+		"FR76 3000-6000.0112 3456-7890 189",
+		"GB29-NWBK-6016-1331-9268-19",
+		"NO93.8601.1117.947",
+	} {
+		text, _ := Mask("IBAN : "+in+".", nil)
+		assert.Equal(t, "IBAN : [iban].", text, in)
+	}
+	for _, c := range []struct{ in, want string }{
+		{"PA40 Porquerolles avec FR76-3000-6000-0112-3456-7890-189", "PA40 Porquerolles avec [iban]"},
+		{"PA40-Port-Cros avec FR76.3000.6000.0112.3456.7890.189.", "PA40-Port-Cros avec [iban]."},
+	} {
+		text, _ := Mask(c.in, nil)
+		assert.Equal(t, c.want, text, c.in)
+	}
+	for _, in := range []string{"PA40-Port-Cros samedi", "Sortie PE40.Porquerolles.2026", "pe60-niveau-trois au port",
+		"AB12.3456.7890.12"} { // 14 characters, separators apart: shorter than any IBAN
+		text, _ := Mask(in, nil)
+		assert.Equal(t, in, text)
+	}
+}
+
 // Codex review: Norway's IBANs have 15 characters, the fewest of any.
 func TestMaskShortestIBAN(t *testing.T) {
 	for _, in := range []string{"NO9386011117947", "NO93 8601 1117 947", "no93 8601 1117 947", "NO93\u00a08601\u00a01117\u00a0947"} {

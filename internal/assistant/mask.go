@@ -22,10 +22,11 @@ var (
 		numberSep + `?[A-Z0-9]{11}` + numberSep + `?\d{2}\b`)
 	// ibanPattern runs next: an IBAN holds runs of digits a phone number
 	// could match. Any case: people type them in lower case too. Groups are
-	// joined by nothing or one space of any kind (no-break ones included).
-	// It also matches a dive level and the words after it (« PA40 Port Cros
-	// samedi »): maskIBANs keeps a match only when isIBAN says so.
-	ibanPattern = regexp.MustCompile(`(?i)\b[A-Z]{2}\d{2}(?:\p{Zs}?[A-Z0-9]{4}){2,7}(?:\p{Zs}?[A-Z0-9]{1,3})?\b`)
+	// joined by nothing or one numberSep: a space of any kind (no-break ones
+	// included), a dash or a dot, as banks print them. It also matches a dive
+	// level and the words after it (« PA40 Port Cros samedi »): maskIBANs
+	// keeps a match only when isIBAN says so.
+	ibanPattern = regexp.MustCompile(`(?i)\b[A-Z]{2}\d{2}(?:` + numberSep + `?[A-Z0-9]{4}){2,7}(?:` + numberSep + `?[A-Z0-9]{1,3})?\b`)
 	// emailPattern takes the whole local part RFC 5322 allows (o'connor@,
 	// jean+club@): a partial capture would name another address.
 	emailPattern = regexp.MustCompile("[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)+")
@@ -42,7 +43,8 @@ var (
 	placeholderPattern = regexp.MustCompile(`^\[email (\d+)\]$`)
 )
 
-// numberSep is what may sit between the groups of a phone number or a RIB.
+// numberSep is what may sit between the groups of a phone number, an IBAN
+// or a RIB.
 const numberSep = `[\p{Zs}.-]`
 
 // An IBAN is 15 characters at least (Norway's) and its account number is
@@ -103,10 +105,11 @@ func runsInto(text string, from, end int) bool {
 }
 
 // isIBAN tells an IBAN match from a dive level and the words after it.
+// Separators count for nothing.
 func isIBAN(m string) bool {
 	chars, digits := 0, 0
 	for _, r := range m {
-		if unicode.Is(unicode.Zs, r) {
+		if unicode.Is(unicode.Zs, r) || r == '-' || r == '.' {
 			continue
 		}
 		chars++
