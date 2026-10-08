@@ -151,14 +151,17 @@ func (e *testEnv) ask(t *testing.T, cookie *http.Cookie, v url.Values) (int, str
 	return rec.Code, out, ""
 }
 
-// askUntil posts a question under ctx, so that a test can leave mid-answer.
-func (e *testEnv) askUntil(ctx context.Context, cookie *http.Cookie, v url.Values) {
+// askUntil posts a question under ctx, so that a test can leave mid-answer,
+// and returns the stream as written.
+func (e *testEnv) askUntil(ctx context.Context, cookie *http.Cookie, v url.Values) string {
 	req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/assistant/messages", formBody(v))
 	req.Host, req.RemoteAddr = adminHost, "192.0.2.10:40000"
 	req.Header.Set("Origin", "https://"+adminHost)
 	formType(req)
 	req.AddCookie(cookie)
-	e.srv.ServeHTTP(httptest.NewRecorder(), req)
+	rec := httptest.NewRecorder()
+	e.srv.ServeHTTP(rec, req)
+	return rec.Body.String()
 }
 
 // loginBob adds bob, a committee member who is not the owner, and signs him in.

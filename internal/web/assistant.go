@@ -305,9 +305,9 @@ func (s *Server) assistantAsk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// stop lets an erasure (Store.DropAll) or the end of the session
-	// (Store.Drop) end this answer.
-	ctx, stop := context.WithCancel(ctx)
-	defer stop()
+	// (Store.Drop, with assistant.ErrSessionEnded) end this answer.
+	ctx, stop := context.WithCancelCause(ctx)
+	defer stop(nil)
 	c, err := s.convs.Begin(string(sess.hash), sess.account.Username, r.PostForm.Get("conversation"), ticketID, stop)
 	// On a 404 or a 410, app.js forgets the conversation: the next question
 	// starts a new one, with the request on a request page.
@@ -397,7 +397,11 @@ func (s *Server) streamAnswer(ctx context.Context, out *ndjson, c assistant.Conv
 		if code == outcomeInvalid {
 			clearAnswer()
 		}
-		out.send(streamEvent{Type: "error", Message: failureText(code, s.cfg.Assistant.DailyQuestions), Remaining: left})
+		msg := failureText(code, s.cfg.Assistant.DailyQuestions)
+		if code == outcomeCanceled && errors.Is(context.Cause(ctx), assistant.ErrSessionEnded) {
+			msg = "Session terminée : reconnecte-toi." // logged out in another tab, or revoked
+		}
+		out.send(streamEvent{Type: "error", Message: msg, Remaining: left})
 	}
 	allowed, err := s.limiter.allow(ctx, s.quotaKey(account), s.cfg.Assistant.DailyQuestions, counterRetention)
 	if err != nil {

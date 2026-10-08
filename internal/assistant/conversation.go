@@ -28,6 +28,8 @@ var (
 	ErrNotFound = errors.New("conversation not found or erased")
 	ErrBusy     = errors.New("an answer is already running for this account")
 	ErrFull     = errors.New("conversation reached its question limit")
+	// ErrSessionEnded is the cause Drop stops an answer with.
+	ErrSessionEnded = errors.New("session ended")
 )
 
 // Person is someone the model refers to by Ref (m1, m2…): the server keeps
@@ -119,7 +121,7 @@ type Store struct {
 type slot struct {
 	answer  uint64
 	session string
-	stop    context.CancelFunc
+	stop    context.CancelCauseFunc
 }
 
 // NewStore returns an empty store; now is injectable for tests.
@@ -131,10 +133,10 @@ func NewStore(now func() time.Time) *Store {
 // conversation to continue: id's when set, else a new one, on ticketID
 // when set (a request's analysis starts again: ForTicket shows the newest).
 // stop cancels the answer (an erasure calls it through DropAll, the end of
-// its session through Drop). The caller releases the slot with Finish or
-// Abort; a late Abort is harmless. A question resets the idle time, so that
-// no sweep erases the conversation under its answer.
-func (s *Store) Begin(session, account, id string, ticketID int64, stop context.CancelFunc) (Conversation, error) {
+// its session through Drop, with ErrSessionEnded). The caller releases the
+// slot with Finish or Abort; a late Abort is harmless. A question resets the
+// idle time, so that no sweep erases the conversation under its answer.
+func (s *Store) Begin(session, account, id string, ticketID int64, stop context.CancelCauseFunc) (Conversation, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.sweep()
@@ -142,7 +144,7 @@ func (s *Store) Begin(session, account, id string, ticketID int64, stop context.
 		return Conversation{}, ErrBusy
 	}
 	if stop == nil {
-		stop = func() {} // DropAll calls it
+		stop = func(error) {} // DropAll calls it
 	}
 	var c *Conversation
 	if id != "" {
@@ -178,7 +180,7 @@ func (s *Store) DropAll() {
 	defer s.mu.Unlock()
 	clear(s.convs)
 	for _, a := range s.busy {
-		a.stop()
+		a.stop(nil)
 	}
 }
 
@@ -240,7 +242,7 @@ func (s *Store) Drop(sessions ...string) {
 	maps.DeleteFunc(s.convs, func(_ string, c *Conversation) bool { return slices.Contains(sessions, c.session) })
 	for _, a := range s.busy {
 		if slices.Contains(sessions, a.session) {
-			a.stop()
+			a.stop(ErrSessionEnded)
 		}
 	}
 }

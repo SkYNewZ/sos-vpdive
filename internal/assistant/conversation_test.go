@@ -19,7 +19,7 @@ func newTestStore() (*Store, *clock) {
 	return NewStore(c.now), c
 }
 
-func nop() {}
+func nop(error) {}
 
 // Codex review: an erasure must leave no conversation that still holds the
 // erased person, and must stop the answers running.
@@ -29,11 +29,11 @@ func TestStoreDropAll(t *testing.T) {
 	require.NoError(t, err)
 	s.Finish(c)
 	stopped := false
-	running, err := s.Begin("s2", "bob", "", 0, func() { stopped = true })
+	running, err := s.Begin("s2", "bob", "", 0, func(cause error) { stopped = cause == nil })
 	require.NoError(t, err)
 
 	s.DropAll()
-	assert.True(t, stopped, "the answer in flight is canceled")
+	assert.True(t, stopped, "the answer in flight is canceled, its session going on")
 	_, ok := s.Find("s1", c.ID)
 	assert.False(t, ok)
 	s.Finish(running)
@@ -147,14 +147,14 @@ func TestStoreForTicketAndDrop(t *testing.T) {
 // password reset, a deleted account); the deferred Abort frees its slot.
 func TestStoreDropStopsTheSessionsAnswers(t *testing.T) {
 	s, _ := newTestStore()
-	stopped := map[string]bool{}
-	alice, err := s.Begin("s1", "alice", "", 0, func() { stopped["alice"] = true })
+	stopped := map[string]error{}
+	alice, err := s.Begin("s1", "alice", "", 0, func(cause error) { stopped["alice"] = cause })
 	require.NoError(t, err)
-	_, err = s.Begin("s2", "bob", "", 0, func() { stopped["bob"] = true })
+	_, err = s.Begin("s2", "bob", "", 0, func(cause error) { stopped["bob"] = cause })
 	require.NoError(t, err)
 
 	s.Drop("s1", "s3")
-	assert.Equal(t, map[string]bool{"alice": true}, stopped, "only the ended sessions' answers stop")
+	assert.Equal(t, map[string]error{"alice": ErrSessionEnded}, stopped, "only the ended sessions' answers stop, saying why")
 	_, ok := s.Find("s1", alice.ID)
 	assert.False(t, ok)
 	s.Finish(alice)
@@ -183,7 +183,7 @@ func TestStoreRunSweepsExpiredConversations(t *testing.T) {
 	s.Finish(resumed)
 	clk.t = clk.t.Add(29 * time.Minute)
 	stopped := false
-	resumed, err = s.Begin("s2", "bob", resumed.ID, 0, func() { stopped = true })
+	resumed, err = s.Begin("s2", "bob", resumed.ID, 0, func(error) { stopped = true })
 	require.NoError(t, err)
 	clk.t = clk.t.Add(2 * time.Minute) // before Run reads the clock
 

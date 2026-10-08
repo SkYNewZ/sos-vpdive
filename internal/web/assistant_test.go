@@ -439,7 +439,7 @@ func TestAssistantDeletionForgetsConversations(t *testing.T) {
 func TestAssistantRefusesASecondAnswerInFlight(t *testing.T) {
 	stub := &streamStub{replies: []string{sseText(t, "R")}}
 	e, cookie := assistantEnv(t, stub, 50)
-	_, err := e.srv.convs.Begin("another-tab", "alice", "", 0, func() {})
+	_, err := e.srv.convs.Begin("another-tab", "alice", "", 0, func(error) {})
 	require.NoError(t, err)
 	status, _, body := e.ask(t, cookie, url.Values{"text": {"Q"}})
 	assert.Equal(t, http.StatusConflict, status)
@@ -466,29 +466,28 @@ func TestAssistantFreesTheSlotWhenTheResolverLeaves(t *testing.T) {
 
 // answerInFlight starts a question as cookie's session on a provider that
 // never answers, waits until it reaches the provider, and returns a channel
-// closed when the answer ends.
-func (e *testEnv) answerInFlight(t *testing.T, stub *streamStub, cookie *http.Cookie) <-chan struct{} {
+// that gets the stream once the answer ends.
+func (e *testEnv) answerInFlight(t *testing.T, stub *streamStub, cookie *http.Cookie) <-chan string {
 	t.Helper()
 	stub.mu.Lock()
 	stub.delay = time.Minute
 	stub.mu.Unlock()
 	v := url.Values{"csrf": {e.csrf(t, cookie, "/assistant")}, "text": {"Q"}}
 	before := len(stub.calls())
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		e.askUntil(context.Background(), cookie, v)
-	}()
+	done := make(chan string, 1)
+	go func() { done <- e.askUntil(context.Background(), cookie, v) }()
 	require.Eventually(t, func() bool { return len(stub.calls()) > before }, 5*time.Second, 5*time.Millisecond)
 	return done
 }
 
 // stoppedAnswer checks that the answer ended once its session did: journaled
-// canceled, with the provider's delay lifted for what follows.
-func (e *testEnv) stoppedAnswer(t *testing.T, stub *streamStub, done <-chan struct{}) {
+// canceled, with the provider's delay lifted for what follows. It returns
+// the stream.
+func (e *testEnv) stoppedAnswer(t *testing.T, stub *streamStub, done <-chan string) string {
 	t.Helper()
+	var stream string
 	select {
-	case <-done:
+	case stream = <-done:
 	case <-time.After(5 * time.Second):
 		require.FailNow(t, "the answer goes on after its session ended")
 	}
@@ -498,17 +497,23 @@ func (e *testEnv) stoppedAnswer(t *testing.T, stub *streamStub, done <-chan stru
 	stub.mu.Lock()
 	stub.delay = 0
 	stub.mu.Unlock()
+	return stream
 }
 
+// sessionEnded is what the streaming tab reads when its session ends.
+const sessionEnded = `"message":"Session terminée : reconnecte-toi."`
+
 // Codex review: logout stops the session's answer in flight and frees the
-// account's slot.
+// account's slot. The streaming tab (another one logged out) says why.
 func TestAssistantLogoutStopsTheAnswer(t *testing.T) {
 	stub := &streamStub{replies: []string{sseText(t, "R")}}
 	e, cookie := assistantEnv(t, stub, 50)
 	done := e.answerInFlight(t, stub, cookie)
 	rec := e.postAs(t, cookie, "/deconnexion", url.Values{"csrf": {e.csrf(t, cookie, "/assistant")}})
 	require.Equal(t, http.StatusSeeOther, rec.Code)
-	e.stoppedAnswer(t, stub, done)
+	stream := e.stoppedAnswer(t, stub, done)
+	assert.Contains(t, stream, sessionEnded)
+	assert.NotContains(t, stream, "Réponse arrêtée")
 	_, ev, _ := e.ask(t, e.login(t), url.Values{"text": {"Q"}})
 	assert.Len(t, ev.of("done"), 1, "the slot is free again")
 }
@@ -524,9 +529,21 @@ func TestAssistantRevokedSessionStopsTheAnswer(t *testing.T) {
 	done := e.answerInFlight(t, stub, bob)
 	_, err := e.deps.Admins.ResetPassword(context.Background(), "bob")
 	require.NoError(t, err)
-	e.stoppedAnswer(t, stub, done)
+	assert.Contains(t, e.stoppedAnswer(t, stub, done), sessionEnded)
 	_, found := e.srv.convs.Find(sessionOf(alice), kept)
 	assert.True(t, found, "alice's session is untouched")
+}
+
+// An erasure stops every answer in flight; the session goes on, so the
+// answer just stopped.
+func TestAssistantErasureStopsTheAnswer(t *testing.T) {
+	stub := &streamStub{replies: []string{sseText(t, "R")}}
+	e, cookie := assistantEnv(t, stub, 50)
+	done := e.answerInFlight(t, stub, cookie)
+	e.srv.forgetConversations()
+	stream := e.stoppedAnswer(t, stub, done)
+	assert.Contains(t, stream, `"message":"Réponse arrêtée."`)
+	assert.NotContains(t, stream, "Session terminée")
 }
 
 // Re-review: a question that passed the session check just before its
