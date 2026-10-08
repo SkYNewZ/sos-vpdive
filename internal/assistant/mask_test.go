@@ -1,10 +1,12 @@
 package assistant
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMask(t *testing.T) {
@@ -81,5 +83,37 @@ func TestPlaceholder(t *testing.T) {
 	for _, q := range []string{"[email 2]", "[email 0]", "Léa [email 1]", "email 1"} {
 		_, ok := Placeholder(q, emails)
 		assert.False(t, ok, q)
+	}
+}
+
+// Encoded, a line break or an angle bracket sticks to what follows it: Mask on
+// the encoded document misses the number and records "u003cjean@…".
+func TestMaskJSON(t *testing.T) {
+	doc := `{"0612345678":"cle","n":12,"prix":1.50e2,"ok":true,"rien":null,` +
+		`"liste":["a\n06 12 34 56 78","b\nFR7630006000011234567890189"],` +
+		`"note":"\u003cjean@example.org\u003e et \"Hugo\" \\ 0612345678","ré":{"x":"hugo@example.org"}}`
+	out, emails, err := MaskJSON([]byte(doc), []string{"hugo@example.org"})
+	require.NoError(t, err)
+	//nolint:testifylint // the exact text is the point: key order, number text and escapes, which JSONEq ignores
+	assert.Equal(t, `{"0612345678":"cle","n":12,"prix":1.50e2,"ok":true,"rien":null,`+
+		`"liste":["a\n[téléphone]","b\n[iban]"],`+
+		`"note":"\u003c[email 2]\u003e et \"Hugo\" \\ [téléphone]","ré":{"x":"[email 1]"}}`, string(out),
+		"keys, numbers and order as written, strings masked and encoded again")
+	assert.Equal(t, []string{"hugo@example.org", "jean@example.org"}, emails, "the address, not an escape glued to it")
+	assert.True(t, json.Valid(out))
+
+	spaced, _, err := MaskJSON([]byte("{ \"0612345678\" : \"0612345678\" }"), nil)
+	require.NoError(t, err)
+	//nolint:testifylint // the exact text is the point: the spaces around the colon, which JSONEq ignores
+	assert.Equal(t, "{ \"0612345678\" : \"[téléphone]\" }", string(spaced), "a key is told by its colon, spaces apart")
+}
+
+func TestMaskJSONRefusesMalformedDocuments(t *testing.T) {
+	for _, doc := range []string{`{"a":"b`, `{"a":"b\`, `{"a":"\x"}`} {
+		out, emails, err := MaskJSON([]byte(doc), []string{"a@example.org"})
+		require.ErrorIs(t, err, errMaskJSON, doc)
+		assert.Nil(t, out)
+		assert.Nil(t, emails)
+		assert.NotContains(t, err.Error(), "\\x", "nothing of the document in the error")
 	}
 }

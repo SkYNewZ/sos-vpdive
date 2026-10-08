@@ -151,21 +151,24 @@ func (t *toolbox) run(ctx context.Context, name string, input json.RawMessage) (
 		return "", "", err
 	}
 	raw, err := json.Marshal(out)
+	var emails []string
+	if err == nil {
+		// Every imported text is free: a product, an outing title, an author or
+		// a request summary may hold an address, a phone number or an IBAN. The
+		// mask reads the string values, not the encoded document, where a line
+		// break or an angle bracket sticks to what follows it.
+		raw, emails, err = assistant.MaskJSON(raw, t.c.Emails)
+	}
 	if err != nil {
 		outcome = "encode"
 		telemetry.Fail(span, outcome)
 		return "", "", fmt.Errorf("encode tool result: %w", err)
 	}
+	t.c.Emails = emails
 	if _, refused := out.(toolProblem); refused {
 		outcome = "refused"
 	}
-	// Every imported text is free: a product, an outing title, an author or
-	// a request summary may hold an address, a phone number or an IBAN. One
-	// mask over the whole result covers them all; its replacements hold no
-	// quote, so the JSON stays valid.
-	result, emails := assistant.Mask(string(raw), t.c.Emails)
-	t.c.Emails = emails
-	return result, step, nil
+	return string(raw), step, nil
 }
 
 // failureCode is the stable code of a failed call: the deadline or the

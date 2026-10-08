@@ -15,6 +15,7 @@ import (
 	"github.com/SkYNewZ/sos-vpdive/internal/calendar"
 	"github.com/SkYNewZ/sos-vpdive/internal/imports"
 	"github.com/SkYNewZ/sos-vpdive/internal/kb"
+	"github.com/SkYNewZ/sos-vpdive/internal/tickets"
 )
 
 // toolEnv is a server with every import in place and a toolbox on a fresh
@@ -345,4 +346,25 @@ func mustJSON(t *testing.T, v any) string {
 	b, err := json.Marshal(v)
 	require.NoError(t, err)
 	return string(b)
+}
+
+// The mask reads the texts, not their encoding: in JSON a newline is a
+// backslash and an n, which sticks to the number or the address after it. A
+// summary the model wrote of a past request may hold line breaks.
+func TestToolResultsAreMaskedAcrossLineBreaks(t *testing.T) {
+	e, tb := toolEnv(t)
+	summary := "Question sur son solde.\n06 12 34 56 78 pour le rappeler,\nFR7630006000011234567890189 ou <jean@example.org>."
+	_, err := e.deps.Tickets.Submit(context.Background(), newSubmission(t, "hugo.bernard@example.org"),
+		func(context.Context) (tickets.Suggestion, bool) { return tickets.Suggestion{Summary: summary}, true })
+	require.NoError(t, err)
+	tb.call(t, "find_member", `{"query":"Hugo Bernard"}`)
+	got, _ := tb.call(t, "member_requests", `{"ref":"m1"}`)
+	resume := mustJSON(t, got["demandes"])
+	assert.Contains(t, resume, "Question sur son solde.")
+	assert.Contains(t, resume, "[téléphone]")
+	assert.Contains(t, resume, "[iban]")
+	assert.NotContains(t, resume, "56 78")
+	assert.NotContains(t, resume, "7630006")
+	assert.Equal(t, []string{"jean@example.org"}, tb.c.Emails, "the address, not an escape glued to it")
+	assert.Contains(t, resume, "[email 1]")
 }

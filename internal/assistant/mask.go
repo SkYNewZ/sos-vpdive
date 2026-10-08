@@ -1,6 +1,9 @@
 package assistant
 
 import (
+	"bytes"
+	"encoding/json"
+	"errors"
 	"regexp"
 	"slices"
 	"strconv"
@@ -60,4 +63,52 @@ func Placeholder(query string, emails []string) (string, bool) {
 		return "", false
 	}
 	return emails[n-1], true
+}
+
+// errMaskJSON reports a document MaskJSON cannot read. It quotes nothing of
+// it: the document holds personal data.
+var errMaskJSON = errors.New("mask JSON: malformed document")
+
+// MaskJSON applies Mask to every string value of a JSON document, which
+// comes back otherwise as written: keys, numbers and order are untouched.
+// It masks what the strings say, not how they are encoded: in JSON a
+// newline is a backslash and an n, an angle bracket a backslash and u003c,
+// and either sticks to the number or the address after it, which Mask would
+// then miss or misread. On error the results are nil.
+func MaskJSON(doc []byte, emails []string) ([]byte, []string, error) {
+	out := make([]byte, 0, len(doc))
+	for i := 0; i < len(doc); {
+		if doc[i] != '"' {
+			out = append(out, doc[i])
+			i++
+			continue
+		}
+		end := i + 1 // scan to the closing quote
+		for end < len(doc) && doc[end] != '"' {
+			if doc[end] == '\\' {
+				end++ // the escaped character is never the closing quote
+			}
+			end++
+		}
+		if end >= len(doc) {
+			return nil, nil, errMaskJSON
+		}
+		literal := doc[i : end+1]
+		i = end + 1
+		if next := bytes.TrimLeft(doc[i:], " \t\r\n"); len(next) > 0 && next[0] == ':' {
+			out = append(out, literal...) // a key
+			continue
+		}
+		var value string
+		if err := json.Unmarshal(literal, &value); err != nil {
+			return nil, nil, errMaskJSON
+		}
+		value, emails = Mask(value, emails)
+		masked, err := json.Marshal(value)
+		if err != nil {
+			return nil, nil, errMaskJSON
+		}
+		out = append(out, masked...)
+	}
+	return out, emails, nil
 }
