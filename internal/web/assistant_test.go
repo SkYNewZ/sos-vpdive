@@ -19,6 +19,7 @@ import (
 	"go.opentelemetry.io/otel/trace/noop"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/assistant"
+	"github.com/SkYNewZ/sos-vpdive/internal/members"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 )
 
@@ -342,6 +343,29 @@ func TestAssistantFromARequest(t *testing.T) {
 	assert.Equal(t, http.StatusUnprocessableEntity, status, "the analysis runs once; then questions")
 	status, _, _ = e.ask(t, cookie, url.Values{"text": {""}})
 	assert.Equal(t, http.StatusUnprocessableEntity, status)
+}
+
+// Re-review: the requester's name, seasons and licence come from the
+// members import, free text that may hold an address or a number: they
+// reach the provider masked, as find_member's do.
+func TestAssistantMasksTheRequesterAsImported(t *testing.T) {
+	stub := &streamStub{replies: []string{sseText(t, "Analyse.")}}
+	e := newTestEnv(t, withAssistant(t, stub, 50))
+	ctx := context.Background()
+	seasons := "2026, voir hugo.perso@example.org"
+	p, err := e.deps.Members.NewPreview(ctx, "alice", &members.Export{Members: []members.Member{{
+		Row: 5, LastName: "Bernard 06 12 34 56 78", FirstName: "Hugo", Email: "hugo.bernard@example.org", Seasons: &seasons,
+	}}})
+	require.NoError(t, err)
+	require.NoError(t, e.deps.Members.Confirm(ctx, p.ID, "alice", true))
+	hugo := e.submitTicket(t, "hugo.bernard@example.org")
+	_, ev, _ := e.ask(t, e.login(t), url.Values{"text": {""}, "demande": {itoa(hugo.ID)}})
+	require.Len(t, ev.of("done"), 1)
+	body := stub.calls()[0]
+	assert.Contains(t, body, `\"nom\":\"Hugo Bernard [téléphone]\"`)
+	assert.Contains(t, body, `\"saisons\":\"2026, voir [email 1]\"`)
+	assert.NotContains(t, body, "56 78")
+	assert.NotContains(t, body, "hugo.perso@")
 }
 
 func TestAssistantLogoutErases(t *testing.T) {

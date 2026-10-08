@@ -79,9 +79,27 @@ func TestMaskLeavesDatesAmountsAndRequestNumbers(t *testing.T) {
 
 	// Dive levels look like an IBAN's head: PA40 and the next words are no IBAN.
 	for _, in := range []string{"Sortie PA40 Porquerolles samedi", "Formation PE40 avec Marc dans la fosse",
-		"PA40 Port Cros 2026", "pe60 niveau trois au port"} {
+		"PA40 Port Cros 2026", "pe60 niveau trois au port", "PA40 Cros"} {
 		text, _ := Mask(in, nil)
 		assert.Equal(t, in, text)
+	}
+}
+
+// Re-review: a dive level and the words after it may run into the head of
+// an IBAN; the IBAN is masked all the same.
+func TestMaskIBANAfterADiveLevel(t *testing.T) {
+	const iban = "FR76 3000 6000 0112 3456 7890 189"
+	for _, head := range []string{"Sortie PA40 Port Cros avec Marc dans ", "PA40 Porquerolles avec Marc "} {
+		text, _ := Mask(head+iban, nil)
+		assert.Equal(t, head+"[iban]", text)
+	}
+}
+
+// Codex review: Norway's IBANs have 15 characters, the fewest of any.
+func TestMaskShortestIBAN(t *testing.T) {
+	for _, in := range []string{"NO9386011117947", "NO93 8601 1117 947", "no93 8601 1117 947", "NO93\u00a08601\u00a01117\u00a0947"} {
+		text, _ := Mask("IBAN "+in+".", nil)
+		assert.Equal(t, "IBAN [iban].", text, in)
 	}
 }
 

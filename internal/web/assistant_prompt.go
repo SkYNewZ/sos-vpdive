@@ -98,25 +98,19 @@ func (s *Server) questionText(ctx context.Context, c *assistant.Conversation, te
 		parts = append(parts, demande)
 	}
 	if text != "" {
-		// A JSON string: json.Marshal escapes < and >, so a pasted text cannot
-		// close its frame and pass for the resolver (Codex review).
-		quoted, err := json.Marshal(maskText(c, text))
+		// Masked before it is encoded, where a newline or an angle bracket
+		// becomes an escape that sticks to what follows it. A JSON string:
+		// json.Marshal escapes < and >, so a pasted text cannot close its
+		// frame and pass for the resolver (Codex review).
+		masked, emails := assistant.Mask(text, c.Emails)
+		c.Emails = emails
+		quoted, err := json.Marshal(masked)
 		if err != nil {
 			return "", fmt.Errorf("encode the resolver's text: %w", err)
 		}
 		parts = append(parts, "<saisie_resolveur>\n"+string(quoted)+"\n</saisie_resolveur>")
 	}
 	return strings.Join(parts, "\n\n"), nil
-}
-
-// maskText hides from the model what a person wrote of an address, a phone
-// number or an IBAN. Every such text goes through it before it is encoded:
-// encoded, a newline or an angle bracket becomes an escape that sticks to
-// the address or the number after it, which the mask then misses or misreads.
-func maskText(c *assistant.Conversation, text string) string {
-	masked, emails := assistant.Mask(text, c.Emails)
-	c.Emails = emails
-	return masked
 }
 
 // assistantContext opens a conversation: today and the imports in place.
@@ -158,14 +152,15 @@ type requesterJSON struct {
 
 // demandeText is a request as the model reads it, its requester resolved
 // through the members list by the request's address, never by the typed
-// name (spec §7.3).
+// name (spec §7.3). Every string of it is masked, the member's as imported
+// too, as find_member's are.
 func (s *Server) demandeText(ctx context.Context, c *assistant.Conversation, t *tickets.Detail) (string, error) {
 	d := demandeJSON{Reference: t.Ref, Categorie: s.tickets.Catalog.CategoryLabel(t.Category), Champs: []fieldJSON{}}
 	for _, f := range s.tickets.Catalog.Display(t.Fields) {
-		d.Champs = append(d.Champs, fieldJSON{Champ: f.Label, Valeur: maskText(c, f.Value)})
+		d.Champs = append(d.Champs, fieldJSON{Champ: f.Label, Valeur: f.Value})
 	}
-	d.Description = maskText(c, t.Description)
-	d.NomSaisi = maskText(c, strings.TrimSpace(t.FirstName+" "+t.LastName))
+	d.Description = t.Description
+	d.NomSaisi = strings.TrimSpace(t.FirstName + " " + t.LastName)
 	d.Adherent.Identification = "adresse de la demande absente de la liste des membres"
 	p, found, err := s.members.Find(ctx, t.Email)
 	if err != nil {
@@ -187,5 +182,10 @@ func (s *Server) demandeText(ctx context.Context, c *assistant.Conversation, t *
 	if err != nil {
 		return "", fmt.Errorf("encode request for the assistant: %w", err)
 	}
+	raw, emails, err := assistant.MaskJSON(raw, c.Emails)
+	if err != nil {
+		return "", fmt.Errorf("mask request for the assistant: %w", err)
+	}
+	c.Emails = emails
 	return "<demande>\n" + string(raw) + "\n</demande>\nAnalyse cette demande.", nil
 }

@@ -26,6 +26,10 @@ const unknownTool = "unknown"
 // resolver reads that it is incomplete.
 const cutNote = "\n\n_Réponse coupée : limite de longueur atteinte._"
 
+// fenceLine opens or closes a fenced block: three backquotes or tildes at
+// least, indented by three spaces at most.
+var fenceLine = regexp.MustCompile("^ {0,3}(`{3,}|~{3,})")
+
 // toolMarkup is a tool call the model wrote as text instead of making it:
 // one of DeepSeek's tags, whose name (DSML, tool…) follows a '<' and bars,
 // ASCII or fullwidth (U+FF5C), or a function-call tag of another family.
@@ -147,9 +151,29 @@ func lastTurn(rep reply) (string, error) {
 	case toolMarkup.MatchString(rep.Text):
 		return "", fmt.Errorf("%w: tool call written as text", ErrInvalid)
 	case rep.StopReason == stopMaxTokens:
-		return rep.Text + cutNote, nil
+		return closeFence(rep.Text) + cutNote, nil
 	}
 	return rep.Text, nil
+}
+
+// closeFence closes the fence a cut text leaves open: the cut note must not
+// land in a draft the resolver copies.
+func closeFence(text string) string {
+	open := ""
+	for line := range strings.Lines(text) {
+		m := fenceLine.FindStringSubmatch(line)
+		switch {
+		case m == nil:
+		case open == "":
+			open = m[1]
+		case m[1][0] == open[0] && len(m[1]) >= len(open) && strings.TrimSpace(line[len(m[0]):]) == "":
+			open = ""
+		}
+	}
+	if open == "" {
+		return text
+	}
+	return strings.TrimSuffix(text, "\n") + "\n" + open
 }
 
 // KnownTool is name when defs offers that tool, "unknown" otherwise: a

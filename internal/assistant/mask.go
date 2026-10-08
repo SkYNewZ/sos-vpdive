@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 var (
@@ -15,8 +17,8 @@ var (
 	// could match. Any case: people type them in lower case too. Groups are
 	// joined by nothing or one space of any kind (no-break ones included).
 	// It also matches a dive level and the words after it (« PA40 Port Cros
-	// samedi »): Mask keeps a match as an IBAN only with ibanDigits digits.
-	ibanPattern = regexp.MustCompile(`(?i)\b[A-Z]{2}\d{2}(?:\p{Zs}?[A-Z0-9]{4}){3,7}(?:\p{Zs}?[A-Z0-9]{1,3})?\b`)
+	// samedi »): maskIBANs keeps a match only when isIBAN says so.
+	ibanPattern = regexp.MustCompile(`(?i)\b[A-Z]{2}\d{2}(?:\p{Zs}?[A-Z0-9]{4}){2,7}(?:\p{Zs}?[A-Z0-9]{1,3})?\b`)
 	// emailPattern takes the whole local part RFC 5322 allows (o'connor@,
 	// jean+club@): a partial capture would name another address.
 	emailPattern = regexp.MustCompile("[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)+")
@@ -36,27 +38,19 @@ var (
 // phoneSep is what may sit between the digits of a phone number.
 const phoneSep = `[\p{Zs}.-]`
 
-// ibanDigits is the fewest digits an IBAN match holds: an IBAN's account
-// number is mostly digits (12 at least with its check digits, in Europe), a
-// dive level followed by words holds 2 to 6.
-const ibanDigits = 10
+// An IBAN is 15 characters at least (Norway's) and its account number is
+// mostly digits: 12 at least with the check digits, in Europe. A dive level
+// followed by words holds 2 to 6 digits.
+const (
+	ibanLength = 15
+	ibanDigits = 10
+)
 
 // Mask hides what never goes to the model: addresses become [email 1],
 // [email 2]… by their place in emails, which it returns grown with the new
 // ones; phone numbers and IBANs are replaced outright.
 func Mask(text string, emails []string) (string, []string) {
-	text = ibanPattern.ReplaceAllStringFunc(text, func(m string) string {
-		digits := 0
-		for _, r := range m {
-			if '0' <= r && r <= '9' {
-				digits++
-			}
-		}
-		if digits < ibanDigits {
-			return m
-		}
-		return "[iban]"
-	})
+	text = maskIBANs(text)
 	text = emailPattern.ReplaceAllStringFunc(text, func(m string) string {
 		addr := strings.ToLower(m)
 		i := slices.Index(emails, addr)
@@ -67,6 +61,44 @@ func Mask(text string, emails []string) (string, []string) {
 		return "[email " + strconv.Itoa(i+1) + "]"
 	})
 	return phonePattern.ReplaceAllString(text, "[téléphone]"), emails
+}
+
+// maskIBANs replaces the IBANs of text. A match that is none (a dive level
+// and the words after it) may run into the head of one: the search starts
+// again after its first character, not after its end.
+func maskIBANs(text string) string {
+	var b strings.Builder
+	for {
+		loc := ibanPattern.FindStringIndex(text)
+		if loc == nil {
+			break
+		}
+		if isIBAN(text[loc[0]:loc[1]]) {
+			b.WriteString(text[:loc[0]] + "[iban]")
+			text = text[loc[1]:]
+			continue
+		}
+		_, size := utf8.DecodeRuneInString(text[loc[0]:])
+		b.WriteString(text[:loc[0]+size])
+		text = text[loc[0]+size:]
+	}
+	b.WriteString(text)
+	return b.String()
+}
+
+// isIBAN tells an IBAN match from a dive level and the words after it.
+func isIBAN(m string) bool {
+	chars, digits := 0, 0
+	for _, r := range m {
+		if unicode.Is(unicode.Zs, r) {
+			continue
+		}
+		chars++
+		if '0' <= r && r <= '9' {
+			digits++
+		}
+	}
+	return chars >= ibanLength && digits >= ibanDigits
 }
 
 // Placeholder returns the address behind query when query is exactly an

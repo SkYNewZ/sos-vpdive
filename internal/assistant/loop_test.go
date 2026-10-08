@@ -181,6 +181,32 @@ func TestAnswerKeepsACutAnswer(t *testing.T) {
 	assert.NotContains(t, string(res.History[1].Content[0]), "coupée", "the model's turn goes back as it wrote it")
 }
 
+// Re-review: an answer cut inside its draft closes the draft before the
+// note, so that « Copier » does not copy the note with the draft.
+func TestAnswerClosesADraftCutShort(t *testing.T) {
+	cut := "### Brouillon\n\n```brouillon\nBonjour Léa,\nton carnet"
+	s := &scripted{replies: []string{strings.Replace(textStream(cut), "end_turn", "max_tokens", 1)}}
+	res, err := newTestClient(t, s, false).Answer(context.Background(), "S", userMessages(t, "Q"), (&runner{}).tools(), Events{})
+	require.NoError(t, err)
+	assert.Equal(t, cut+"\n```"+cutNote, res.Text)
+	html := string(Render(res.Text))
+	draft := html[strings.Index(html, "<pre>"):strings.Index(html, "</pre>")]
+	assert.Contains(t, draft, "ton carnet")
+	assert.NotContains(t, draft, "coupée")
+	assert.Contains(t, html, "<em>Réponse coupée")
+}
+
+func TestCloseFence(t *testing.T) {
+	for in, want := range map[string]string{
+		"Le solde est de":                    "Le solde est de",
+		"```brouillon\nBonjour\n```\n\nPuis": "```brouillon\nBonjour\n```\n\nPuis",
+		"~~~\ncode\n":                        "~~~\ncode\n~~~",
+		"````brouillon\n```\nBonjour":        "````brouillon\n```\nBonjour\n````",
+	} {
+		assert.Equal(t, want, closeFence(in), in)
+	}
+}
+
 func TestAnswerKeepsTextThatOnlyLooksLikeMarkup(t *testing.T) {
 	for _, text := range []string{"Le tableau | a | b | et <b>gras</b>.", "Utilise l'outil find_member.", "Invoque-le : name=Léa"} {
 		s := &scripted{replies: []string{textStream(text)}}
