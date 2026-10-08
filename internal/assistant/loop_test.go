@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -123,4 +124,18 @@ func TestAnswerFailuresRollBack(t *testing.T) {
 	s.fail(http.StatusInternalServerError)
 	_, err = c.Answer(context.Background(), "S", userMessages(t, "Q"), (&runner{}).tools(), Events{})
 	require.ErrorIs(t, err, ErrHTTP)
+}
+
+func TestAnswerReportsAToolCutByTheContext(t *testing.T) {
+	s := &scripted{replies: []string{textAndTool("", "call_1", "find_member", `{}`)}}
+	tools := Tools{Run: func(ctx context.Context, _ string, _ json.RawMessage) (string, string, error) {
+		<-ctx.Done()
+		return "", "", ctx.Err()
+	}}
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(200*time.Millisecond, cancel)
+	res, err := newTestClient(t, s, false).Answer(ctx, "S", userMessages(t, "Q"), tools, Events{})
+	require.ErrorIs(t, err, ErrCanceled)
+	assert.Equal(t, "canceled", Code(err))
+	assert.Nil(t, res.History)
 }

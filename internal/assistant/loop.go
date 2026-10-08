@@ -96,6 +96,9 @@ func (c *Client) Answer(ctx context.Context, system string, history []Message, t
 			if used < MaxToolCalls {
 				var step string
 				if out, step, err = tools.Run(ctx, u.Name, u.Input); err != nil {
+					if ctx.Err() != nil {
+						return res, transportError(ctx, err) // the deadline or the resolver's leaving, not a failure of ours
+					}
 					return res, err
 				}
 				res.Tools[journalName(tools.Defs, u.Name)]++
