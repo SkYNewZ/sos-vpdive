@@ -17,6 +17,8 @@ import (
 	"github.com/SkYNewZ/sos-vpdive/internal/calendar"
 	"github.com/SkYNewZ/sos-vpdive/internal/imports"
 	"github.com/SkYNewZ/sos-vpdive/internal/kb"
+	"github.com/SkYNewZ/sos-vpdive/internal/payments"
+	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 	"github.com/SkYNewZ/sos-vpdive/internal/tickets"
 )
 
@@ -80,6 +82,7 @@ func TestToolMemberPayments(t *testing.T) {
 	assert.Contains(t, mustJSON(t, got["soldes"]), "-180,00 €")
 	assert.Contains(t, mustJSON(t, got["lignes"]), "05/01/2026", "card purchases always come")
 	assert.Contains(t, mustJSON(t, got["mollie"]), "Sortie Porquerolles")
+	assert.Equal(t, map[string]any{"du": "05/05/2026", "au": "sans fin"}, got["periode_lue"], "the lines of the last 120 days")
 
 	got, _ = tb.call(t, "member_payments", `{"ref":"m1","du":"2026-06-01","au":"2026-06-05"}`)
 	assert.Contains(t, mustJSON(t, got["lignes"]), "03/06/2026 à 19:00", "Plongée Porquerolles, to pay: not a card line, created in the period")
@@ -93,6 +96,24 @@ func TestToolMemberPayments(t *testing.T) {
 	assert.Contains(t, got["erreur"], "find_member")
 	got, _ = tb.call(t, "member_payments", `{"ref":"m1","du":"hier"}`)
 	assert.Contains(t, got["erreur"], "AAAA-MM-JJ")
+}
+
+// Benchmark: a used-up carnet reads 0,00 € in VPDive. It is a balance; left
+// out, the model said the balance was not exported.
+func TestToolMemberPaymentsZeroBalance(t *testing.T) {
+	e := newTestEnv(t)
+	e.importMembers(t, "members_valid.xlsx")
+	created := e.clock.now().AddDate(0, -1, 0)
+	require.NoError(t, e.deps.Payments.Import(context.Background(), &payments.Export{FileHash: []byte("zero"), Lines: []payments.Line{
+		{NameKey: secure.NameKey("Bernard", "Hugo"), State: payments.StateDue, ProductType: payments.TypeCard,
+			Product: "Carte 10 plongées", Quantity: 100, Created: created},
+	}}))
+	tb := &toolbox{s: e.srv, c: &assistant.Conversation{}}
+	tb.call(t, "find_member", `{"query":"Hugo Bernard"}`)
+	got, _ := tb.call(t, "member_payments", `{"ref":"m1"}`)
+	soldes := got["soldes"].([]any)
+	require.Len(t, soldes, 1)
+	assert.Equal(t, "0,00 €", soldes[0].(map[string]any)["prix_unitaire"])
 }
 
 func TestToolMemberOutings(t *testing.T) {
@@ -112,11 +133,14 @@ func TestToolMemberOutings(t *testing.T) {
 	all := mustJSON(t, got["sorties"])
 	assert.Contains(t, all, "evt-porquerolles")
 	assert.Contains(t, all, "partiel, 40,00 € sur 60,00 €")
-	assert.Contains(t, all, `"personnes":2`, "Séjour Corse, upcoming")
+	assert.Contains(t, all, `"personnes":"2 (1 invité)"`, "Séjour Corse, upcoming: Hugo and his guest")
 	assert.NotContains(t, all, "evt-levant", "older than 90 days by default")
+	assert.Equal(t, map[string]any{"du": "04/06/2026", "au": "sans fin"}, got["periode_lue"],
+		"benchmark: an outing before the window is out of range, not absent")
 
-	got, _ = tb.call(t, "member_outings", `{"ref":"m1","du":"2026-05-01"}`)
+	got, _ = tb.call(t, "member_outings", `{"ref":"m1","du":"2026-05-01","au":"2026-05-31"}`)
 	assert.Contains(t, mustJSON(t, got["sorties"]), signalCarnet)
+	assert.Equal(t, map[string]any{"du": "01/05/2026", "au": "31/05/2026"}, got["periode_lue"])
 }
 
 func TestToolMemberRequests(t *testing.T) {
@@ -148,6 +172,8 @@ func TestToolOutings(t *testing.T) {
 	assert.Contains(t, people, "BERNARD Hugo")
 	assert.Contains(t, people, "partiel, 40,00 € sur 60,00 €")
 	assert.Contains(t, people, `"participation":"non_inscrit"`, "Famille Roux")
+	assert.Contains(t, people, `"inscrit_en_invite":true`, "Chloé, registered with VPDive's guest status")
+	assert.NotContains(t, people, `"personnes"`, "one place each: nothing to say")
 	got, _ = tb.call(t, "outing", `{"id":"evt-inconnu"}`)
 	assert.Contains(t, got["erreur"], "inconnue")
 }

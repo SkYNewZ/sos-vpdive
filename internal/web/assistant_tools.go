@@ -380,6 +380,22 @@ func (s *Server) period(du, au string, back int) (from, to time.Time, ok bool) {
 	return from, to, to.IsZero() || to.After(from)
 }
 
+// periodJSON is the window a member tool read, Paris days, both included:
+// what lies outside it was not read, which is not to say it is absent.
+type periodJSON struct {
+	Du string `json:"du"`
+	Au string `json:"au"` // « sans fin » when the call gave none
+}
+
+// periodRead describes the window [from, to) of period.
+func (s *Server) periodRead(from, to time.Time) periodJSON {
+	p := periodJSON{Du: s.formatDate(from), Au: "sans fin"}
+	if !to.IsZero() {
+		p.Au = s.formatDate(to.AddDate(0, 0, -1))
+	}
+	return p
+}
+
 func within(t, from, to time.Time) bool {
 	return !t.Before(from) && (to.IsZero() || t.Before(to))
 }
@@ -434,6 +450,7 @@ func (s *Server) mollieJSON(l payments.MollieLine) mollieJSON {
 type paymentsResult struct {
 	Import        importState  `json:"import_vpdive"`
 	Etat          string       `json:"etat"`
+	Periode       periodJSON   `json:"periode_lue"` // of the lines; balances and cards always come
 	Soldes        []lineJSON   `json:"soldes"`
 	Lignes        []lineJSON   `json:"lignes"`
 	Tronque       bool         `json:"tronque,omitempty"`
@@ -456,7 +473,8 @@ func (t *toolbox) memberPayments(ctx context.Context, input json.RawMessage) (an
 	if err != nil {
 		return nil, "", err
 	}
-	out := paymentsResult{Etat: blockState[pay.State], EtatMollie: blockState[mol.State], Soldes: []lineJSON{}, Lignes: []lineJSON{}, Mollie: []mollieJSON{}}
+	out := paymentsResult{Etat: blockState[pay.State], EtatMollie: blockState[mol.State], Periode: t.s.periodRead(from, to),
+		Soldes: []lineJSON{}, Lignes: []lineJSON{}, Mollie: []mollieJSON{}}
 	if out.Import, out.ImportMollie, err = t.paymentImports(ctx); err != nil {
 		return nil, "", err
 	}
@@ -504,8 +522,8 @@ type outingJSON struct {
 	Debut           string       `json:"debut"`
 	Annulee         bool         `json:"annulee,omitempty"`
 	Participation   string       `json:"participation,omitempty"` // inscrit, liste_attente, non_inscrit
-	Personnes       int          `json:"personnes,omitempty"`
-	Invite          bool         `json:"invite,omitempty"`
+	Personnes       string       `json:"personnes,omitempty"`
+	InscritInvite   bool         `json:"inscrit_en_invite,omitempty"`
 	Roles           string       `json:"roles,omitempty"`
 	Panier          string       `json:"panier,omitempty"`
 	Desinscriptions []unregJSON  `json:"desinscriptions,omitempty"`
@@ -519,6 +537,7 @@ type outingsResult struct {
 	ImportVPDive importState  `json:"import_vpdive"` // the lines and signals of the outings come from it
 	ImportMollie importState  `json:"import_mollie"`
 	Etat         string       `json:"etat"`
+	Periode      periodJSON   `json:"periode_lue"`
 	Sorties      []outingJSON `json:"sorties"`
 	Tronque      bool         `json:"tronque,omitempty"`
 }
@@ -526,6 +545,15 @@ type outingsResult struct {
 var outingsStateName = map[outingsState]string{
 	outingsNoCalendar: "aucun_calendrier", outingsNoMember: "hors_liste", outingsAmbiguous: "ambigu",
 	outingsEmpty: "vide", outingsList: "ok",
+}
+
+// places is the head count of a registration of several places: the person
+// registered and the guests their cart covers. Nothing for one place.
+func places(people int) string {
+	if people < 2 {
+		return ""
+	}
+	return strconv.Itoa(people) + " (" + plural(people-1, "invité", "invités") + ")"
 }
 
 func participation(p calendar.Participant) string {
@@ -541,7 +569,7 @@ func participation(p calendar.Participant) string {
 func (s *Server) outingJSON(o outing) outingJSON {
 	j := outingJSON{ID: o.Event.ID, Titre: o.Event.Title, Debut: eventWhen(o.Event, s.paris), Annulee: o.Event.Cancelled(), Signaux: o.Signals()}
 	if p := o.Participant; p != nil {
-		j.Participation, j.Personnes, j.Invite = participation(*p), p.People, p.Guest
+		j.Participation, j.Personnes, j.InscritInvite = participation(*p), places(p.People), p.Guest
 		j.Roles, j.Panier = s.labels.roles(p.Roles), plainSpaces(cartText(p.Payment))
 	}
 	for _, u := range o.Unregistrations {
@@ -573,7 +601,7 @@ func (t *toolbox) memberOutings(ctx context.Context, input json.RawMessage) (any
 	if err != nil {
 		return nil, "", err
 	}
-	out := outingsResult{Etat: outingsStateName[b.State], Sorties: []outingJSON{}}
+	out := outingsResult{Etat: outingsStateName[b.State], Periode: t.s.periodRead(from, to), Sorties: []outingJSON{}}
 	if out.Import, err = t.importOf(ctx, imports.Calendar); err != nil {
 		return nil, "", err
 	}
@@ -708,8 +736,8 @@ func (t *toolbox) findOutings(ctx context.Context, input json.RawMessage) (any, 
 type participantJSON struct {
 	Nom           string `json:"nom"`
 	Participation string `json:"participation"`
-	Personnes     int    `json:"personnes,omitempty"`
-	Invite        bool   `json:"invite,omitempty"`
+	Personnes     string `json:"personnes,omitempty"`
+	InscritInvite bool   `json:"inscrit_en_invite,omitempty"`
 	Roles         string `json:"roles,omitempty"`
 	Panier        string `json:"panier"`
 	Homonyme      bool   `json:"homonyme,omitempty"`
@@ -746,8 +774,8 @@ func (t *toolbox) outing(ctx context.Context, input json.RawMessage) (any, strin
 		return nil, "", err
 	}
 	for _, p := range ev.Participants {
-		out.Participants = append(out.Participants, participantJSON{Nom: p.Name, Participation: participation(p), Personnes: p.People,
-			Invite: p.Guest, Roles: t.s.labels.roles(p.Roles), Panier: plainSpaces(cartText(p.Payment)), Homonyme: p.Members > 1})
+		out.Participants = append(out.Participants, participantJSON{Nom: p.Name, Participation: participation(p), Personnes: places(p.People),
+			InscritInvite: p.Guest, Roles: t.s.labels.roles(p.Roles), Panier: plainSpaces(cartText(p.Payment)), Homonyme: p.Members > 1})
 	}
 	for _, u := range left {
 		out.Desinscriptions = append(out.Desinscriptions, unregJSON{Nom: strings.TrimSpace(u.FirstName + " " + u.LastName),

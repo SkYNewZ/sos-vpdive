@@ -47,9 +47,10 @@ type ToSettleLine struct {
 }
 
 // Balance reports the remaining credit of a carnet or a training: due,
-// negative, the credit being its absolute value (spec §7.1, §7.3).
+// negative, the credit being its absolute value (spec §7.1, §7.3). A
+// used-up one reads 0,00 €: a balance too.
 func (l Line) Balance() bool {
-	return l.State == StateDue && l.UnitPrice < 0 && (l.ProductType == TypeCard || l.ProductType == TypeTraining)
+	return l.State == StateDue && l.UnitPrice <= 0 && (l.ProductType == TypeCard || l.ProductType == TypeTraining)
 }
 
 // ToSettle reports a line the member still has to pay.
