@@ -464,7 +464,8 @@ const assistantBox = (box) => {
       }
       if (!ended) fail("Connexion perdue : réessaie.");
     } catch (err) {
-      fail(err.name === "AbortError" ? "Réponse arrêtée." : "Connexion perdue : réessaie.");
+      // A drop or a stop after "done" leaves the kept answer as it is.
+      if (!ended) fail(err.name === "AbortError" ? "Réponse arrêtée." : "Connexion perdue : réessaie.");
     } finally {
       running = null;
       busy(false);
@@ -490,7 +491,7 @@ const assistantBox = (box) => {
   field.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
       event.preventDefault();
-      form.requestSubmit();
+      if (!running) form.requestSubmit(); // while an answer runs, only the button stops it
     }
   });
   // Grows with its text: CSSOM, allowed by the style-src CSP.
@@ -545,12 +546,15 @@ if (panel && opener) {
   opener.addEventListener("click", () => {
     openPanel(true);
     const box = assistants.get(panel);
-    if (box.isRunning() || panel.querySelector("[data-answer]:not(:empty)")) {
+    const exchanges = [...panel.querySelectorAll("[data-exchange]")];
+    // An answer counts when it ended without an error; partial text before an error or a stop does not.
+    const answered = (ex) => ex.querySelector("[data-error]").hidden && ex.querySelector("[data-answer]").hasChildNodes();
+    if (box.isRunning() || exchanges.some(answered)) {
       box.field.focus();
       return;
     }
-    // Never run or failed: start again, without the old error above.
-    for (const ex of panel.querySelectorAll("[data-exchange]")) ex.remove();
+    // Never run or failed: start again, without the old error or partial answer above.
+    for (const ex of exchanges) ex.remove();
     box.ask("");
   });
   for (const b of panel.querySelectorAll("[data-assistant-close]")) b.addEventListener("click", () => openPanel(false));

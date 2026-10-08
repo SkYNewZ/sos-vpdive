@@ -11,7 +11,7 @@
 <span>Ancienneté : {{template "age" (age $t.SubmittedAt $t.ClosedAt)}}</span>
 <span>Résolveur : {{with $d.Assignee}}<span class="inline-flex items-center gap-2 align-middle"><img src="{{.Avatar}}" alt="" width="24" height="24" class="size-6"><span class="font-semibold">{{.Name}}</span> · {{.Role}}</span>{{else}}{{if $t.Assignee}}{{$t.Assignee}} (compte retiré){{else}}personne{{end}}{{end}}</span>
 </div>
-{{with $d.Assistant}}<div><button type="button" class="btn btn-outline min-h-11" data-assistant-open aria-controls="assistant-panel">{{template "icon" "sparkles"}}<span>{{if .Exchanges}}Voir l'analyse{{else}}Analyser{{end}}</span></button></div>{{end}}
+{{with $d.Assistant}}<div><button type="button" class="btn btn-outline min-h-11" data-assistant-open aria-controls="assistant-panel" aria-expanded="false">{{template "icon" "sparkles"}}<span>{{if .Exchanges}}Voir l'analyse{{else}}Analyser{{end}}</span></button></div>{{end}}
 {{if $d.Can.close}}
 <div class="flex flex-wrap items-end gap-3">
 {{if $d.Can.take}}

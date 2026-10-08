@@ -124,6 +124,10 @@ func TestAssistantFollowUpKeepsTheConversation(t *testing.T) {
 	second := stub.calls()[1]
 	assert.Contains(t, second, "Première.", "the history goes back")
 	assert.Equal(t, 1, strings.Count(second, "Nous sommes le"), "the context comes once")
+
+	_, page := e.page(t, cookie, "/assistant/"+id)
+	assert.Equal(t, 2, strings.Count(page, "Aucune donnée consultée</summary>"), "answers that used no tool say so once reloaded")
+	assert.Equal(t, 1, strings.Count(page, "Recherche en cours…</summary>"), "only the template for the next exchange says it is searching")
 }
 
 func TestAssistantConversationIsPrivate(t *testing.T) {
@@ -185,7 +189,9 @@ func TestAssistantFromARequest(t *testing.T) {
 	stub := &streamStub{replies: []string{sseText(t, "### Adhérent\n\nHugo.")}}
 	e, cookie := assistantEnv(t, stub, 50)
 	hugo := e.submitTicket(t, "hugo.bernard@example.org")
-	assert.Contains(t, e.openTicket(t, cookie, hugo.ID).body, "Analyser")
+	before := e.openTicket(t, cookie, hugo.ID).body
+	assert.Contains(t, before, "Analyser")
+	assert.Contains(t, before, `data-assistant-open aria-controls="assistant-panel" aria-expanded="false"`, "closed before the first click")
 	_, ev, _ := e.ask(t, cookie, url.Values{"text": {""}, "demande": {itoa(hugo.ID)}})
 	require.Len(t, ev.of("done"), 1)
 	assert.Nil(t, ev.of("start")[0]["url"], "the request page keeps its address")
