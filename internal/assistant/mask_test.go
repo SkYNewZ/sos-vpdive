@@ -260,6 +260,20 @@ func TestMaskJSON(t *testing.T) {
 	assert.Equal(t, "{ \"0612345678\" : \"[téléphone]\" }", string(spaced), "a key is told by its colon, spaces apart")
 }
 
+// Review: the model hands the tools' ids back to them, and an outing id
+// (base64url, dashes included) may look like IBAN groups. The values of the
+// id and ref keys go as written; the same string anywhere else is masked.
+func TestMaskJSONKeepsSystemIDs(t *testing.T) {
+	const id = "AB12-3456-7890-1234-5678"
+	doc := `{"id":"` + id + `","ref":"m1","nom":"` + id + `","sorties":[{"id" : "` + id + `","titre":"` + id + `"},"` + id + `"],` +
+		`"ids":"` + id + `","id2":{"id":12,"x":"` + id + `"}}`
+	out, _, err := MaskJSON([]byte(doc), nil)
+	require.NoError(t, err)
+	//nolint:testifylint // the exact text is the point: which values are kept as written
+	assert.Equal(t, `{"id":"`+id+`","ref":"m1","nom":"[iban]","sorties":[{"id" : "`+id+`","titre":"[iban]"},"[iban]"],`+
+		`"ids":"[iban]","id2":{"id":12,"x":"[iban]"}}`, string(out))
+}
+
 func TestMaskJSONRefusesMalformedDocuments(t *testing.T) {
 	for _, doc := range []string{`{"a":"b`, `{"a":"b\`, `{"a":"\x"}`} {
 		out, emails, err := MaskJSON([]byte(doc), []string{"a@example.org"})

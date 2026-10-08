@@ -140,14 +140,21 @@ func Placeholder(query string, emails []string) (string, bool) {
 // it: the document holds personal data.
 var errMaskJSON = errors.New("mask JSON: malformed document")
 
-// MaskJSON applies Mask to every string value of a JSON document, which
-// comes back otherwise as written: keys, numbers and order are untouched.
-// It masks what the strings say, not how they are encoded: in JSON a
-// newline is a backslash and an n, an angle bracket a backslash and u003c,
-// and either sticks to the number or the address after it, which Mask would
-// then miss or misread. On error the results are nil.
+// idKeys are the encoded keys whose string values are system ids the tools
+// return and take back (an outing's base64url id, a member's or a request's
+// ref): no person writes them, and an outing id's dashes could pass for IBAN
+// groups.
+var idKeys = []string{`"id"`, `"ref"`}
+
+// MaskJSON applies Mask to every string value of a JSON document but those
+// of idKeys; it comes back otherwise as written: keys, numbers and order are
+// untouched. It masks what the strings say, not how they are encoded: in
+// JSON a newline is a backslash and an n, an angle bracket a backslash and
+// u003c, and either sticks to the number or the address after it, which Mask
+// would then miss or misread. On error the results are nil.
 func MaskJSON(doc []byte, emails []string) ([]byte, []string, error) {
 	out := make([]byte, 0, len(doc))
+	keep := false // the next string is the value of an idKeys key
 	for i := 0; i < len(doc); {
 		if doc[i] != '"' {
 			out = append(out, doc[i])
@@ -168,11 +175,18 @@ func MaskJSON(doc []byte, emails []string) ([]byte, []string, error) {
 		i = end + 1
 		if next := bytes.TrimLeft(doc[i:], " \t\r\n"); len(next) > 0 && next[0] == ':' {
 			out = append(out, literal...) // a key
+			value := bytes.TrimLeft(next[1:], " \t\r\n")
+			keep = slices.Contains(idKeys, string(literal)) && len(value) > 0 && value[0] == '"'
 			continue
 		}
 		var value string
 		if err := json.Unmarshal(literal, &value); err != nil {
 			return nil, nil, errMaskJSON
+		}
+		if keep {
+			keep = false
+			out = append(out, literal...)
+			continue
 		}
 		value, emails = Mask(value, emails)
 		masked, err := json.Marshal(value)
