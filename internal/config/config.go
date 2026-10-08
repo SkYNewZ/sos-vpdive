@@ -97,6 +97,7 @@ type LLM struct {
 type Assistant struct {
 	Model          string // LLM_MODEL when ASSISTANT_MODEL is empty
 	Thinking       bool
+	MaxTokens      int // per model call, reasoning included
 	DailyQuestions int // per committee account and Paris day
 	// Priced is false unless both input and output prices are set; prices
 	// are in micro-dollars per million tokens, for the usage journal.
@@ -106,6 +107,17 @@ type Assistant struct {
 
 // defaultDailyQuestions is ASSISTANT_DAILY_QUESTIONS when unset.
 const defaultDailyQuestions = 50
+
+// ASSISTANT_MAX_TOKENS: its defaults, without and with reasoning (DeepSeek
+// ignores budget_tokens: its reasoning takes from max_tokens), and its
+// bounds. The upper one is DeepSeek's largest output; the lower one leaves
+// room for the 2 048-token reasoning budget Anthropic checks.
+const (
+	defaultMaxTokens      = 8000
+	defaultMaxTokensThink = 32000
+	minMaxTokens          = 4000
+	maxMaxTokens          = 384000
+)
 
 // VAPID identifies the server to the push services (RFC 8292).
 type VAPID struct {
@@ -494,6 +506,18 @@ func (p *parser) assistant(llm *LLM) *Assistant {
 	}
 	a := &Assistant{Model: p.optional("ASSISTANT_MODEL", llm.Model), DailyQuestions: defaultDailyQuestions}
 	a.Thinking = p.flag("ASSISTANT_THINKING")
+	a.MaxTokens = defaultMaxTokens
+	if a.Thinking {
+		a.MaxTokens = defaultMaxTokensThink
+	}
+	if raw := p.value("ASSISTANT_MAX_TOKENS"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < minMaxTokens || n > maxMaxTokens {
+			p.warn("ASSISTANT_MAX_TOKENS", fmt.Errorf("must be an integer between %d and %d: %d kept", minMaxTokens, maxMaxTokens, a.MaxTokens))
+		} else {
+			a.MaxTokens = n
+		}
+	}
 	if raw := p.value("ASSISTANT_DAILY_QUESTIONS"); raw != "" {
 		n, err := strconv.Atoi(raw)
 		if err != nil || n < 1 || n > 10000 {

@@ -507,7 +507,7 @@ func TestLoadAssistant(t *testing.T) {
 	m["LLM_MODEL"] = "deepseek-flash"
 	c, err = Load(getenv(m))
 	require.NoError(t, err)
-	assert.Equal(t, &Assistant{Model: "deepseek-flash", DailyQuestions: 50}, c.Assistant, "LLM_MODEL by default")
+	assert.Equal(t, &Assistant{Model: "deepseek-flash", MaxTokens: 8000, DailyQuestions: 50}, c.Assistant, "LLM_MODEL by default")
 
 	m["ASSISTANT_MODEL"] = "deepseek-v4-pro"
 	m["ASSISTANT_THINKING"] = "true"
@@ -517,9 +517,14 @@ func TestLoadAssistant(t *testing.T) {
 	c, err = Load(getenv(m))
 	require.NoError(t, err)
 	assert.Equal(t, &Assistant{
-		Model: "deepseek-v4-pro", Thinking: true, DailyQuestions: 20,
+		Model: "deepseek-v4-pro", Thinking: true, MaxTokens: 32000, DailyQuestions: 20,
 		Priced: true, PriceInput: 300_000, PriceOutput: 1_200_000, PriceCached: 300_000,
-	}, c.Assistant, "a cached price defaults to the input price")
+	}, c.Assistant, "a cached price defaults to the input price; reasoning gets a larger budget")
+
+	m["ASSISTANT_MAX_TOKENS"] = "12000"
+	c, err = Load(getenv(m))
+	require.NoError(t, err)
+	assert.Equal(t, 12000, c.Assistant.MaxTokens, "the owner tunes it from usage")
 }
 
 func TestLoadAssistantOffByDefault(t *testing.T) {
@@ -535,6 +540,7 @@ func TestLoadAssistantInvalidValuesWarn(t *testing.T) {
 	for name, value := range map[string]string{
 		"ASSISTANT_THINKING":        "oui",
 		"ASSISTANT_DAILY_QUESTIONS": "0",
+		"ASSISTANT_MAX_TOKENS":      "500000",
 		"ASSISTANT_PRICE_INPUT":     "cher",
 		"ASSISTANT_PRICE_CACHED":    "-1",
 	} {
@@ -547,6 +553,7 @@ func TestLoadAssistantInvalidValuesWarn(t *testing.T) {
 			require.NotNil(t, c.Assistant)
 			require.Len(t, c.Warnings, 1)
 			assert.Contains(t, c.Warnings[0].Error(), name)
+			assert.Equal(t, 8000, c.Assistant.MaxTokens, "the default is kept")
 		})
 	}
 	m := validEnv()
