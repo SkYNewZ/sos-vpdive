@@ -72,7 +72,7 @@ func assistantBench(ctx context.Context, getenv func(string) string, args []stri
 		return err
 	}
 	defer func() { err = errors.Join(err, dest.Close()) }()
-	metrics, err := dest.Create("metrics.jsonl")
+	metrics, err := dest.OpenFile("metrics.jsonl", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
 	}
@@ -90,8 +90,12 @@ func assistantBench(ctx context.Context, getenv func(string) string, args []stri
 		if err != nil {
 			return err
 		}
-		transcript := "# " + e.Name() + "\n\n## Question\n\n" + string(text) + "\n\n## Étapes\n\n- " +
-			strings.Join(r.Steps, "\n- ") + "\n\n## Réponse (" + r.Outcome + ")\n\n" + r.Answer + "\n"
+		steps := "(aucune)"
+		if len(r.Steps) > 0 {
+			steps = "- " + strings.Join(r.Steps, "\n- ")
+		}
+		transcript := "# " + e.Name() + "\n\n## Question\n\n" + string(text) + "\n\n## Étapes\n\n" + steps +
+			"\n\n## Réponse (" + r.Outcome + ")\n\n" + r.Answer + "\n"
 		if err := dest.WriteFile(e.Name()+".md", []byte(transcript), 0o600); err != nil {
 			return err
 		}
