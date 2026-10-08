@@ -315,23 +315,31 @@ func (s *Server) assistantAsk(w http.ResponseWriter, r *http.Request) {
 	ctx, stop := context.WithCancel(ctx)
 	defer stop()
 	c, err := s.convs.Begin(string(sess.hash), sess.account.Username, r.PostForm.Get("conversation"), ticketID, stop)
+	// On a 404 or a 410, app.js forgets the conversation: the next question
+	// starts a new one, with the request on a request page.
+	again := " Ta prochaine question en ouvrira une nouvelle.\n"
+	if ticket != nil {
+		again = " Ta prochaine question relancera l'analyse de la demande.\n"
+	}
 	switch {
 	case errors.Is(err, assistant.ErrNotFound):
-		s.writeText(w, r, http.StatusNotFound, "Conversation effacée : elle disparaît 30 minutes après la dernière question. Commence-en une nouvelle.\n")
+		s.writeText(w, r, http.StatusNotFound, "Conversation effacée : elle disparaît 30 minutes après la dernière question."+again)
 		return
 	case errors.Is(err, assistant.ErrBusy):
 		s.writeText(w, r, http.StatusConflict, "Une réponse est déjà en cours.\n")
 		return
 	case errors.Is(err, assistant.ErrFull):
-		s.writeText(w, r, http.StatusConflict, "Conversation trop longue : commence-en une nouvelle.\n")
+		s.writeText(w, r, http.StatusGone, "Conversation trop longue."+again)
 		return
 	case err != nil:
 		s.serverError(w, r, err)
 		return
 	}
+	// Frees the slot whatever happens, a recovered panic included; after
+	// Finish it frees nothing, not even a newer answer's slot.
+	defer s.convs.Abort(c)
 	if len(c.Exchanges) > 0 {
 		if text == "" {
-			s.convs.Abort(c)
 			s.writeText(w, r, http.StatusUnprocessableEntity, "Écris une question.\n")
 			return
 		}
@@ -354,7 +362,13 @@ func (s *Server) streamAnswer(ctx context.Context, out *ndjson, c assistant.Conv
 	defer func() {
 		entry.Duration = time.Since(start)
 		s.recordUsage(ctx, entry)
-		span.SetAttributes(attribute.String("assistant.outcome", entry.Outcome), attribute.Int("assistant.calls", entry.Result.Calls),
+		tools := 0
+		for _, n := range entry.Result.Tools {
+			tools += n
+		}
+		span.SetAttributes(attribute.String("assistant.outcome", entry.Outcome), attribute.String("assistant.model", entry.Model),
+			attribute.Bool("assistant.thinking", entry.Thinking), attribute.Int("assistant.calls", entry.Result.Calls),
+			attribute.Int("assistant.tools", tools),
 			attribute.Int("assistant.input_tokens", entry.Result.Usage.Input), attribute.Int("assistant.output_tokens", entry.Result.Usage.Output))
 		if entry.Outcome != outcomeOK {
 			telemetry.Fail(span, entry.Outcome)
@@ -362,20 +376,21 @@ func (s *Server) streamAnswer(ctx context.Context, out *ndjson, c assistant.Conv
 	}()
 	var left string // the questions left today, this one counted
 	fail := func(code string) {
-		s.convs.Abort(c)
 		entry.Outcome = code
+		if code == outcomeInvalid {
+			out.send(streamEvent{Type: "answer"}) // what streamed, a tool call written as text maybe, is no answer
+		}
 		out.send(streamEvent{Type: "error", Message: failureText(code, s.cfg.Assistant.DailyQuestions), Remaining: left})
 	}
 	allowed, err := s.limiter.allow(ctx, s.quotaKey(account), s.cfg.Assistant.DailyQuestions, counterRetention)
 	if err != nil {
-		s.logger.ErrorContext(ctx, "assistant quota", "error", err)
-		fail(outcomeInternal)
+		fail(s.quotaFailed(ctx, err))
 		return
 	}
 	// A stopped answer sends nothing more: the count goes out first, so that
 	// the page can show it whatever happens next.
 	if left, err = s.remaining(ctx, account); err != nil {
-		s.logger.ErrorContext(ctx, "assistant quota", "error", err)
+		s.quotaFailed(ctx, err)
 	}
 	if !allowed {
 		s.logger.InfoContext(ctx, "assistant quota reached")
@@ -405,6 +420,11 @@ func (s *Server) streamAnswer(ctx context.Context, out *ndjson, c assistant.Conv
 				}
 			},
 			Thinking: func() { out.send(streamEvent{Type: "thinking"}) },
+			// The text so far was narration: the new turn's first words replace it.
+			Turn: func() {
+				answer.Reset()
+				rendered = time.Time{}
+			},
 			Step: func(label string) {
 				out.send(streamEvent{Type: "step", Label: label})
 				if standalone {
@@ -441,6 +461,17 @@ func (s *Server) streamAnswer(ctx context.Context, out *ndjson, c assistant.Conv
 	if standalone {
 		s.sendDossier(ctx, out, s.dossier(c, nil, left))
 	}
+}
+
+// quotaFailed logs a quota read that failed and returns the outcome: an
+// error of ours, unless the resolver left or an erasure stopped the answer.
+func (s *Server) quotaFailed(ctx context.Context, err error) string {
+	if ctx.Err() != nil {
+		s.logger.WarnContext(ctx, "assistant quota check stopped", "code", outcomeCanceled)
+		return outcomeCanceled
+	}
+	s.logger.ErrorContext(ctx, "assistant quota", "error", err)
+	return outcomeInternal
 }
 
 // runAnswer asks the model text (and the request t, on « Analyser »), with

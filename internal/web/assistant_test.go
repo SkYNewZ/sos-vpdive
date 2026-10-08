@@ -2,8 +2,10 @@ package web
 
 import (
 	"context"
+	"encoding/json"
 	"html"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
@@ -16,6 +18,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace/noop"
 
+	"github.com/SkYNewZ/sos-vpdive/internal/assistant"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 )
 
@@ -160,6 +163,125 @@ func TestAssistantConversationExpires(t *testing.T) {
 	status, _, body := e.ask(t, cookie, url.Values{"text": {"Q"}, "conversation": {id}})
 	assert.Equal(t, http.StatusNotFound, status)
 	assert.Contains(t, body, "Conversation effacée")
+	assert.Contains(t, body, "Ta prochaine question en ouvrira une nouvelle.", "app.js forgets the conversation on a 404")
+}
+
+// A request's analysis that was erased or filled up does not trap the
+// panel: app.js forgets it on a 404 or a 410, and the next question, or
+// « Nouvelle analyse », starts the analysis again with the request.
+func TestAssistantRequestAnalysisStartsAgain(t *testing.T) {
+	stub := &streamStub{replies: []string{sseText(t, "Analyse.")}}
+	e, cookie := assistantEnv(t, stub, 50)
+	hugo := e.submitTicket(t, "hugo.bernard@example.org")
+	assert.Contains(t, e.openTicket(t, cookie, hugo.ID).body, "data-assistant-restart", "the panel offers a new analysis")
+	demande := itoa(hugo.ID)
+	_, ev, _ := e.ask(t, cookie, url.Values{"text": {""}, "demande": {demande}})
+	first := ev.of("start")[0]["conversation"].(string)
+
+	c, err := e.srv.convs.Begin(sessionOf(cookie), "alice", first, 0, nil)
+	require.NoError(t, err)
+	c.Exchanges = make([]assistant.Exchange, assistant.MaxQuestions)
+	e.srv.convs.Finish(c)
+	status, _, body := e.ask(t, cookie, url.Values{"text": {"Et ensuite ?"}, "demande": {demande}, "conversation": {first}})
+	assert.Equal(t, http.StatusGone, status)
+	assert.Contains(t, body, "Conversation trop longue.")
+	assert.Contains(t, body, "Ta prochaine question relancera l'analyse de la demande.")
+
+	_, ev, _ = e.ask(t, cookie, url.Values{"text": {"Et ensuite ?"}, "demande": {demande}})
+	require.Len(t, ev.of("done"), 1)
+	second := ev.of("start")[0]["conversation"].(string)
+	assert.NotEqual(t, first, second, "a full analysis is never resumed")
+	calls := stub.calls()
+	assert.Contains(t, calls[len(calls)-1], `\u003cdemande\u003e`, "the new analysis carries the request")
+	assert.Contains(t, calls[len(calls)-1], "Et ensuite ?")
+	assert.Contains(t, e.openTicket(t, cookie, hugo.ID).body, `data-conversation="`+second+`"`, "the page shows the newest analysis")
+
+	e.clock.advance(31 * time.Minute)
+	status, _, body = e.ask(t, cookie, url.Values{"text": {"Et ensuite ?"}, "demande": {demande}, "conversation": {second}})
+	assert.Equal(t, http.StatusNotFound, status)
+	assert.Contains(t, body, "Ta prochaine question relancera l'analyse de la demande.")
+
+	_, ev, _ = e.ask(t, cookie, url.Values{"text": {""}, "demande": {demande}})
+	require.Len(t, ev.of("done"), 1, "« Nouvelle analyse »")
+	assert.Equal(t, "Analyse de la demande "+hugo.Ref, ev.of("start")[0]["question"])
+}
+
+// What the model wrote before its tools is narration: it streams while the
+// tools run, then the next turn replaces it, and only the last turn stays.
+func TestAssistantShowsOnlyTheLastTurn(t *testing.T) {
+	narration := sseEvents(sseStart,
+		`{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`,
+		`{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Je cherche Hugo."}}`,
+		`{"type":"content_block_stop","index":0}`,
+		`{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"call_1","name":"find_member","input":{}}}`,
+		`{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"query\":\"Hugo Bernard\"}"}}`,
+		`{"type":"content_block_stop","index":1}`,
+		`{"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":10}}`, `{"type":"message_stop"}`)
+	stub := &streamStub{replies: []string{narration, sseText(t, "### Adhérent\n\nHugo Bernard.")}}
+	e, cookie := assistantEnv(t, stub, 50)
+	_, ev, _ := e.ask(t, cookie, url.Values{"text": {"Où en est Hugo Bernard ?"}})
+	answers := ev.of("answer")
+	require.Len(t, answers, 2)
+	assert.Contains(t, answers[0]["html"], "Je cherche Hugo.", "the narration streams while the tools run")
+	assert.NotContains(t, answers[1]["html"], "Je cherche", "the next turn replaces it at once")
+	done := ev.of("done")
+	require.Len(t, done, 1)
+	assert.NotContains(t, done[0]["html"], "Je cherche")
+	assert.Contains(t, done[0]["html"], "Hugo Bernard.")
+	_, page := e.page(t, cookie, "/assistant/"+ev.of("start")[0]["conversation"].(string))
+	assert.NotContains(t, page, "Je cherche Hugo.", "nor is it stored")
+	assert.Contains(t, stub.calls()[1], "Je cherche Hugo.", "the model keeps its own turn")
+}
+
+// An answer cut at max_tokens is kept, with a note, and counts as an answer.
+func TestAssistantKeepsACutAnswer(t *testing.T) {
+	stub := &streamStub{replies: []string{strings.Replace(sseText(t, "Le solde est de -48,00 €."), "end_turn", "max_tokens", 1)}}
+	e, cookie := assistantEnv(t, stub, 50)
+	_, ev, _ := e.ask(t, cookie, url.Values{"text": {"Q"}})
+	done := ev.of("done")
+	require.Len(t, done, 1)
+	assert.Contains(t, done[0]["html"], "Le solde est de -48,00 €.")
+	assert.Contains(t, done[0]["html"], "<em>Réponse coupée : limite de longueur atteinte.</em>")
+	var outcome string
+	require.NoError(t, e.db.QueryRowContext(context.Background(), `SELECT outcome FROM assistant_usage`).Scan(&outcome))
+	assert.Equal(t, "ok", outcome)
+}
+
+// A tool call the model wrote as text is no answer: the stream clears it.
+func TestAssistantRefusesToolCallsWrittenAsText(t *testing.T) {
+	bar := string(rune(0xff5c))
+	stub := &streamStub{replies: []string{sseText(t, "Je regarde.\n<"+bar+bar+"DSML"+bar+bar+` invoke name="member_outings">`)}}
+	e, cookie := assistantEnv(t, stub, 50)
+	_, ev, _ := e.ask(t, cookie, url.Values{"text": {"Q"}})
+	require.Len(t, ev.of("error"), 1)
+	assert.Contains(t, ev.of("error")[0]["message"], "illisible")
+	answers := ev.of("answer")
+	require.NotEmpty(t, answers)
+	assert.Nil(t, answers[len(answers)-1]["html"], "what streamed is cleared")
+	assert.Equal(t, "error", ev[len(ev)-1]["type"])
+	var outcome string
+	require.NoError(t, e.db.QueryRowContext(context.Background(), `SELECT outcome FROM assistant_usage`).Scan(&outcome))
+	assert.Equal(t, "invalid_output", outcome)
+	_, page := e.page(t, cookie, "/assistant/"+ev.of("start")[0]["conversation"].(string))
+	assert.NotContains(t, page, "DSML")
+}
+
+// A resolver leaving (or an erasure) during the quota check is no failure
+// of ours: journaled canceled, logged below Error.
+func TestAssistantCancelDuringTheQuotaCheck(t *testing.T) {
+	stub := &streamStub{}
+	e, _ := assistantEnv(t, stub, 50)
+	c, err := e.srv.convs.Begin("tab", "alice", "", 0, nil)
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	rec := httptest.NewRecorder()
+	e.srv.streamAnswer(ctx, &ndjson{enc: json.NewEncoder(rec), rc: http.NewResponseController(rec)}, c, "Q", nil, "alice")
+	var outcome string
+	require.NoError(t, e.db.QueryRowContext(context.Background(), `SELECT outcome FROM assistant_usage`).Scan(&outcome))
+	assert.Equal(t, "canceled", outcome)
+	assert.NotContains(t, e.logs.String(), `"level":"ERROR"`)
+	assert.Empty(t, stub.calls())
 }
 
 func TestAssistantQuota(t *testing.T) {
@@ -209,13 +331,14 @@ func TestAssistantFromARequest(t *testing.T) {
 	assert.Equal(t, question, ev.of("start")[0]["question"], "the live bubble reads as the reloaded one")
 	first := stub.calls()[0]
 	assert.Contains(t, first, `\u003cdemande\u003e\n{\"reference\":`, "the frame, its brackets escaped by JSON")
-	assert.Contains(t, first, "m1, identifié par l'adresse de la demande")
+	assert.Contains(t, first, `\"adherent\":{\"ref\":\"m1\",\"nom\":\"Hugo Bernard\"`)
 	page := e.openTicket(t, cookie, hugo.ID).body
 	assert.Contains(t, page, "Voir l'analyse")
 	assert.Contains(t, page, "<h3>Adhérent</h3>")
 	assert.Contains(t, page, question+"</p>", "the reloaded thread shows the same question")
 
-	status, _, _ := e.ask(t, cookie, url.Values{"text": {""}, "demande": {itoa(hugo.ID)}})
+	id := ev.of("start")[0]["conversation"].(string)
+	status, _, _ := e.ask(t, cookie, url.Values{"text": {""}, "demande": {itoa(hugo.ID)}, "conversation": {id}})
 	assert.Equal(t, http.StatusUnprocessableEntity, status, "the analysis runs once; then questions")
 	status, _, _ = e.ask(t, cookie, url.Values{"text": {""}})
 	assert.Equal(t, http.StatusUnprocessableEntity, status)
@@ -321,6 +444,18 @@ func TestAssistantSpansCarryNoContent(t *testing.T) {
 	}
 	for _, want := range []string{"assistant.answer", "llm.messages", "assistant.tool", "POST /assistant/messages"} {
 		assert.True(t, names[want], want)
+	}
+	for _, s := range rec.Ended() {
+		if s.Name() != "assistant.answer" {
+			continue
+		}
+		attrs := map[string]string{}
+		for _, a := range s.Attributes() {
+			attrs[string(a.Key)] = a.Value.String()
+		}
+		assert.Equal(t, "test-model", attrs["assistant.model"])
+		assert.Equal(t, "false", attrs["assistant.thinking"])
+		assert.Equal(t, "1", attrs["assistant.tools"], "tool calls")
 	}
 }
 

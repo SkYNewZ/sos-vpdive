@@ -437,7 +437,7 @@ const assistantBox = (box) => {
           break;
         }
         case "answer":
-          answer.innerHTML = event.html;
+          answer.innerHTML = event.html ?? ""; // none: what streamed is no answer
           break;
         case "dossier":
           for (const d of document.querySelectorAll("[data-assistant-dossier]")) d.innerHTML = event.html;
@@ -450,6 +450,7 @@ const assistantBox = (box) => {
           stepsBox.open = false;
           tally();
           setRemaining(event.remaining);
+          for (const label of document.querySelectorAll("[data-assistant-open-label]")) label.textContent = "Voir l'analyse";
           break;
         case "error":
           fail(event.message);
@@ -469,6 +470,8 @@ const assistantBox = (box) => {
     try {
       const response = await fetch(form.action, { method: "POST", body, signal: running.signal });
       if (!response.ok) {
+        // Erased (404) or full (410): the next question starts a new conversation.
+        if (response.status === 404 || response.status === 410) delete box.dataset.conversation;
         const message = (await response.text()).trim() || "Erreur : réessaie.";
         grow(() => fail(message));
         return;
@@ -534,6 +537,13 @@ const assistantBox = (box) => {
     const pick = event.target.closest("[data-pick]");
     if (pick) ask(pick.dataset.pick);
   });
+  // « Nouvelle analyse » (request panel): the analysis starts again, in a new conversation.
+  box.querySelector("[data-assistant-restart]")?.addEventListener("click", () => {
+    if (running) return;
+    for (const ex of thread.querySelectorAll("[data-exchange]")) ex.remove();
+    delete box.dataset.conversation;
+    ask("");
+  });
   return { ask, field, isRunning: () => running !== null };
 };
 
@@ -559,12 +569,15 @@ const panel = document.querySelector("aside[data-assistant]");
 const opener = document.querySelector("[data-assistant-open]");
 if (panel && opener) {
   let scroll = 0;
+  const heading = panel.querySelector("h2");
   const openPanel = (on) => {
     if (on) scroll = window.scrollY;
     panel.hidden = !on;
     opener.setAttribute("aria-expanded", String(on));
     ticketPage?.toggleAttribute("data-panel-open", on);
-    if (!on) {
+    if (on) {
+      heading.focus({ preventScroll: true }); // on a phone the sheet covers the opener: focus goes into it
+    } else {
       opener.focus({ preventScroll: true });
       if (!wide.matches) window.scrollTo(0, scroll);
     }
@@ -576,7 +589,7 @@ if (panel && opener) {
     // An answer counts when it ended without an error; partial text before an error or a stop does not.
     const answered = (ex) => ex.querySelector("[data-error]").hidden && ex.querySelector("[data-answer]").hasChildNodes();
     if (box.isRunning() || exchanges.some(answered)) {
-      box.field.focus();
+      if (wide.matches) box.field.focus(); // a phone's keyboard would cover the answer
       return;
     }
     // Never run or failed: start again, without the old error or partial answer above.

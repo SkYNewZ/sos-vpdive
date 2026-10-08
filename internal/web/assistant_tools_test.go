@@ -3,6 +3,8 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -279,6 +281,24 @@ func TestToolListsAreCapped(t *testing.T) {
 	got, _ := tb.call(t, "member_requests", `{"ref":"m1"}`)
 	assert.Len(t, got["demandes"], maxLines)
 	assert.Equal(t, true, got["tronque"])
+}
+
+// find_outings is capped like the other lists.
+func TestToolFindOutingsIsCapped(t *testing.T) {
+	e := newTestEnv(t)
+	events := make([]string, maxOutings+1)
+	for i := range events {
+		events[i] = fmt.Sprintf(`{"id":"evt-%d","title":"Sortie %d","starts_at":"2026-09-%02dT09:00:00+02:00","ends_at":"2026-09-%02dT12:00:00+02:00","participants":[]}`,
+			i, i, i%28+1, i%28+1)
+	}
+	exp, err := calendar.Parse([]byte(`{"from":"2026-06-04","to":"2027-09-02","events":[`+strings.Join(events, ",")+`]}`), e.srv.paris, e.clock.now())
+	require.NoError(t, err)
+	require.NoError(t, e.deps.Calendar.Import(context.Background(), exp))
+	tb := &toolbox{s: e.srv, c: &assistant.Conversation{}}
+	got, step := tb.call(t, "find_outings", `{"du":"2026-09-01","au":"2026-09-30"}`)
+	assert.Len(t, got["sorties"], maxOutings)
+	assert.Equal(t, true, got["tronque"])
+	assert.Equal(t, "Recherche des sorties du 01/09/2026 : 50 sorties", step)
 }
 
 // A result says when its import was received, and whether it is stale.

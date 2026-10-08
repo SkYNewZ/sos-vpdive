@@ -664,6 +664,7 @@ func (s *Server) eventJSON(ev calendar.Event) eventJSON {
 type eventsResult struct {
 	Import  importState `json:"import_calendrier"`
 	Sorties []eventJSON `json:"sorties"`
+	Tronque bool        `json:"tronque,omitempty"`
 }
 
 func (t *toolbox) findOutings(ctx context.Context, input json.RawMessage) (any, string, error) {
@@ -694,6 +695,10 @@ func (t *toolbox) findOutings(ctx context.Context, input json.RawMessage) (any, 
 	for _, ev := range events {
 		if text != "" && !strings.Contains(normTitle(ev.Title), text) {
 			continue
+		}
+		if len(out.Sorties) == maxOutings {
+			out.Tronque = true
+			break
 		}
 		out.Sorties = append(out.Sorties, t.s.eventJSON(ev))
 	}
