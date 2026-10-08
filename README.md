@@ -256,9 +256,9 @@ outings and carts, summaries of past requests and the fiches. One answer reads
 the payments, outings and requests of three people at most. An outing it opens
 lists every participant with their registration, role and cart (payment status
 and amount), and the names of those who unregistered, with the author of each
-unregistration. In all of it, email addresses, phone numbers and IBANs are
-masked by pattern before leaving. Screenshots and internal notes are never
-sent.
+unregistration. In all of it, email addresses, phone numbers and bank
+details (IBAN or French RIB) are masked by pattern before leaving. Screenshots
+and internal notes are never sent.
 
 Conversations live in the server's memory only: 30 minutes after the last
 question, 2 hours at most. Logout drops the conversations of that session. An
@@ -355,9 +355,10 @@ On a real Android phone and a real iPhone:
 - Suggestions send the model provider a request's category, extra fields and
   description as typed, unmasked, and never the requester's name, email address
   or screenshots. The committee assistant sends the resolver's text, the request
-  it analyses and its tool results with email addresses, phone numbers and IBANs
-  masked by pattern, plus the names and data it reads; screenshots and internal
-  notes are never sent (see « Committee assistant »).
+  it analyses and its tool results with email addresses, phone numbers and bank
+  details (IBAN or French RIB) masked by pattern, plus the names and data it
+  reads; screenshots and internal notes are never sent (see « Committee
+  assistant »).
 - Erasing a person on the « Effacement » page deletes their requests, their
   member entry and every payment, Mollie line, calendar participation and
   unregistration under their name, a namesake's included. Where they

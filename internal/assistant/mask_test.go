@@ -121,6 +121,31 @@ func TestMaskShortestIBAN(t *testing.T) {
 	}
 }
 
+// Final review: a French bank account in RIB grouping (bank 5 digits, branch
+// 5, account 11 letters or digits, key 2), with or without its FR prefix,
+// is an IBAN all the same.
+func TestMaskRIB(t *testing.T) {
+	for _, in := range []string{
+		"FR76 30006 00001 12345678901 89",
+		"30006 00001 12345678901 89",
+		"fr76 30006 00001 1234567890a 89",
+		"FR76\u00a030006\u00a000001\u00a012345678901\u00a089",
+		"30006\u202f00001\u202f12345678901\u202f89",
+		"30006.00001.12345678901.89",
+		"FR76-30006-00001-12345678901-89",
+		"30006000011234567890189",
+	} {
+		text, _ := Mask("RIB : "+in+".", nil)
+		assert.Equal(t, "RIB : [iban].", text, in)
+	}
+	text, _ := Mask("PA40 Porquerolles avec FR76 30006 00001 12345678901 89", nil)
+	assert.Equal(t, "PA40 Porquerolles avec [iban]", text, "after a dive level")
+
+	const kept = "83000 Toulon, 83000 12345, 25 €, 30006 00001 89."
+	text, _ = Mask(kept, nil)
+	assert.Equal(t, kept, text, "postcodes and short numbers are no RIB")
+}
+
 func TestPlaceholder(t *testing.T) {
 	emails := []string{"lea.martin@example.org"}
 	got, ok := Placeholder(" [email 1] ", emails)
