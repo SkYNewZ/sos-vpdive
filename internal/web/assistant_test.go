@@ -416,6 +416,88 @@ func TestAssistantFreesTheSlotWhenTheResolverLeaves(t *testing.T) {
 	assert.Len(t, ev.of("done"), 1, "the slot is free again")
 }
 
+// answerInFlight starts a question as cookie's session on a provider that
+// never answers, waits until it reaches the provider, and returns a channel
+// closed when the answer ends.
+func (e *testEnv) answerInFlight(t *testing.T, stub *streamStub, cookie *http.Cookie) <-chan struct{} {
+	t.Helper()
+	stub.mu.Lock()
+	stub.delay = time.Minute
+	stub.mu.Unlock()
+	v := url.Values{"csrf": {e.csrf(t, cookie, "/assistant")}, "text": {"Q"}}
+	before := len(stub.calls())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		e.askUntil(context.Background(), cookie, v)
+	}()
+	require.Eventually(t, func() bool { return len(stub.calls()) > before }, 5*time.Second, 5*time.Millisecond)
+	return done
+}
+
+// stoppedAnswer checks that the answer ended once its session did: journaled
+// canceled, with the provider's delay lifted for what follows.
+func (e *testEnv) stoppedAnswer(t *testing.T, stub *streamStub, done <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "the answer goes on after its session ended")
+	}
+	var outcome string
+	require.NoError(t, e.db.QueryRowContext(context.Background(), `SELECT outcome FROM assistant_usage ORDER BY id DESC LIMIT 1`).Scan(&outcome))
+	assert.Equal(t, "canceled", outcome)
+	stub.mu.Lock()
+	stub.delay = 0
+	stub.mu.Unlock()
+}
+
+// Codex review: logout stops the session's answer in flight and frees the
+// account's slot.
+func TestAssistantLogoutStopsTheAnswer(t *testing.T) {
+	stub := &streamStub{replies: []string{sseText(t, "R")}}
+	e, cookie := assistantEnv(t, stub, 50)
+	done := e.answerInFlight(t, stub, cookie)
+	rec := e.postAs(t, cookie, "/deconnexion", url.Values{"csrf": {e.csrf(t, cookie, "/assistant")}})
+	require.Equal(t, http.StatusSeeOther, rec.Code)
+	e.stoppedAnswer(t, stub, done)
+	_, ev, _ := e.ask(t, e.login(t), url.Values{"text": {"Q"}})
+	assert.Len(t, ev.of("done"), 1, "the slot is free again")
+}
+
+// Codex review: a session revoked by a password reset (or a deleted
+// account) stops its answer in flight; the other sessions keep theirs.
+func TestAssistantRevokedSessionStopsTheAnswer(t *testing.T) {
+	stub := &streamStub{replies: []string{sseText(t, "R")}}
+	e, alice := assistantEnv(t, stub, 50)
+	_, ev, _ := e.ask(t, alice, url.Values{"text": {"Q"}})
+	kept := ev.of("start")[0]["conversation"].(string)
+	bob := e.loginBob(t)
+	done := e.answerInFlight(t, stub, bob)
+	_, err := e.deps.Admins.ResetPassword(context.Background(), "bob")
+	require.NoError(t, err)
+	e.stoppedAnswer(t, stub, done)
+	_, found := e.srv.convs.Find(sessionOf(alice), kept)
+	assert.True(t, found, "alice's session is untouched")
+}
+
+// Codex review: « Analyser » registers its answer before it reads the
+// request, so that an erasure or a deletion from then on stops it (DropAll)
+// before the copy it read reaches the model: a busy account is refused
+// before the request is even looked up.
+func TestAssistantRegistersTheAnalysisBeforeReadingTheRequest(t *testing.T) {
+	stub := &streamStub{replies: []string{sseText(t, "R")}}
+	e, cookie := assistantEnv(t, stub, 50)
+	busy, err := e.srv.convs.Begin("another-tab", "alice", "", 0, nil)
+	require.NoError(t, err)
+	status, _, _ := e.ask(t, cookie, url.Values{"text": {""}, "demande": {"999"}})
+	assert.Equal(t, http.StatusConflict, status, "registered first")
+	e.srv.convs.Abort(busy)
+	status, _, _ = e.ask(t, cookie, url.Values{"text": {""}, "demande": {"999"}})
+	assert.Equal(t, http.StatusNotFound, status, "then the request is read")
+	assert.Empty(t, stub.calls())
+}
+
 func TestAssistantThrottlesAnswerEvents(t *testing.T) {
 	deltas := make([]string, 300)
 	for i := range deltas {

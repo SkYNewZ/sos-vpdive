@@ -1,6 +1,7 @@
 package assistant
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -140,6 +141,65 @@ func TestStoreForTicketAndDrop(t *testing.T) {
 	s.Drop("s1")
 	_, ok = s.Find("s1", again.ID)
 	assert.False(t, ok, "logout erases")
+}
+
+// Codex review: an answer in flight stops when its session ends (logout, a
+// password reset, a deleted account); the deferred Abort frees its slot.
+func TestStoreDropStopsTheSessionsAnswers(t *testing.T) {
+	s, _ := newTestStore()
+	stopped := map[string]bool{}
+	alice, err := s.Begin("s1", "alice", "", 0, func() { stopped["alice"] = true })
+	require.NoError(t, err)
+	_, err = s.Begin("s2", "bob", "", 0, func() { stopped["bob"] = true })
+	require.NoError(t, err)
+
+	s.Drop("s1", "s3")
+	assert.Equal(t, map[string]bool{"alice": true}, stopped, "only the ended sessions' answers stop")
+	_, ok := s.Find("s1", alice.ID)
+	assert.False(t, ok)
+	s.Finish(alice)
+	_, ok = s.Find("s1", alice.ID)
+	assert.False(t, ok, "an answer ending after its session keeps nothing")
+	_, err = s.Begin("s4", "alice", "", 0, nop)
+	require.NoError(t, err, "the slot is free again")
+}
+
+// size is the number of conversations held, expired ones included.
+func (s *Store) size() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.convs)
+}
+
+// Codex review: expired conversations go without waiting for a request, and
+// the conversation an answer runs on stays, however long it was idle before.
+func TestStoreRunSweepsExpiredConversations(t *testing.T) {
+	s, clk := newTestStore()
+	idle, err := s.Begin("s1", "alice", "", 0, nop)
+	require.NoError(t, err)
+	s.Finish(idle)
+	resumed, err := s.Begin("s2", "bob", "", 0, nop)
+	require.NoError(t, err)
+	s.Finish(resumed)
+	clk.t = clk.t.Add(29 * time.Minute)
+	stopped := false
+	resumed, err = s.Begin("s2", "bob", resumed.ID, 0, func() { stopped = true })
+	require.NoError(t, err)
+	clk.t = clk.t.Add(2 * time.Minute) // before Run reads the clock
+
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		s.Run(ctx, time.Millisecond)
+	}()
+	require.Eventually(t, func() bool { return s.size() == 1 }, time.Second, time.Millisecond, "the idle conversation goes")
+	cancel()
+	<-done
+	assert.False(t, stopped, "the answer in flight goes on")
+	s.Finish(resumed)
+	_, ok := s.Find("s2", resumed.ID)
+	assert.True(t, ok, "the question reset its conversation's idle time")
 }
 
 // A late release (a deferred Abort after a panic, a double release) never

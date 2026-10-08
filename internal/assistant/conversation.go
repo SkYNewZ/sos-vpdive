@@ -3,6 +3,7 @@ package assistant
 import (
 	"context"
 	"errors"
+	"maps"
 	"slices"
 	"strconv"
 	"sync"
@@ -114,10 +115,11 @@ type Store struct {
 	answers uint64          // numbers the answers, for their slots
 }
 
-// slot is an account's answer in flight, and how to stop it.
+// slot is an account's answer in flight, its session, and how to stop it.
 type slot struct {
-	answer uint64
-	stop   context.CancelFunc
+	answer  uint64
+	session string
+	stop    context.CancelFunc
 }
 
 // NewStore returns an empty store; now is injectable for tests.
@@ -128,8 +130,10 @@ func NewStore(now func() time.Time) *Store {
 // Begin reserves account's answer slot and returns a copy of the
 // conversation to continue: id's when set, else a new one, on ticketID
 // when set (a request's analysis starts again: ForTicket shows the newest).
-// stop cancels the answer (an erasure calls it through DropAll). The caller
-// releases the slot with Finish or Abort; a late Abort is harmless.
+// stop cancels the answer (an erasure calls it through DropAll, the end of
+// its session through Drop). The caller releases the slot with Finish or
+// Abort; a late Abort is harmless. A question resets the idle time, so that
+// no sweep erases the conversation under its answer.
 func (s *Store) Begin(session, account, id string, ticketID int64, stop context.CancelFunc) (Conversation, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -148,6 +152,7 @@ func (s *Store) Begin(session, account, id string, ticketID int64, stop context.
 		if len(c.Exchanges) >= MaxQuestions || historySize(c.History) > maxHistory {
 			return Conversation{}, ErrFull
 		}
+		c.Seen = s.now()
 	}
 	s.answers++
 	if c == nil {
@@ -159,7 +164,7 @@ func (s *Store) Begin(session, account, id string, ticketID int64, stop context.
 		c = &Conversation{ID: token, Account: account, TicketID: ticketID, Created: now, Seen: now, session: session, opened: s.answers}
 		s.convs[c.ID] = c
 	}
-	s.busy[account] = slot{answer: s.answers, stop: stop}
+	s.busy[account] = slot{answer: s.answers, session: session, stop: stop}
 	out := copyOf(c)
 	out.answer = s.answers
 	return out, nil
@@ -227,13 +232,33 @@ func (s *Store) ForTicket(session string, ticketID int64) (Conversation, bool) {
 	return copyOf(newest), true
 }
 
-// Drop erases session's conversations, at logout.
-func (s *Store) Drop(session string) {
+// Drop erases the conversations of sessions that ended (logout, a password
+// changed or reset, an account deleted) and stops their answers in flight.
+func (s *Store) Drop(sessions ...string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for id, c := range s.convs {
-		if c.session == session {
-			delete(s.convs, id)
+	maps.DeleteFunc(s.convs, func(_ string, c *Conversation) bool { return slices.Contains(sessions, c.session) })
+	for _, a := range s.busy {
+		if slices.Contains(sessions, a.session) {
+			a.stop()
+		}
+	}
+}
+
+// Run erases the expired conversations every interval until ctx ends: one
+// nobody opens again must not stay in memory past its limits. It stops no
+// answer, and Begin resets the idle time of the conversation one runs on.
+func (s *Store) Run(ctx context.Context, every time.Duration) {
+	ticker := time.NewTicker(every)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.mu.Lock()
+			s.sweep()
+			s.mu.Unlock()
 		}
 	}
 }

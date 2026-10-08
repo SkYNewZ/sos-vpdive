@@ -190,6 +190,14 @@ func (s *Server) forgetConversations() {
 	}
 }
 
+// SweepConversations erases the expired conversations every minute until
+// ctx ends, when the assistant is on (a background job of serve).
+func (s *Server) SweepConversations(ctx context.Context) {
+	if s.convs != nil {
+		s.convs.Run(ctx, time.Minute)
+	}
+}
+
 // streamEvent is one line of the answer stream.
 type streamEvent struct {
 	Type         string        `json:"type"`
@@ -291,34 +299,20 @@ func (s *Server) assistantAsk(w http.ResponseWriter, r *http.Request) {
 		s.writeText(w, r, http.StatusUnprocessableEntity, "Question trop longue : 8 000 caractères au plus.\n")
 		return
 	}
-	var (
-		ticket   *tickets.Detail
-		ticketID int64
-	)
-	if id := formInt(r.PostForm, "demande"); id > 0 {
-		t, err := s.tickets.Detail(ctx, id)
-		if errors.Is(err, tickets.ErrNotFound) {
-			s.notFound(w, r)
-			return
-		}
-		if err != nil {
-			s.serverError(w, r, err)
-			return
-		}
-		ticket, ticketID = t, t.ID
-	}
-	if text == "" && ticket == nil {
+	ticketID := max(formInt(r.PostForm, "demande"), 0)
+	if text == "" && ticketID == 0 {
 		s.writeText(w, r, http.StatusUnprocessableEntity, "Écris une question.\n")
 		return
 	}
-	// stop lets an erasure end this answer (Store.DropAll).
+	// stop lets an erasure (Store.DropAll) or the end of the session
+	// (Store.Drop) end this answer.
 	ctx, stop := context.WithCancel(ctx)
 	defer stop()
 	c, err := s.convs.Begin(string(sess.hash), sess.account.Username, r.PostForm.Get("conversation"), ticketID, stop)
 	// On a 404 or a 410, app.js forgets the conversation: the next question
 	// starts a new one, with the request on a request page.
 	again := " Ta prochaine question en ouvrira une nouvelle.\n"
-	if ticket != nil {
+	if ticketID > 0 {
 		again = " Ta prochaine question relancera l'analyse de la demande.\n"
 	}
 	switch {
@@ -338,12 +332,25 @@ func (s *Server) assistantAsk(w http.ResponseWriter, r *http.Request) {
 	// Frees the slot whatever happens, a recovered panic included; after
 	// Finish it frees nothing, not even a newer answer's slot.
 	defer s.convs.Abort(c)
-	if len(c.Exchanges) > 0 {
-		if text == "" {
-			s.writeText(w, r, http.StatusUnprocessableEntity, "Écris une question.\n")
+	var ticket *tickets.Detail
+	switch {
+	case len(c.Exchanges) > 0 && text == "":
+		s.writeText(w, r, http.StatusUnprocessableEntity, "Écris une question.\n")
+		return
+	case len(c.Exchanges) > 0: // the request went with the first question
+	case ticketID > 0:
+		// Read once the answer is registered: an erasure or a deletion from
+		// now on stops it, so no copy read before reaches the model. Stopped
+		// meanwhile, the answer is journaled canceled by streamAnswer.
+		ticket, err = s.tickets.Detail(ctx, ticketID)
+		if errors.Is(err, tickets.ErrNotFound) {
+			s.notFound(w, r)
 			return
 		}
-		ticket = nil // the request went with the first question
+		if err != nil && ctx.Err() == nil {
+			s.serverError(w, r, err)
+			return
+		}
 	}
 	s.streamAnswer(ctx, s.openStream(w, r), c, text, ticket, sess.account.Username)
 }

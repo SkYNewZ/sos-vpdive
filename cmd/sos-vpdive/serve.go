@@ -217,6 +217,7 @@ func serve(ctx context.Context, getenv func(string) string, stdout io.Writer) (e
 	jobs.Go(func() { a.admins.Watch(ctx, accountsPollInterval) })
 	jobs.Go(func() { a.runPurges(ctx) })
 	jobs.Go(func() { a.outbox.Run(ctx, a.senders, logger) })
+	jobs.Go(func() { a.web.SweepConversations(ctx) })
 
 	httpServer := &http.Server{
 		Addr:              ":" + strconv.Itoa(cfg.Port),

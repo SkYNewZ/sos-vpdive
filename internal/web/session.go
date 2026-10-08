@@ -63,14 +63,18 @@ func (s *Server) startSession(ctx context.Context, w http.ResponseWriter, a admi
 		Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode,
 	})
 	if replaces != nil {
-		s.disconnectSession(replaces)
+		s.endSessions(string(replaces))
 	}
 	return nil
 }
 
-// disconnectSession closes the event streams of a session that ended.
-func (s *Server) disconnectSession(hash []byte) {
-	s.broker.disconnect(func(sub *subscriber) bool { return sub.session == string(hash) })
+// endSessions closes the event streams of sessions that ended and erases
+// their conversations, which stops their answers in flight.
+func (s *Server) endSessions(hashes ...string) {
+	s.broker.disconnect(func(sub *subscriber) bool { return slices.Contains(hashes, sub.session) })
+	if s.convs != nil {
+		s.convs.Drop(hashes...)
+	}
 }
 
 // sessionOf returns the request's session. A session that expired, whose
@@ -173,7 +177,7 @@ func (s *Server) AccountsChanged(ctx context.Context) {
 }
 
 // RevokeStale deletes the sessions whose account is gone or whose password
-// changed, and closes their event streams. Their push subscriptions go with
+// changed, and ends them (endSessions). Their push subscriptions go with
 // them (ON DELETE CASCADE). It runs at startup, for changes made while the
 // service was stopped (reset-password, a restored backup), and after every
 // account change.
@@ -211,7 +215,7 @@ func (s *Server) RevokeStale(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	s.broker.disconnect(func(sub *subscriber) bool { return slices.Contains(gone, sub.session) })
+	s.endSessions(gone...)
 	return nil
 }
 
