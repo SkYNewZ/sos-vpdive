@@ -381,3 +381,21 @@ func TestImportMarksHomonymPaymentLines(t *testing.T) {
 	assert.True(t, ambiguous(homonym), "the mark stays for the payments in place")
 	assert.False(t, ambiguous(single))
 }
+
+func TestNameCount(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	f.importFixture(t, "members_valid.xlsx")
+	for name, c := range map[string]struct {
+		last, first string
+		want        int
+	}{
+		"homonyms": {"Martin", "Léa", 2},
+		"one":      {"Bernard", "Hugo", 1},
+		"none":     {"Nobody", "Here", 0},
+	} {
+		n, err := f.store.NameCount(ctx, f.keys.Hash(secure.NameKey(c.last, c.first)))
+		require.NoError(t, err)
+		assert.Equal(t, c.want, n, name)
+	}
+}

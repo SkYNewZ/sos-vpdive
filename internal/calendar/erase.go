@@ -3,7 +3,6 @@ package calendar
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
@@ -84,13 +83,9 @@ func (s *Store) persons(ctx context.Context, q store.Querier, nameHash []byte, l
 		return nil, fmt.Errorf("unregistered participations: %w", err)
 	}
 	for _, r := range unnamed {
-		plain, err := s.keys.Open(r[1])
+		p, err := s.openParticipant(r[1])
 		if err != nil {
-			return nil, fmt.Errorf("decrypt participant: %w", err)
-		}
-		var p Participant
-		if err := json.Unmarshal(plain, &p); err != nil {
-			return nil, fmt.Errorf("decode participant: %w", err)
+			return nil, err
 		}
 		// NormalizeName keeps letters only: "MARTIN Léa" gives "martinlea".
 		if n := secure.NormalizeName(p.Name); n == l+f || n == f+l {

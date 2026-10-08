@@ -1,0 +1,24 @@
+# Labels of the raw values the calendar script pushes (spec §9.7, lot 8):
+# VPDive keys and names the club typed. A value missing here shows as
+# received, such as a dive site. A category's tint is one of the five of
+# css/input.css; without one, it gets the neutral rule.
+categories:
+  diving leisure: {label: Plongée loisir, tint: 1}
+  teak diving: {label: Plongée technique, tint: 2}
+  association life: {label: Vie du club, tint: 3}
+  bio and environment: {label: Bio et environnement, tint: 4}
+  Cours Théorique: {label: Cours théorique, tint: 5}
+  "": {label: Sans catégorie}
+activities:
+  outing: Sortie
+  theoretical course: Cours théorique
+  practical courses: Cours pratique
+  meeting: Réunion
+  baptisms: Baptêmes
+  meal: Repas
+  a.g: Assemblée générale
+environments:
+  natural sea: Mer
+  room: Salle
+roles:
+  Directeur de plongée: DP

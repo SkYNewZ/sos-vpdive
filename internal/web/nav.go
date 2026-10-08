@@ -26,6 +26,7 @@ var adminNav = []navItem{
 	{Section: "demandes", Path: "/", Label: "Demandes", Icon: "inbox", Tab: true},
 	{Section: "anomalies", Path: "/anomalies", Label: "À vérifier", Icon: "list-checks", Tab: true},
 	{Section: "annulations", Path: "/annulations", Label: "Annulations", Icon: "calendar-x", Tab: true},
+	{Section: "calendrier", Path: "/calendrier", Label: "Calendrier", Icon: "calendar-days"},
 	{Section: "fiches", Path: "/fiches", Label: "Fiches", Icon: "book-open", Tab: true},
 	{Section: "imports", Path: importsPath, Label: "Imports", Icon: "upload"},
 	{Section: "effacement", Path: "/effacement", Label: "Effacement", Icon: "user-x"},

@@ -50,6 +50,7 @@ type ticketData struct {
 	Filter     paymentsFilter
 	Payments   payments.Block
 	Mollie     payments.MollieBlock
+	Outings    outingsBlock
 	MollieLink vpdiveLink // VPayDive in VPDive: failed attempts show there only
 }
 
@@ -155,6 +156,9 @@ func (s *Server) ticketView(ctx context.Context, t *tickets.Detail) (ticketData,
 		return ticketData{}, err
 	}
 	if d.Mollie, err = s.mollie.Block(ctx, profile.NameHash); err != nil {
+		return ticketData{}, err
+	}
+	if d.Outings, err = s.outingsBlock(ctx, t.SubmittedAt, profile, found, d.Payments, d.Mollie); err != nil {
 		return ticketData{}, err
 	}
 	d.MollieLink = s.vpdive["vpaydive"]

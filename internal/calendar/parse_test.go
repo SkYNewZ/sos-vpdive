@@ -75,7 +75,7 @@ func TestParseReadsTheContract(t *testing.T) {
 	assert.Equal(t, "diving leisure", ev.Category)
 	assert.Equal(t, 24, *ev.MaxParticipants)
 	assert.Equal(t, []string{"Bateau A"}, ev.Boats)
-	assert.Equal(t, time.Date(2026, 10, 11, 6, 0, 0, 0, time.UTC), ev.start.UTC())
+	assert.Equal(t, time.Date(2026, 10, 11, 6, 0, 0, 0, time.UTC), ev.Start.UTC())
 	require.Len(t, ev.Participants, 1)
 	p := ev.Participants[0]
 	assert.Equal(t, int64(101), p.VPDiveID)
@@ -135,7 +135,7 @@ func TestParseKeepsAnEndBeforeTheStart(t *testing.T) {
 	exp, err := Parse(d.bytes(t), paris(t), testNow)
 	require.NoError(t, err)
 	require.Len(t, exp.Events, 1)
-	assert.True(t, exp.Events[0].end.Before(exp.Events[0].start))
+	assert.True(t, exp.Events[0].End.Before(exp.Events[0].Start))
 }
 
 // The script's first push covers 24 months: events that started more than

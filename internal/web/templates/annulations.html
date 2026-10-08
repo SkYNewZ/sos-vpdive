@@ -11,7 +11,7 @@
 <div class="panel mt-2 overflow-x-auto"><table class="table max-sm:[&_:is(th,td)]:px-1 max-sm:[&_th]:whitespace-normal">
 <thead><tr><th scope="col">Sortie</th><th scope="col" class="hidden md:table-cell">Date</th><th scope="col" class="hidden sm:table-cell">Ancienneté</th><th scope="col" class="hidden text-right sm:table-cell">Personnes</th><th scope="col" class="hidden text-right md:table-cell">Lignes</th><th scope="col" class="text-right">Réglé par carnet</th><th scope="col" class="text-right">Réglé en argent réel</th></tr></thead>
 <tbody>{{range .}}<tr>
-<td class="break-words">{{.Title}}<span class="block text-sm sm:hidden">Ancienneté : {{template "age" .Age}}, {{.Persons}} personne{{if gt .Persons 1}}s{{end}}</span></td>
+<td class="break-words">{{if .Link}}<a class="link link-primary inline-flex min-h-11 items-center" href="{{.Link}}">{{.Title}}</a>{{else}}{{.Title}}{{end}}<span class="block text-sm sm:hidden">Ancienneté : {{template "age" .Age}}, {{.Persons}} personne{{if gt .Persons 1}}s{{end}}</span></td>
 <td class="hidden whitespace-nowrap md:table-cell">{{with formatTime .Starts}}{{.}}{{else}}inconnue{{end}}</td>
 <td class="hidden whitespace-nowrap sm:table-cell">{{template "age" .Age}}</td>
 <td class="hidden text-right sm:table-cell">{{.Persons}}</td>

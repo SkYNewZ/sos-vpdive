@@ -77,6 +77,15 @@
     border-radius: var(--radius-box);
     background-color: var(--color-base-100);
   }
+
+  /* Calendar category tints (spec §12.2 as amended, lot 8): a rule beside
+     a label that is always written. 3:1 at least on white and on sand. */
+  .cal-tint-0 { border-inline-start: 4px solid var(--color-base-300); }
+  .cal-tint-1 { border-inline-start: 4px solid #2b7a8c; }
+  .cal-tint-2 { border-inline-start: 4px solid #6a4c93; }
+  .cal-tint-3 { border-inline-start: 4px solid #5b7a2e; }
+  .cal-tint-4 { border-inline-start: 4px solid #8c6a1f; }
+  .cal-tint-5 { border-inline-start: 4px solid #9a4a6e; }
 }
 
 /* Live board: a row changed since its request was last opened (app.js). */

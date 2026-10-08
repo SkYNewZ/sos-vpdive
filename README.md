@@ -96,6 +96,7 @@ binary and checked at startup.
 | `config/products.yaml` | The choices of a field with `options_from: products` |
 | `config/vpdive.yaml` | Links to VPDive pages, shown to the committee |
 | `config/robots.yaml` | AI crawlers that get a 403 |
+| `config/calendar.yaml` | Labels of the calendar's categories, activities, places and roles as the import script pushes them, and a tint (1 to 5) per category. A value missing here shows as received. |
 | `kb/*.md` | The help fiches (next section) |
 
 Once ids are in use, keep them. A request keeps the ids it was filed with,

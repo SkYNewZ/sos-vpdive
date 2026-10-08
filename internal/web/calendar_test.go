@@ -19,10 +19,10 @@ import (
 	"github.com/SkYNewZ/sos-vpdive/internal/store"
 )
 
-// importCalendar stores the calendar fixture as the script would push it.
-func (e *testEnv) importCalendar(t *testing.T) {
+// importCalendar stores a calendar fixture as the script would push it.
+func (e *testEnv) importCalendar(t *testing.T, name string) {
 	t.Helper()
-	exp, err := calendar.Parse(fixtureBytes(t, "calendar_valid.json"), e.srv.paris, e.clock.now())
+	exp, err := calendar.Parse(fixtureBytes(t, name), e.srv.paris, e.clock.now())
 	require.NoError(t, err)
 	require.NoError(t, e.deps.Calendar.Import(context.Background(), exp))
 }

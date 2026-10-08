@@ -87,6 +87,7 @@ type Server struct {
 
 	robots  robotsPolicy
 	vpdive  vpdiveLinks
+	labels  calendarLabels // config/calendar.yaml
 	assets  *assets
 	apps    map[bool]installable // by committee host
 	pages   map[string]*template.Template
@@ -102,6 +103,10 @@ func New(d Deps) (*Server, error) {
 		return nil, err
 	}
 	links, err := loadVPDiveLinks(d.Content, d.Config.VPDiveBaseURL)
+	if err != nil {
+		return nil, err
+	}
+	labels, err := loadCalendarLabels(d.Content)
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +126,7 @@ func New(d Deps) (*Server, error) {
 		logger:    d.Logger, now: d.Now, paris: paris, tracer: otel.Tracer(tracerName),
 		turnstile: d.Turnstile,
 		limiter:   &limiter{db: d.DB, keys: d.Keys, now: d.Now},
-		robots:    robots, vpdive: links, assets: static,
+		robots:    robots, vpdive: links, labels: labels, assets: static,
 	}
 	if s.dummyHash, err = dummyHash(); err != nil {
 		return nil, err
@@ -137,6 +142,16 @@ func New(d Deps) (*Server, error) {
 		"age": s.age, "accountOf": s.accountOf, "actor": s.actorName, "isoDate": isoDate,
 		"fieldName": tickets.FieldName, "categoryLabel": func(id string) string { return s.tickets.Catalog.CategoryLabel(id) }, "describe": s.tickets.Describe,
 		"formField": newFormField, "themeColor": func() string { return themeColor }, "methodLabel": methodLabel,
+		"category":    s.labels.category,
+		"activity":    func(key string) string { return label(s.labels.Activities, key) },
+		"environment": func(key string) string { return label(s.labels.Environments, key) },
+		"roles":       s.labels.roles, "join": func(v []string) string { return strings.Join(v, ", ") },
+		"when":      func(ev calendar.Event) string { return eventWhen(ev, s.paris) },
+		"hours":     func(ev calendar.Event) string { return eventHours(ev, s.paris) },
+		"cellHours": func(ev calendar.Event, day time.Time) string { return cellHours(ev, day, s.paris) },
+		"shortDay":  func(t time.Time) string { return frShortDay(t.In(s.paris)) },
+		"longDay":   func(t time.Time) string { return frLongDay(t.In(s.paris)) },
+		"cart":      cartText,
 	}
 	if s.pages, err = parsePages(funcs); err != nil {
 		return nil, err
@@ -208,6 +223,8 @@ func (s *Server) adminRoutes() *http.ServeMux {
 	s.handle(mux, "POST /effacement", s.signedIn(s.erase))
 	s.handle(mux, "GET /fiches", s.signedIn(s.fichesPage))
 	s.handle(mux, "GET /annulations", s.signedIn(s.cancellationsPage))
+	s.handle(mux, "GET /calendrier", s.signedIn(s.calendarPage))
+	s.handle(mux, "GET /calendrier/{id}", s.signedIn(s.eventPage))
 	s.handle(mux, "GET /anomalies", s.signedIn(s.checksPage))
 	s.handle(mux, "POST /anomalies/masquer", s.signedIn(s.dismissCheck))
 	s.handle(mux, "GET /envois", s.signedIn(s.failedMails))

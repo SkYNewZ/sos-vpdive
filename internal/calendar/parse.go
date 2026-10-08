@@ -31,7 +31,10 @@ type Event struct {
 	Boats           []string      `json:"boats"`
 	Participants    []Participant `json:"participants,omitempty"`
 
-	start, end time.Time
+	// Start and End are StartsAt and EndsAt read: parsed on a push, from the
+	// stored columns on a read; never in the sealed data. End may precede
+	// Start: kept as pushed.
+	Start, End time.Time `json:"-"`
 }
 
 // Participant is a person the event knows: registered, pilot or payer.
@@ -49,6 +52,10 @@ type Participant struct {
 	Qualifications []string `json:"qualifications"`
 	Roles          []Role   `json:"roles"`
 	Payment        *Payment `json:"payment"` // nil without a cart
+
+	// Members is how many members the participant's match names (spec §7.3
+	// as amended), set by Store.Event: 0 when nothing matches.
+	Members int `json:"-"`
 }
 
 // Role is a role on the event; Confirmed is false while only proposed.
@@ -58,11 +65,21 @@ type Role struct {
 	Confirmed bool   `json:"confirmed"`
 }
 
+// PaymentStatus is the state of a participant's cart.
+type PaymentStatus string
+
+// Cart states of the contract.
+const (
+	PaymentPaid    PaymentStatus = "paid"
+	PaymentPartial PaymentStatus = "partial"
+	PaymentUnpaid  PaymentStatus = "unpaid"
+)
+
 // Payment is what a participant's cart says, in cents.
 type Payment struct {
-	Status    string `json:"status"` // paid, partial or unpaid
-	DueCents  int64  `json:"due_cents"`
-	PaidCents int64  `json:"paid_cents"`
+	Status    PaymentStatus `json:"status"`
+	DueCents  int64         `json:"due_cents"`
+	PaidCents int64         `json:"paid_cents"`
 }
 
 // Export is a pushed calendar, read and validated.
@@ -84,7 +101,7 @@ func (e *Export) inWindow() int {
 	start, end := e.window()
 	n := 0
 	for _, ev := range e.Events {
-		if !ev.start.Before(start) && ev.start.Before(end) {
+		if !ev.Start.Before(start) && ev.Start.Before(end) {
 			n++
 		}
 	}
@@ -148,8 +165,8 @@ func Parse(data []byte, paris *time.Location, now time.Time) (*Export, error) {
 		}
 		seen[ev.ID] = true
 		var errStart, errEnd error
-		ev.start, errStart = time.Parse(time.RFC3339, ev.StartsAt)
-		ev.end, errEnd = time.Parse(time.RFC3339, ev.EndsAt)
+		ev.Start, errStart = time.Parse(time.RFC3339, ev.StartsAt)
+		ev.End, errEnd = time.Parse(time.RFC3339, ev.EndsAt)
 		if errStart != nil || errEnd != nil {
 			return nil, &ParseError{Kind: ProblemDates, Event: ev.ID}
 		}
@@ -159,7 +176,7 @@ func Parse(data []byte, paris *time.Location, now time.Time) (*Export, error) {
 	}
 	limit := cutoff(now)
 	read := len(doc.Events)
-	events := slices.DeleteFunc(doc.Events, func(ev Event) bool { return ev.start.Before(limit) })
+	events := slices.DeleteFunc(doc.Events, func(ev Event) bool { return ev.Start.Before(limit) })
 	exp := &Export{From: from, To: to, Events: events, Skipped: read - len(events), start: from}
 	if limit.After(from) {
 		exp.start = limit

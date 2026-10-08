@@ -28,7 +28,7 @@ func TestErasureOfAPerson(t *testing.T) {
 	e.importMembers(t, "members_valid.xlsx")
 	e.importPayments(t)
 	e.importMollie(t)
-	e.importCalendar(t)
+	e.importCalendar(t, "calendar_valid.json")
 	cookie := e.login(t)
 	first := e.submitTicket(t, "lea.martin@example.org", withCapture(t))
 	e.submitTicket(t, "lea.martin@example.org")
