@@ -16,6 +16,10 @@ const (
 	idleLife     = 30 * time.Minute
 	maxLife      = 2 * time.Hour
 	MaxQuestions = 20
+	// maxHistory is the most history, in bytes, a new question starts
+	// from: about 70 000 tokens, well under the providers' context, with
+	// room left for one answer's tool results.
+	maxHistory = 256 << 10
 )
 
 // Store errors.
@@ -67,6 +71,8 @@ type Conversation struct {
 	Emails    []string // [email N] is Emails[N-1]
 
 	session string
+	opened  uint64 // the answer that opened it: the newest has the highest
+	answer  uint64 // the answer this copy is for (Begin), which only it releases
 }
 
 // AddPerson returns the ref of p, adding it once by address.
@@ -101,54 +107,62 @@ func (c *Conversation) Expires() time.Time {
 
 // Store keeps the conversations in memory: a restart erases them all.
 type Store struct {
-	mu    sync.Mutex
-	now   func() time.Time
-	convs map[string]*Conversation
-	busy  map[string]context.CancelFunc // accounts with an answer in flight, and how to stop it
+	mu      sync.Mutex
+	now     func() time.Time
+	convs   map[string]*Conversation
+	busy    map[string]slot // accounts with an answer in flight
+	answers uint64          // numbers the answers, for their slots
+}
+
+// slot is an account's answer in flight, and how to stop it.
+type slot struct {
+	answer uint64
+	stop   context.CancelFunc
 }
 
 // NewStore returns an empty store; now is injectable for tests.
 func NewStore(now func() time.Time) *Store {
-	return &Store{now: now, convs: map[string]*Conversation{}, busy: map[string]context.CancelFunc{}}
+	return &Store{now: now, convs: map[string]*Conversation{}, busy: map[string]slot{}}
 }
 
 // Begin reserves account's answer slot and returns a copy of the
-// conversation to continue: id's when set; else session's conversation on
-// ticketID when there is one; else a new one. stop cancels the answer (an
-// erasure calls it through DropAll). The caller ends with Finish or Abort.
+// conversation to continue: id's when set, else a new one, on ticketID
+// when set (a request's analysis starts again: ForTicket shows the newest).
+// stop cancels the answer (an erasure calls it through DropAll). The caller
+// releases the slot with Finish or Abort; a late Abort is harmless.
 func (s *Store) Begin(session, account, id string, ticketID int64, stop context.CancelFunc) (Conversation, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.sweep()
-	if s.busy[account] != nil {
+	if _, busy := s.busy[account]; busy {
 		return Conversation{}, ErrBusy
 	}
 	if stop == nil {
-		stop = func() {} // a nil stop would read as a free slot
+		stop = func() {} // DropAll calls it
 	}
 	var c *Conversation
-	switch {
-	case id != "":
+	if id != "" {
 		if c = s.convs[id]; c == nil || c.session != session {
 			return Conversation{}, ErrNotFound
 		}
-	case ticketID != 0:
-		c = s.forTicket(session, ticketID)
+		if len(c.Exchanges) >= MaxQuestions || historySize(c.History) > maxHistory {
+			return Conversation{}, ErrFull
+		}
 	}
+	s.answers++
 	if c == nil {
 		token, err := secure.NewToken()
 		if err != nil {
 			return Conversation{}, err
 		}
 		now := s.now()
-		c = &Conversation{ID: token, Account: account, TicketID: ticketID, Created: now, Seen: now, session: session}
+		c = &Conversation{ID: token, Account: account, TicketID: ticketID, Created: now, Seen: now, session: session, opened: s.answers}
 		s.convs[c.ID] = c
 	}
-	if len(c.Exchanges) >= MaxQuestions {
-		return Conversation{}, ErrFull
-	}
-	s.busy[account] = stop
-	return copyOf(c), nil
+	s.busy[account] = slot{answer: s.answers, stop: stop}
+	out := copyOf(c)
+	out.answer = s.answers
+	return out, nil
 }
 
 // DropAll erases every conversation and stops the answers in flight: an
@@ -158,8 +172,8 @@ func (s *Store) DropAll() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	clear(s.convs)
-	for _, stop := range s.busy {
-		stop()
+	for _, a := range s.busy {
+		a.stop()
 	}
 }
 
@@ -169,7 +183,7 @@ func (s *Store) DropAll() {
 func (s *Store) Finish(c Conversation) Conversation {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.busy, c.Account)
+	s.release(c)
 	if stored := s.convs[c.ID]; stored != nil {
 		c.Seen = s.now()
 		*stored = c
@@ -181,7 +195,7 @@ func (s *Store) Finish(c Conversation) Conversation {
 func (s *Store) Abort(c Conversation) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.busy, c.Account)
+	s.release(c)
 }
 
 // Find returns a copy of session's conversation id.
@@ -196,15 +210,21 @@ func (s *Store) Find(session, id string) (Conversation, bool) {
 	return copyOf(c), true
 }
 
-// ForTicket returns a copy of session's conversation on ticketID.
+// ForTicket returns a copy of session's newest conversation on ticketID.
 func (s *Store) ForTicket(session string, ticketID int64) (Conversation, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.sweep()
-	if c := s.forTicket(session, ticketID); c != nil {
-		return copyOf(c), true
+	var newest *Conversation
+	for _, c := range s.convs {
+		if c.session == session && c.TicketID == ticketID && (newest == nil || c.opened > newest.opened) {
+			newest = c
+		}
 	}
-	return Conversation{}, false
+	if newest == nil {
+		return Conversation{}, false
+	}
+	return copyOf(newest), true
 }
 
 // Drop erases session's conversations, at logout.
@@ -228,14 +248,22 @@ func (s *Store) sweep() {
 	}
 }
 
-// forTicket returns session's conversation on ticketID; s.mu is held.
-func (s *Store) forTicket(session string, ticketID int64) *Conversation {
-	for _, c := range s.convs {
-		if c.session == session && c.TicketID == ticketID {
-			return c
+// release frees c's account slot if c's answer still holds it; s.mu is held.
+func (s *Store) release(c Conversation) {
+	if s.busy[c.Account].answer == c.answer {
+		delete(s.busy, c.Account)
+	}
+}
+
+// historySize is the size of h as sent to the provider, in bytes.
+func historySize(h []Message) int {
+	n := 0
+	for _, m := range h {
+		for _, b := range m.Content {
+			n += len(b)
 		}
 	}
-	return nil
+	return n
 }
 
 // copyOf is c with its slices copied, so that an answer grows its own.

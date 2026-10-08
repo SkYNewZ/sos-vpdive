@@ -1,6 +1,7 @@
 package assistant
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -103,26 +104,60 @@ func TestStoreFull(t *testing.T) {
 	s.Finish(c)
 	_, err = s.Begin("s1", "alice", c.ID, 0, nop)
 	require.ErrorIs(t, err, ErrFull)
+
+	// Each call sends the whole history: past maxHistory, a question could
+	// overflow the provider's context.
+	long, err := s.Begin("s1", "alice", "", 0, nop)
+	require.NoError(t, err)
+	msg, err := UserText(strings.Repeat("x", maxHistory))
+	require.NoError(t, err)
+	long.History = []Message{msg}
+	long.Exchanges = []Exchange{{Question: "Q"}}
+	s.Finish(long)
+	_, err = s.Begin("s1", "alice", long.ID, 0, nop)
+	require.ErrorIs(t, err, ErrFull)
 }
 
+// « Nouvelle analyse », or a question after the analysis was erased or
+// filled up: a request's analysis starts again; the page shows the newest.
 func TestStoreForTicketAndDrop(t *testing.T) {
 	s, _ := newTestStore()
 	c, err := s.Begin("s1", "alice", "", 42, nop)
 	require.NoError(t, err)
+	c.Exchanges = make([]Exchange, MaxQuestions)
 	s.Finish(c)
 	again, err := s.Begin("s1", "alice", "", 42, nop)
-	require.NoError(t, err)
-	assert.Equal(t, c.ID, again.ID, "one analysis per request and session")
-	s.Abort(again)
+	require.NoError(t, err, "a full analysis is never resumed")
+	assert.NotEqual(t, c.ID, again.ID)
+	assert.Empty(t, again.Exchanges)
+	s.Finish(again)
 	_, ok := s.ForTicket("s2", 42)
 	assert.False(t, ok)
 	got, ok := s.ForTicket("s1", 42)
 	require.True(t, ok)
-	assert.Equal(t, c.ID, got.ID)
+	assert.Equal(t, again.ID, got.ID, "the newest analysis")
 
 	s.Drop("s1")
-	_, ok = s.Find("s1", c.ID)
+	_, ok = s.Find("s1", again.ID)
 	assert.False(t, ok, "logout erases")
+}
+
+// A late release (a deferred Abort after a panic, a double release) never
+// frees the slot of the account's next answer.
+func TestStoreReleasesOnlyItsOwnSlot(t *testing.T) {
+	s, _ := newTestStore()
+	first, err := s.Begin("s1", "alice", "", 0, nop)
+	require.NoError(t, err)
+	s.Finish(first)
+	second, err := s.Begin("s1", "alice", first.ID, 0, nop)
+	require.NoError(t, err)
+	s.Abort(first)
+	s.Finish(first)
+	_, err = s.Begin("s2", "alice", "", 0, nop)
+	require.ErrorIs(t, err, ErrBusy, "the second answer still holds the slot")
+	s.Abort(second)
+	_, err = s.Begin("s2", "alice", "", 0, nop)
+	require.NoError(t, err)
 }
 
 func TestAddPersonOnce(t *testing.T) {
