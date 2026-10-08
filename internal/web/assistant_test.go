@@ -505,6 +505,33 @@ func TestAssistantRevokedSessionStopsTheAnswer(t *testing.T) {
 	assert.True(t, found, "alice's session is untouched")
 }
 
+// Re-review: a question that passed the session check just before its
+// session ended (a logout here) registers its answer after endSessions ran.
+// It is refused as signed out, keeps no conversation and frees the slot.
+func TestAssistantRefusesASessionEndedBeforeBegin(t *testing.T) {
+	stub := &streamStub{replies: []string{sseText(t, "R")}}
+	e, cookie := assistantEnv(t, stub, 50)
+	v := url.Values{"csrf": {e.csrf(t, cookie, "/assistant")}, "text": {"Q"}}
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/assistant/messages", formBody(v))
+	req.Host = adminHost
+	formType(req)
+	req.AddCookie(cookie)
+	sess, ok := e.srv.sessionOf(req) // what signedIn did
+	require.True(t, ok)
+	e.srv.deleteSession(context.Background(), sess.hash) // then the logout
+	e.srv.endSessions(string(sess.hash))
+	rec := httptest.NewRecorder()
+	e.srv.assistantAsk(rec, req.WithContext(context.WithValue(req.Context(), ctxSession, sess)))
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+	assert.Contains(t, rec.Body.String(), "Session expirée")
+	assert.Empty(t, stub.calls())
+	_, found := e.srv.convs.ForTicket(sessionOf(cookie), 0)
+	assert.False(t, found, "no conversation left on the ended session")
+	busy, err := e.srv.convs.Begin("another-tab", "alice", "", 0, nil)
+	require.NoError(t, err, "the slot is free")
+	e.srv.convs.Abort(busy)
+}
+
 // Codex review: « Analyser » registers its answer before it reads the
 // request, so that an erasure or a deletion from then on stops it (DropAll)
 // before the copy it read reaches the model: a busy account is refused

@@ -332,6 +332,14 @@ func (s *Server) assistantAsk(w http.ResponseWriter, r *http.Request) {
 	// Frees the slot whatever happens, a recovered panic included; after
 	// Finish it frees nothing, not even a newer answer's slot.
 	defer s.convs.Abort(c)
+	// The session may have ended between signedIn and Begin: its row goes
+	// before endSessions, which then found no answer to stop. Drop what Begin
+	// registered, as endSessions would have.
+	if _, ok := s.sessionOf(r); !ok {
+		s.convs.Drop(string(sess.hash))
+		s.writeText(w, r, http.StatusForbidden, "Session expirée : reconnecte-toi.\n")
+		return
+	}
 	var ticket *tickets.Detail
 	switch {
 	case len(c.Exchanges) > 0 && text == "":
