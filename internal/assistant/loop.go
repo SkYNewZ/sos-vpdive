@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -13,11 +14,16 @@ import (
 // Answer limits (design: Limits).
 const (
 	MaxToolCalls  = 12
-	AnswerTimeout = 90 * time.Second
+	AnswerTimeout = 150 * time.Second // answers with reasoning took 84 s at most in the benchmark
 )
 
 // toolLimitResult is what a call past MaxToolCalls gets instead of data.
-const toolLimitResult = `{"erreur":"Limite de 12 lectures atteinte pour cette question : réponds avec ce que tu as."}`
+var toolLimitResult = `{"erreur":"Limite de ` + strconv.Itoa(MaxToolCalls) +
+	` lectures atteinte pour cette question : réponds avec ce que tu as."}`
+
+// forcedNote follows the tool results the forced call sends: with
+// tool_choice none alone, the model may still write a tool call as text.
+const forcedNote = `{"type":"text","text":"Plus aucune lecture possible : réponds maintenant avec ce que tu as, sans appeler d'outil."}`
 
 // unknownTool stands for a tool name the model made up.
 const unknownTool = "unknown"
@@ -68,8 +74,9 @@ type Result struct {
 }
 
 // Answer runs one question to its answer: history ends with the resolver's
-// message. Past MaxToolCalls the model must answer with what it read: a
-// tool call then ends the answer with ErrInvalid, and so does a last turn
+// message. Past MaxToolCalls the model must answer with what it read
+// (tool_choice none, and forcedNote after the tool results): a tool call
+// then ends the answer with ErrInvalid, and so does a last turn
 // the conversation could not keep (see lastTurn). A last turn that writes a
 // tool call as text is dropped and its call made again, once. On error,
 // Result keeps what was spent and no History: the conversation rolls back.
@@ -146,6 +153,9 @@ func (c *Client) Answer(ctx context.Context, system string, history []Message, t
 				return res, fmt.Errorf("encode tool result: %w", err)
 			}
 			results = append(results, raw)
+		}
+		if used >= MaxToolCalls { // the next call is forced
+			results = append(results, json.RawMessage(forcedNote))
 		}
 		msgs = append(msgs, Message{Role: "user", Content: results})
 	}

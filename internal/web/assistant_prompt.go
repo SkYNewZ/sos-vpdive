@@ -166,12 +166,12 @@ func (s *Server) demandeText(ctx context.Context, c *assistant.Conversation, t *
 	d.Description = t.Description
 	d.NomSaisi = strings.TrimSpace(t.FirstName + " " + t.LastName)
 	d.Adherent.Identification = "adresse de la demande absente de la liste des membres"
-	found, err := s.memberOf(ctx, t.Email)
+	matches, err := s.memberOf(ctx, t.Email)
 	if err != nil {
 		return "", err
 	}
-	if len(found) > 0 {
-		m := candidateOf(c, found[0])
+	if len(matches) > 0 {
+		m := candidateOf(c, matches[0])
 		d.Adherent = requesterJSON{candidate: &m, Identification: "par l'adresse de la demande"}
 	}
 	raw, err := json.Marshal(d)

@@ -13,13 +13,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// textAndTool is a reply with a text, then one tool call.
-func textAndTool(text, id, name, input string) string {
+// textAndTool is a reply with a text, then one find_member call.
+func textAndTool(text, id, input string) string {
 	return sse(messageStart,
 		`{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`,
 		`{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":`+q(text)+`}}`,
 		`{"type":"content_block_stop","index":0}`,
-		`{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":`+q(id)+`,"name":`+q(name)+`,"input":{}}}`,
+		`{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":`+q(id)+`,"name":"find_member","input":{}}}`,
 		`{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":`+q(input)+`}}`,
 		`{"type":"content_block_stop","index":1}`,
 		`{"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":10}}`,
@@ -38,7 +38,7 @@ func (r *runner) tools() Tools {
 
 func TestAnswerRunsTools(t *testing.T) {
 	s := &scripted{replies: []string{
-		textAndTool("Je cherche.", "call_1", "find_member", `{"query":"Léa"}`),
+		textAndTool("Je cherche.", "call_1", `{"query":"Léa"}`),
 		textStream("Léa est introuvable."),
 	}}
 	c := newTestClient(t, s, false)
@@ -116,7 +116,7 @@ func TestAnswerCountsAnInventedToolAsUnknown(t *testing.T) {
 }
 
 func TestAnswerFailuresRollBack(t *testing.T) {
-	s := &scripted{replies: []string{textAndTool("", "call_1", "find_member", `{}`)}}
+	s := &scripted{replies: []string{textAndTool("", "call_1", `{}`)}}
 	c := newTestClient(t, s, false)
 	tools := Tools{Run: func(context.Context, string, json.RawMessage) (string, string, error) {
 		return "", "", errors.New("database is locked")
@@ -133,7 +133,7 @@ func TestAnswerFailuresRollBack(t *testing.T) {
 }
 
 func TestAnswerReportsAToolCutByTheContext(t *testing.T) {
-	s := &scripted{replies: []string{textAndTool("", "call_1", "find_member", `{}`)}}
+	s := &scripted{replies: []string{textAndTool("", "call_1", `{}`)}}
 	tools := Tools{Run: func(ctx context.Context, _ string, _ json.RawMessage) (string, string, error) {
 		<-ctx.Done()
 		return "", "", ctx.Err()
@@ -200,6 +200,53 @@ func TestAnswerRetriesAToolCallWrittenAsText(t *testing.T) {
 	assert.Equal(t, 2, res.Calls, "one retry only")
 	assert.Nil(t, res.History)
 	assert.Empty(t, res.Text)
+}
+
+// Review: the one retry is per model call, not per answer: a reply with
+// markup after a tool call is retried even when an earlier one was.
+func TestAnswerRetriesOncePerCall(t *testing.T) {
+	markup := textStream(`<tool_call>{"name":"find_member"}</tool_call>`)
+	s := &scripted{replies: []string{
+		markup, textAndTool("Je cherche.", "call_2", `{"query":"Martin"}`), markup, textStream("Léa est introuvable."),
+	}}
+	r := &runner{}
+	retries := 0
+	res, err := newTestClient(t, s, false).Answer(context.Background(), "S", userMessages(t, "Q"), r.tools(), Events{
+		Retry: func() { retries++ },
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "Léa est introuvable.", res.Text)
+	assert.Equal(t, 4, res.Calls)
+	assert.Equal(t, 2, retries)
+	assert.Len(t, r.calls, 1)
+	require.Len(t, res.History, 4, "question, tool call, tool result, answer: no bad reply stored")
+	assert.Equal(t, s.raw(t, 2), s.raw(t, 3), "the second retry repeats its own request")
+}
+
+// Benchmark: past the tool cap, tool_choice none alone has the model write
+// its call as text. The forced call also says, after the tool results, that
+// no read is left; its retry says it again.
+func TestAnswerTellsTheForcedCallToAnswer(t *testing.T) {
+	five := toolStream(false,
+		[3]string{"a", "find_member", `{"query":"1"}`}, [3]string{"b", "find_member", `{"query":"2"}`},
+		[3]string{"c", "find_member", `{"query":"3"}`}, [3]string{"d", "find_member", `{"query":"4"}`},
+		[3]string{"e", "find_member", `{"query":"5"}`})
+	markup := textStream(`<tool_call>{"name":"find_member"}</tool_call>`)
+	s := &scripted{replies: []string{five, five, five, markup, textStream("Voici ce que j'ai.")}}
+	res, err := newTestClient(t, s, false).Answer(context.Background(), "S", userMessages(t, "Q"), (&runner{}).tools(), Events{})
+	require.NoError(t, err)
+	assert.Equal(t, "Voici ce que j'ai.", res.Text)
+	const note = "Plus aucune lecture possible : réponds maintenant avec ce que tu as, sans appeler d'outil."
+	msgs := s.body(t, 3)["messages"].([]any)
+	blocks := msgs[len(msgs)-1].(map[string]any)["content"].([]any)
+	require.Len(t, blocks, 6, "five tool results, then the note")
+	for _, b := range blocks[:5] {
+		assert.Equal(t, "tool_result", b.(map[string]any)["type"])
+	}
+	assert.Equal(t, map[string]any{"type": "text", "text": note}, blocks[5])
+	assert.Equal(t, map[string]any{"type": "none"}, s.body(t, 3)["tool_choice"])
+	assert.Equal(t, s.raw(t, 3), s.raw(t, 4), "the retry sends the same")
+	assert.NotContains(t, s.raw(t, 2), "Plus aucune lecture", "only once the cap is reached")
 }
 
 // An answer cut at max_tokens keeps what it wrote, with a note that says so.
