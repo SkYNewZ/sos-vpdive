@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/SkYNewZ/sos-vpdive/internal/imports"
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
 	"github.com/SkYNewZ/sos-vpdive/internal/members/memberstest"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
@@ -221,26 +222,47 @@ func TestParticipationsCarryUnregistrations(t *testing.T) {
 		"another person's unregistration stays on its own name")
 }
 
-func TestUnregistrations(t *testing.T) {
+// The committee assistant reads an event with its participants and its
+// unregistrations, and the calendar import they came from, in one snapshot.
+func TestOuting(t *testing.T) {
 	f := newFixture(t)
+	ctx := context.Background()
+	_, err := f.store.Outing(ctx, "evt-a")
+	require.ErrorIs(t, err, ErrNotFound)
+
 	a := event(t, "evt-a", "2026-10-11T08:00:00+02:00", registered(101, "Martin", "Léa"))
 	a.Unregistrations = []Unregistration{
 		unreg("MARTIN", "Léa", "2026-10-03T09:00:00+02:00", "Paul GARNIER"),
 		unreg("Petit", "Chloé", "2026-10-01T18:42:00+02:00", ""),
 	}
-	require.NoError(t, f.push(t, window(a, event(t, "evt-b", "2026-11-15T08:00:00+01:00"))))
-	ctx := context.Background()
-
-	got, err := f.store.Unregistrations(ctx, "evt-a")
+	b := event(t, "evt-b", "2026-11-15T08:00:00+01:00")
+	require.NoError(t, f.push(t, window(a, b)))
+	first, ok, err := imports.Last(ctx, f.db, imports.Calendar)
 	require.NoError(t, err)
-	require.Len(t, got, 2)
-	assert.Equal(t, "Petit", got[0].LastName, "oldest first, whatever the pushed order")
-	assert.Equal(t, time.Date(2026, 10, 3, 7, 0, 0, 0, time.UTC), got[1].Time.UTC(), "time read back")
-	assert.Equal(t, "Paul GARNIER", got[1].By)
+	require.True(t, ok)
 
-	for _, id := range []string{"evt-b", "evt-unknown"} {
-		got, err = f.store.Unregistrations(ctx, id)
-		require.NoError(t, err)
-		assert.Empty(t, got, id)
-	}
+	o, err := f.store.Outing(ctx, "evt-a")
+	require.NoError(t, err)
+	assert.Equal(t, "Sortie evt-a", o.Title)
+	require.Len(t, o.Participants, 1)
+	assert.Equal(t, "Martin", o.Participants[0].LastName)
+	require.Len(t, o.Unregistrations, 2)
+	assert.Equal(t, "Petit", o.Unregistrations[0].LastName, "oldest first, whatever the pushed order")
+	assert.Equal(t, time.Date(2026, 10, 3, 7, 0, 0, 0, time.UTC), o.Unregistrations[1].Time.UTC(), "time read back")
+	assert.Equal(t, "Paul GARNIER", o.Unregistrations[1].By)
+	assert.True(t, o.Imported)
+	assert.Equal(t, first.ID, o.Import.ID)
+
+	o, err = f.store.Outing(ctx, "evt-b")
+	require.NoError(t, err)
+	assert.Empty(t, o.Unregistrations)
+	_, err = f.store.Outing(ctx, "evt-unknown")
+	require.ErrorIs(t, err, ErrNotFound)
+
+	a.Unregistrations = a.Unregistrations[:1]
+	require.NoError(t, f.push(t, window(a, b)))
+	o, err = f.store.Outing(ctx, "evt-a")
+	require.NoError(t, err)
+	require.Len(t, o.Unregistrations, 1, "the new push's unregistrations")
+	assert.Greater(t, o.Import.ID, first.ID, "with the import that brought them")
 }

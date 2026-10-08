@@ -202,22 +202,28 @@ type importState struct {
 	Aucun  bool   `json:"aucun_import,omitempty"`
 }
 
-// importState reads the latest import of kind, stale past the age of its banner.
+// importState reads the latest import of kind.
 func (s *Server) importState(ctx context.Context, kind imports.Kind) (importState, error) {
 	info, ok, err := imports.Last(ctx, s.db, kind)
 	if err != nil {
 		return importState{}, err
 	}
+	return s.stateOf(info, ok), nil
+}
+
+// stateOf is the state of a latest import, as imports.Last read it: stale
+// past the age of its banner.
+func (s *Server) stateOf(info imports.Info, ok bool) importState {
 	if !ok {
-		return importState{Aucun: true}, nil
+		return importState{Aucun: true}
 	}
 	st := importState{Recu: s.formatTime(info.ImportedAt), Du: s.formatDate(info.PeriodFrom), Au: s.formatDate(info.PeriodTo)}
 	for _, a := range s.importAges() {
-		if a.kind == kind {
+		if a.kind == info.Kind {
 			st.Perime = s.now().Sub(info.ImportedAt) > a.maxAge
 		}
 	}
-	return st, nil
+	return st
 }
 
 // describe is the state in a sentence, for the first message.
@@ -250,11 +256,19 @@ func (t *toolbox) paymentImports(ctx context.Context) (vpdive, mollie importStat
 // importOf reads kind's state and records it as a source.
 func (t *toolbox) importOf(ctx context.Context, kind imports.Kind) (importState, error) {
 	st, err := t.s.importState(ctx, kind)
-	if err == nil && !st.Aucun {
+	if err != nil {
+		return importState{}, err
+	}
+	return t.importSource(kind, st), nil
+}
+
+// importSource records st, the state of kind's import, as a source.
+func (t *toolbox) importSource(kind imports.Kind, st importState) importState {
+	if !st.Aucun {
 		date, _, _ := strings.Cut(st.Recu, " ")
 		t.addSource(assistant.Source{Label: importLabel[kind], Date: date, Stale: st.Perime})
 	}
-	return st, err
+	return st
 }
 
 // plainSpaces turns the no-break spaces of an amount or a cart into plain ones.
@@ -767,32 +781,25 @@ func (t *toolbox) outing(ctx context.Context, input json.RawMessage) (any, strin
 	if !ok || in.ID == "" {
 		return toolProblem{"id attendu"}, "Lecture de sortie refusée", nil
 	}
-	ev, err := t.s.calendar.Event(ctx, in.ID)
+	o, err := t.s.calendar.Outing(ctx, in.ID) // one snapshot: a push in between never mixes two exports
 	if errors.Is(err, calendar.ErrNotFound) {
 		return toolProblem{"sortie inconnue : cherche-la avec find_outings"}, "Sortie inconnue", nil
 	}
 	if err != nil {
 		return nil, "", err
 	}
-	left, err := t.s.calendar.Unregistrations(ctx, in.ID)
-	if err != nil {
-		return nil, "", err
-	}
 	out := outingResult{Participants: []participantJSON{}, Desinscriptions: []unregJSON{},
-		Sortie: t.s.eventJSON(ev)}
-	if out.Import, err = t.importOf(ctx, imports.Calendar); err != nil {
-		return nil, "", err
-	}
-	for _, p := range ev.Participants {
+		Sortie: t.s.eventJSON(o.Event), Import: t.importSource(imports.Calendar, t.s.stateOf(o.Import, o.Imported))}
+	for _, p := range o.Participants {
 		out.Participants = append(out.Participants, participantJSON{Nom: p.Name, Participation: participation(p), Personnes: places(p.People),
 			InscritInvite: p.Guest, Roles: t.s.labels.roles(p.Roles), Panier: plainSpaces(cartText(p.Payment)), Homonyme: p.Members > 1})
 	}
-	for _, u := range left {
+	for _, u := range o.Unregistrations {
 		out.Desinscriptions = append(out.Desinscriptions, unregJSON{Nom: strings.TrimSpace(u.FirstName + " " + u.LastName),
 			Le: t.s.formatTime(u.Time), Par: u.By})
 	}
-	t.addSource(assistant.Source{Label: ev.Title, Link: "/calendrier/" + ev.ID})
-	return out, "Sortie « " + ev.Title + " » lue", nil
+	t.addSource(assistant.Source{Label: o.Title, Link: "/calendrier/" + o.ID})
+	return out, "Sortie « " + o.Title + " » lue", nil
 }
 
 // --- cancellations
