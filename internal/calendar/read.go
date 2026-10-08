@@ -1,11 +1,13 @@
 package calendar
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -31,12 +33,17 @@ func (e Event) EndInverted() bool { return e.End.Before(e.Start) }
 // Cancelled reports an event whose title says it is cancelled (spec §7.4).
 func (e Event) Cancelled() bool { return strings.Contains(strings.ToLower(e.Title), "annul") }
 
-// Participation is a person's place on an event: the event, and that
-// person's participant row.
+// Participation is a person's place on an event: the event, that person's
+// participant row, and their unregistrations from it (lot 8 part 3).
 type Participation struct {
-	Event       Event
-	Participant Participant
+	Event           Event
+	Participant     Participant      // zero when only Unregistrations place the person there
+	Unregistrations []Unregistration // oldest first
 }
+
+// Present reports a participant row: a stored participant always has a
+// VPDive id, a participation built from unregistrations alone has none.
+func (p Participation) Present() bool { return p.Participant.VPDiveID != 0 }
 
 // overlaps selects the events that overlap [?1, ?2), in Unix seconds: an
 // event that ends at ?1 or starts at ?2 is outside.
@@ -176,13 +183,19 @@ func (s *Store) Event(ctx context.Context, id string) (_ Event, err error) {
 // newest event first, by the rule of Event: the rows of the name hash itself,
 // and the unregistered ones (a pilot, a payer) of the VPDive accounts whose
 // only registered name is that hash. An account registered under two names is
-// followed by neither, so no other person's row ever lands on this one. Never
-// by name: a nil hash finds nothing.
-func (s *Store) Participations(ctx context.Context, nameHash []byte) ([]Participation, error) {
+// followed by neither, so no other person's row ever lands on this one. The
+// person's unregistrations, by name hash only, join the participation of
+// their event or stand alone. Never by name: a nil hash finds nothing.
+func (s *Store) Participations(ctx context.Context, nameHash []byte) (_ []Participation, err error) {
 	if nameHash == nil {
 		return nil, nil
 	}
-	rows, err := s.db.QueryContext(ctx,
+	tx, err := s.readTx(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer endRead(tx, &err)
+	rows, err := tx.QueryContext(ctx,
 		`SELECT e.starts_at, e.ends_at, e.data, p.data
 		 FROM calendar_participants p JOIN calendar_events e ON e.id = p.event_id
 		 WHERE p.name_hash = ?1 OR (p.name_hash IS NULL AND p.person_hash IN (
@@ -207,7 +220,50 @@ func (s *Store) Participations(ctx context.Context, nameHash []byte) ([]Particip
 	if err != nil {
 		return nil, fmt.Errorf("read participations of a person: %w", err)
 	}
-	return out, nil
+	rows, err = tx.QueryContext(ctx,
+		`SELECT e.starts_at, e.ends_at, e.data, u.data
+		 FROM calendar_unregistrations u JOIN calendar_events e ON e.id = u.event_id
+		 WHERE u.name_hash = ? ORDER BY u.id`, nameHash)
+	left, err := store.Collect(rows, err, func(rows *sql.Rows) (pa Participation, err error) {
+		var (
+			start, end    int64
+			event, sealed []byte
+		)
+		if err = rows.Scan(&start, &end, &event, &sealed); err != nil {
+			return pa, err
+		}
+		if pa.Event, err = s.openEvent(start, end, event); err != nil {
+			return pa, err
+		}
+		u, err := s.openUnregistration(sealed)
+		pa.Unregistrations = []Unregistration{u}
+		return pa, err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("read unregistrations of a person: %w", err)
+	}
+	return withUnregistrations(out, left), nil
+}
+
+// withUnregistrations adds each unregistration to the first participation of
+// its event, or as a participation without a participant row, then keeps the
+// newest event first (the order of Participations' query, rows of an event
+// kept in theirs) and each event's unregistrations oldest first.
+func withUnregistrations(ps, left []Participation) []Participation {
+	for _, l := range left {
+		if i := slices.IndexFunc(ps, func(p Participation) bool { return p.Event.ID == l.Event.ID }); i >= 0 {
+			ps[i].Unregistrations = append(ps[i].Unregistrations, l.Unregistrations...)
+			continue
+		}
+		ps = append(ps, l)
+	}
+	slices.SortStableFunc(ps, func(a, b Participation) int {
+		return cmp.Or(b.Event.Start.Compare(a.Event.Start), cmp.Compare(a.Event.ID, b.Event.ID))
+	})
+	for i := range ps {
+		slices.SortStableFunc(ps[i].Unregistrations, func(a, b Unregistration) int { return a.Time.Compare(b.Time) })
+	}
+	return ps
 }
 
 // openEvent decrypts an event and sets its times from the clear columns, in
