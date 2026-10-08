@@ -149,7 +149,7 @@ func newTestClient(t *testing.T, s http.Handler, thinking bool) *Client {
 	t.Cleanup(srv.Close)
 	u, err := url.Parse(srv.URL)
 	require.NoError(t, err)
-	return NewClient(&config.LLM{BaseURL: u, APIKey: "sk-test"}, "test-model", thinking)
+	return NewClient(&config.LLM{BaseURL: u, APIKey: "sk-test"}, &config.Assistant{Model: "test-model", Thinking: thinking, MaxTokens: 9000})
 }
 
 func userMessages(t *testing.T, text string) []Message {
@@ -176,7 +176,7 @@ func TestStreamText(t *testing.T) {
 	body := s.body(t, 0)
 	assert.Equal(t, true, body["stream"])
 	assert.Equal(t, "test-model", body["model"])
-	assert.InDelta(t, 1500, body["max_tokens"], 0)
+	assert.InDelta(t, 9000, body["max_tokens"], 0, "ASSISTANT_MAX_TOKENS")
 	assert.Equal(t, map[string]any{"type": "disabled"}, body["thinking"])
 	assert.Equal(t, []any{map[string]any{"type": "text", "text": "Consignes", "cache_control": map[string]any{"type": "ephemeral"}}}, body["system"])
 	assert.NotContains(t, body, "tool_choice")
@@ -201,7 +201,7 @@ func TestStreamToolsAndThinking(t *testing.T) {
 	assert.JSONEq(t, `{"id":"carnet-solde-negatif"}`, string(rep.ToolUses[1].Input))
 
 	body := s.body(t, 0)
-	assert.InDelta(t, 4000, body["max_tokens"], 0)
+	assert.InDelta(t, 9000, body["max_tokens"], 0)
 	assert.Equal(t, map[string]any{"type": "enabled", "budget_tokens": float64(2048)}, body["thinking"])
 	assert.Equal(t, map[string]any{"type": "none"}, body["tool_choice"])
 }
@@ -219,7 +219,6 @@ func TestStreamFailures(t *testing.T) {
 			`{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"c","name":"outing","input":{}}}`,
 			`{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"id\":"}}`,
 			`{"type":"message_delta","delta":{"stop_reason":"tool_use"}}`, `{"type":"message_stop"}`)}}, ErrInvalid},
-		"cut": {&scripted{replies: []string{strings.Replace(textStream("Lé"), "end_turn", "max_tokens", 1)}}, ErrInvalid},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

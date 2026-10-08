@@ -30,15 +30,15 @@ const (
 	apiVersion     = "2023-06-01"
 	errorBodyLimit = 4 << 10
 	lineLimit      = 1 << 20 // one stream line: a delta never comes near
-	thinkingBudget = 2048
-	maxTokens      = 1500
-	maxTokensThink = 4000 // the budget plus an answer
+	thinkingBudget = 2048    // DeepSeek ignores it: its reasoning takes from max_tokens
 
 	// Content block types.
 	blockText     = "text"
 	blockThinking = "thinking"
 	blockRedacted = "redacted_thinking"
-	blockToolUse  = "tool_use" // a block asking for a tool
+	blockToolUse  = "tool_use" // a block asking for a tool, and the stop reason of its reply
+
+	stopMaxTokens = "max_tokens" // a reply cut by the length limit
 )
 
 // idleTimeout ends a stream that sends nothing for that long; tests shorten it.
@@ -136,15 +136,16 @@ type Client struct {
 	Model    string
 	Thinking bool
 
-	endpoint string
-	key      string
-	http     *http.Client // plain: no trace header leaves, no redirect followed
+	maxTokens int
+	endpoint  string
+	key       string
+	http      *http.Client // plain: no trace header leaves, no redirect followed
 }
 
-// NewClient returns a client of llm's provider for model.
-func NewClient(llm *config.LLM, model string, thinking bool) *Client {
+// NewClient returns a client of llm's provider with a's model and limits.
+func NewClient(llm *config.LLM, a *config.Assistant) *Client {
 	return &Client{
-		Model: model, Thinking: thinking,
+		Model: a.Model, Thinking: a.Thinking, maxTokens: a.MaxTokens,
 		endpoint: llm.BaseURL.JoinPath("v1", "messages").String(), key: llm.APIKey,
 		// The Messages API never redirects: following one would hand the key to another host.
 		http: &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
@@ -191,12 +192,12 @@ type typeOnly struct {
 
 func (c *Client) request(k call) request {
 	r := request{
-		Model: c.Model, MaxTokens: maxTokens, Stream: true, Thinking: thinkingConfig{Type: "disabled"},
+		Model: c.Model, MaxTokens: c.maxTokens, Stream: true, Thinking: thinkingConfig{Type: "disabled"},
 		System: []systemBlock{{Type: blockText, Text: k.system, CacheControl: typeOnly{Type: "ephemeral"}}},
 		Tools:  k.tools, Messages: k.messages,
 	}
 	if c.Thinking {
-		r.MaxTokens, r.Thinking = maxTokensThink, thinkingConfig{Type: "enabled", BudgetTokens: thinkingBudget}
+		r.Thinking = thinkingConfig{Type: "enabled", BudgetTokens: thinkingBudget}
 	}
 	if k.noTools {
 		r.ToolChoice = &typeOnly{Type: "none"}
@@ -432,7 +433,8 @@ func readStream(body io.Reader, idle *time.Timer, k call) (reply, error) {
 }
 
 // assemble turns the streamed blocks into rep's content, text and tool
-// calls. On error the reply keeps its usage.
+// calls. On error the reply keeps its usage. A reply cut at max_tokens is
+// no error here: Answer keeps its text, if any.
 func assemble(blocks []*block, rep reply) (reply, error) {
 	for _, b := range blocks {
 		raw, keep, err := b.raw()
@@ -449,9 +451,6 @@ func assemble(blocks []*block, rep reply) (reply, error) {
 		case blockToolUse:
 			rep.ToolUses = append(rep.ToolUses, ToolUse{ID: b.ID, Name: b.Name, Input: json.RawMessage(b.input)})
 		}
-	}
-	if rep.StopReason == "max_tokens" {
-		return rep, fmt.Errorf("%w: answer cut at max_tokens", ErrInvalid)
 	}
 	return rep, nil
 }

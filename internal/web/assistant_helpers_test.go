@@ -73,7 +73,7 @@ func withAssistant(t *testing.T, stub *streamStub, limit int) func(*Deps) {
 	t.Cleanup(srv.Close)
 	return func(d *Deps) {
 		d.Config.LLM = &config.LLM{BaseURL: mustURL(t, srv.URL), APIKey: "sk-test", Model: "test-model", Timeout: time.Second, DailyLimit: 200}
-		d.Config.Assistant = &config.Assistant{Model: "test-model", DailyQuestions: limit,
+		d.Config.Assistant = &config.Assistant{Model: "test-model", MaxTokens: 8000, DailyQuestions: limit,
 			Priced: true, PriceInput: 300_000, PriceOutput: 1_200_000, PriceCached: 30_000}
 	}
 }
