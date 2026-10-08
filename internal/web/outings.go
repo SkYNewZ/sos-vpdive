@@ -30,21 +30,22 @@ type outing struct {
 }
 
 // attach builds the requester's outings (lot 8 part 2): a dated line goes to
-// their outing of the same Paris day, by normalised title when they have
-// several that day. Only the day of a line's date counts. A line no outing
-// takes stays in the payments blocks only.
+// their outing of the same Paris day and normalised title. A Mollie line
+// names a product, not an outing: it also goes to their only outing that
+// day. Only the day of a line's date counts. A line no outing takes stays
+// in the payments blocks only.
 func attach(ps []calendar.Participation, lines []payments.Line, mollie []payments.CollectedLine, paris *time.Location) []outing {
 	out := make([]outing, len(ps))
 	for i, p := range ps {
 		out[i].Participation = p
 	}
 	for _, l := range lines {
-		if i := pickOuting(ps, l.Product, l.Starts, paris); i >= 0 {
+		if i := pickOuting(ps, l.Product, l.Starts, paris, false); i >= 0 {
 			out[i].Lines = append(out[i].Lines, l)
 		}
 	}
 	for _, l := range mollie {
-		if i := pickOuting(ps, l.Service, l.Starts, paris); i >= 0 {
+		if i := pickOuting(ps, l.Service, l.Starts, paris, true); i >= 0 {
 			out[i].Mollie = append(out[i].Mollie, l)
 		}
 	}
@@ -52,9 +53,10 @@ func attach(ps []calendar.Participation, lines []payments.Line, mollie []payment
 }
 
 // pickOuting returns the index of the outing a line of title dated starts
-// goes to, or -1. An outing the requester holds two seats in counts once,
-// at its first.
-func pickOuting(ps []calendar.Participation, title string, starts time.Time, paris *time.Location) int {
+// goes to, or -1; orAlone also takes the only outing of the day whatever
+// its title. An outing the requester holds two seats in counts once, at its
+// first.
+func pickOuting(ps []calendar.Participation, title string, starts time.Time, paris *time.Location, orAlone bool) int {
 	if starts.IsZero() {
 		return -1
 	}
@@ -72,10 +74,10 @@ func pickOuting(ps []calendar.Participation, title string, starts time.Time, par
 		}
 	}
 	switch {
-	case len(sameDay) == 1:
-		return sameDay[0]
 	case len(sameTitle) == 1:
 		return sameTitle[0]
+	case orAlone && len(sameDay) == 1:
+		return sameDay[0]
 	}
 	return -1
 }

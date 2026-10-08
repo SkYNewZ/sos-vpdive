@@ -19,7 +19,9 @@ func outingOn(id, title string, start time.Time) calendar.Participation {
 	return calendar.Participation{Event: calendar.Event{ID: id, Title: title, Start: start, End: start.Add(3 * time.Hour)}}
 }
 
-// A title with a tab, double spaces or capitals still matches.
+// A title with a tab, double spaces or capitals still matches. A VPDive line
+// naming another outing stays out even on a day the requester has one outing:
+// they may have left that other outing.
 func TestAttachLinesToOutings(t *testing.T) {
 	paris, err := time.LoadLocation("Europe/Paris")
 	require.NoError(t, err)
@@ -40,9 +42,13 @@ func TestAttachLinesToOutings(t *testing.T) {
 		{Product: "SORTIE ANNULÉE - Levant", Starts: at(20, 0)},
 		{Product: "Carte 10 plongées"},
 		{Product: "Sortie du matin", Starts: at(7, 0)},
-		{Product: "Supplément", Starts: at(27, 0)},
+		{Product: "Sortie Porquerolles", Starts: at(27, 0)},
 	}
-	mollie := []payments.CollectedLine{{Service: "Sortie du matin", Starts: at(6, 0)}}
+	mollie := []payments.CollectedLine{
+		{Service: "Sortie du matin", Starts: at(6, 0)},
+		{Service: "Supplément distance", Starts: at(20, 0)},
+		{Service: "Supplément distance", Starts: at(27, 0)},
+	}
 
 	got := attach(ps, lines, mollie, paris)
 	products := make([][]string, 0, len(got))
@@ -53,10 +59,13 @@ func TestAttachLinesToOutings(t *testing.T) {
 		}
 		products = append(products, p)
 	}
-	assert.Equal(t, [][]string{{}, {"sortie du soir"}, {}, {}, {"SORTIE ANNULÉE - Levant"}, {"Supplément"}, {}}, products,
-		"two outings that day: by title; same title twice or none: no outing; alone that day: whatever the title; undated or no outing that day: none; one outing with two seats: its first")
-	assert.Len(t, got[0].Mollie, 1, "a Mollie line by its outing's title")
-	assert.Empty(t, got[1].Mollie)
+	assert.Equal(t, [][]string{{}, {"sortie du soir"}, {}, {}, {}, {"Sortie Porquerolles"}, {}}, products,
+		"by title only: same title twice or none, another outing's title on a day alone, undated or no outing that day: none; one outing with two seats: its first")
+	mollieCount := make([]int, 0, len(got))
+	for _, o := range got {
+		mollieCount = append(mollieCount, len(o.Mollie))
+	}
+	assert.Equal(t, []int{1, 0, 0, 0, 1, 1, 0}, mollieCount, "a Mollie line by its outing's title, or to the only outing that day whatever the title")
 }
 
 func TestOutingSignals(t *testing.T) {
@@ -114,10 +123,11 @@ func TestRequestPageOutingsBlock(t *testing.T) {
 		"Liste d'attente, 2 personnes",
 		"Voir les 2 sorties plus anciennes",
 		"VPDive : SORTIE ANNULÉE - Île du Levant, Payé, Prépayé, 30,00\u00a0€",
-		signalCarnet, signalMoney,
+		signalCarnet,
 	} {
 		assert.Contains(t, page, want)
 	}
+	assert.NotContains(t, page, signalMoney, "the night dive was renamed: its line names no outing of Hugo's and stays out")
 	assert.Less(t, strings.Index(page, "Séjour Corse"), strings.Index(page, "Sortie Porquerolles"), "newest first")
 
 	assert.Contains(t, e.openTicket(t, cookie, lea.ID).body, "Plusieurs membres portent ce nom : aucune sortie n'est affichée.")
