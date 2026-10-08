@@ -99,7 +99,6 @@ type Usage struct {
 	CacheWrite int `json:"cache_creation_input_tokens"`
 }
 
-//nolint:unused // summed by the answer loop (Task 6), which then drops this directive
 func (u *Usage) add(o Usage) {
 	u.Input += o.Input
 	u.Output += o.Output

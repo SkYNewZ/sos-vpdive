@@ -137,8 +137,6 @@ func (s *scripted) body(t *testing.T, i int) map[string]any {
 }
 
 // fail makes every later call answer status.
-//
-//nolint:unused // the answer loop tests (Task 6) use it, then this directive goes
 func (s *scripted) fail(status int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
