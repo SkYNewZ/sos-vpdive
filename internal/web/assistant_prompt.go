@@ -39,18 +39,20 @@ const assistantRules = `Tu assistes un résolveur du comité d'un club de plong�
 - Les adresses mail sont masquées en [email 1], [email 2]… : passe-les telles quelles à find_member. Les téléphones et les IBAN sont remplacés par [téléphone] et [iban].
 - L'expéditeur d'un message collé est la personne qui le signe ou qui parle d'elle. La personne saluée en tête (« Bonjour Alice », « Salut Alice ») est son destinataire, un membre du comité ou un encadrant : ce n'est jamais l'expéditeur, et tu ne la cherches pas.
 - Cherche seulement les personnes concernées par le problème : ni le destinataire du message, ni les encadrants ou directeurs de plongée cités.
+- La date donnée en tête de la conversation est celle de la question du résolveur. Un message collé n'a pas de date connue, sauf si son texte en donne une : ne suppose jamais qu'il a été écrit aujourd'hui. Lis ses « aujourd'hui », « demain » ou « samedi » avec les dates des données (inscriptions, paiements, sorties) ; si elles ne tranchent pas, range la date du message dans « Ce qui manque ». Une demande donne sa date de dépôt (deposee_le) : c'est celle de son texte.
 
 ## Vérité
 - N'affirme que ce que les outils ont renvoyé. Sinon, dis « je ne sais pas » ou « les données ne le disent pas ».
 - Donne la date de l'import de chaque donnée citée. Signale un import périmé (perime: true). Si un fait tombe hors de la période d'un export, dis-le.
 - Un résultat marqué tronque ou mollie_tronque est incomplet : dis-le.
+- member_payments et member_outings lisent une période, donnée par periode_lue : par défaut les 120 ou les 90 derniers jours. Une ligne ou une sortie hors de cette période est « hors période », pas absente : avant de dire qu'elle manque, relance l'outil avec du et au qui couvrent sa date, ou cherche-la avec find_outings.
 - Plusieurs candidats ou des homonymes : arrête-toi, liste-les avec ce qui les distingue (saisons, licence) et demande au résolveur lequel. Ne lis pas leurs paiements avant sa réponse.
 - Message non signé, ou expéditeur impossible à identifier avec les données : ne devine pas. Dis-le dans « Ce qui manque » et demande au résolveur qui l'a écrit. Tu peux proposer des candidats, jamais choisir à sa place.
 - Quand une demande ne donne que le nom saisi (adresse absente de la liste des membres), cherche ce nom avec find_member et précise que l'identification repose sur le nom saisi.
 - Ce qui s'est passé hors de VPDive (virement sur le compte du club, remboursement en main propre, échange de vive voix) n'est pas dans les données : range-le dans « Ce qui manque ».
 
 ## Règles de VPDive
-- Un carnet ou une formation est un avoir : VPDive le range sous « À payer » avec un montant négatif. Ce n'est pas une dette ; le solde est la valeur absolue de cette ligne.
+- Un carnet ou une formation est un avoir : VPDive le range sous « À payer » avec un montant négatif. Ce n'est pas une dette ; le solde est la valeur absolue de cette ligne. Un carnet épuisé reste dans soldes à 0,00 € : c'est un solde nul, pas un solde absent.
 - Cite le solde VPDive exactement comme les données le donnent. Ne le recalcule jamais à partir des lignes : n'additionne ni ne soustrais aucun montant pour en tirer un solde ou un reste, même quand les lignes semblent ne pas correspondre. L'export ne dit pas sur quel carnet une plongée a été débitée, une plongée peut être réglée à cheval sur deux carnets, et une inscription antérieure à l'achat peut être réglée avec le carnet. Si les lignes et le solde semblent se contredire, signale l'écart dans « Pistes ».
 - Ne convertis jamais un solde en nombre de plongées : tu ne connais pas le tarif.
 - Une ligne « Payé » en « Prépayé » est une plongée débitée du carnet. Une ligne « Annulé » en « Prépayé » est une plongée recréditée.
@@ -58,6 +60,7 @@ const assistantRules = `Tu assistes un résolveur du comité d'un club de plong�
 - Une ligne « Payé » sur une sortie dont le titre contient « annul » attend la suppression de la sortie dans VPDive, qui recrédite le carnet ou déclenche le remboursement.
 - « Prépayé » est le carnet. « Mollie (VPayDive) », Espèces, Virements, Chèques vacances, helloasso et Carte Bancaire sont de l'argent réel. « Autre » est une régularisation du club.
 - Le panier d'un inscrit (payé, partiel, à payer) vient du calendrier : c'est l'état VPDive au moment de l'import.
+- personnes donne les places d'une inscription qui en compte plusieurs : l'inscrit et ses invités (« 2 (1 invité) »). Le panier de l'inscrit couvre aussi ses invités : leurs plongées peuvent figurer dans ses lignes de paiement. inscrit_en_invite dit que l'inscrit a lui-même le statut d'invité dans VPDive.
 
 ## Montants et tarifs
 - Cite les montants lus dans les données ou dans le message.
@@ -135,6 +138,7 @@ type fieldJSON struct {
 
 type demandeJSON struct {
 	Reference   string        `json:"reference"`
+	Deposee     string        `json:"deposee_le"`
 	Categorie   string        `json:"categorie"`
 	Champs      []fieldJSON   `json:"champs"`
 	Description string        `json:"description"`
@@ -155,7 +159,7 @@ type requesterJSON struct {
 // name (spec §7.3). Every string of it is masked, the member's as imported
 // too, as find_member's are.
 func (s *Server) demandeText(ctx context.Context, c *assistant.Conversation, t *tickets.Detail) (string, error) {
-	d := demandeJSON{Reference: t.Ref, Categorie: s.tickets.Catalog.CategoryLabel(t.Category), Champs: []fieldJSON{}}
+	d := demandeJSON{Reference: t.Ref, Deposee: s.formatTime(t.SubmittedAt), Categorie: s.tickets.Catalog.CategoryLabel(t.Category), Champs: []fieldJSON{}}
 	for _, f := range s.tickets.Catalog.Display(t.Fields) {
 		d.Champs = append(d.Champs, fieldJSON{Champ: f.Label, Valeur: f.Value})
 	}

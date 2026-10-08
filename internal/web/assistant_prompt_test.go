@@ -21,7 +21,8 @@ func TestAssistantSystem(t *testing.T) {
 	}
 	for _, rule := range []string{"Ne le recalcule jamais", "<saisie_resolveur>", "```brouillon", "je ne sais pas", "Ne convertis jamais un solde",
 		"ce n'est jamais l'expéditeur", "demande au résolveur qui l'a écrit", "n'additionne ni ne soustrais", "signale l'écart dans « Pistes »",
-		"nom_saisi"} {
+		"nom_saisi", "« hors période », pas absente", "periode_lue", "ne suppose jamais qu'il a été écrit aujourd'hui", "deposee_le",
+		"couvre aussi ses invités", "reste dans soldes à 0,00 €"} {
 		assert.Contains(t, sys, rule)
 	}
 	assert.NotContains(t, sys, "'''", "the fence placeholder is replaced")
@@ -72,6 +73,7 @@ func TestQuestionTextFromARequest(t *testing.T) {
 	assert.Contains(t, text, "<demande>")
 	assert.Contains(t, text, `"reference":"`+hugo.Ref+`"`)
 	assert.Contains(t, text, `"nom_saisi":"Léa Martin"`, "the name typed on the form, whoever it names")
+	assert.Contains(t, text, `"deposee_le":"02/09/2026 à 12:00"`, "the date its « demain » or « hier » are read from")
 	assert.Contains(t, text, `"adherent":{"ref":"m1","nom":"Hugo Bernard","saisons":"`, "the requester as find_member describes a member")
 	assert.Contains(t, text, `"licence":"`)
 	assert.Contains(t, text, `"homonyme":false,"identification":"par l'adresse de la demande"}`)
