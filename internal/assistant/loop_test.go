@@ -77,18 +77,20 @@ func TestAnswerSendsThinkingBack(t *testing.T) {
 }
 
 func TestAnswerForcesAnAnswerPastTheToolLimit(t *testing.T) {
-	three := toolStream(false,
+	five := toolStream(false,
 		[3]string{"a", "find_member", `{"query":"1"}`}, [3]string{"b", "find_member", `{"query":"2"}`},
-		[3]string{"c", "find_member", `{"query":"3"}`})
-	s := &scripted{replies: []string{three, three, three, textStream("Voici ce que j'ai.")}}
+		[3]string{"c", "find_member", `{"query":"3"}`}, [3]string{"d", "find_member", `{"query":"4"}`},
+		[3]string{"e", "find_member", `{"query":"5"}`})
+	s := &scripted{replies: []string{five, five, five, textStream("Voici ce que j'ai.")}}
 	r := &runner{}
 	res, err := newTestClient(t, s, false).Answer(context.Background(), "S", userMessages(t, "Q"), r.tools(), Events{})
 	require.NoError(t, err)
-	assert.Len(t, r.calls, MaxToolCalls, "the ninth call is refused, not run")
+	assert.Equal(t, 12, MaxToolCalls)
+	assert.Len(t, r.calls, MaxToolCalls, "the thirteenth call is refused, not run")
 	assert.Equal(t, 4, res.Calls)
 	assert.Equal(t, map[string]any{"type": "none"}, s.body(t, 3)["tool_choice"])
 	assert.Contains(t, s.body(t, 3), "tools", "the tools stay in the forced call: the cached prefix and tool_choice need them")
-	assert.Contains(t, s.raw(t, 3), "Limite de 8 lectures atteinte")
+	assert.Equal(t, 3, strings.Count(s.raw(t, 3), "Limite de 12 lectures atteinte"), "one refusal per call past the cap")
 }
 
 func TestAnswerEndsWhenTheForcedCallStillAsksForATool(t *testing.T) {

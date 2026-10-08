@@ -12,12 +12,12 @@ import (
 
 // Answer limits (design: Limits).
 const (
-	MaxToolCalls  = 8
+	MaxToolCalls  = 12
 	AnswerTimeout = 90 * time.Second
 )
 
 // toolLimitResult is what a call past MaxToolCalls gets instead of data.
-const toolLimitResult = `{"erreur":"Limite de 8 lectures atteinte pour cette question : réponds avec ce que tu as."}`
+const toolLimitResult = `{"erreur":"Limite de 12 lectures atteinte pour cette question : réponds avec ce que tu as."}`
 
 // unknownTool stands for a tool name the model made up.
 const unknownTool = "unknown"
