@@ -97,6 +97,12 @@ validated: it wins over this file, over existing code, and over preference.
     only outing that day. The others stay in the existing blocks. Signals:
     cancelled outing with a paid « Prépayé » line, or paid in real money;
     Mollie line not settled. Roles raise no signal: everyone pays, some 0 €.
+  - Each pushed event also lists its unregistrations: last and first name,
+    when, by whom. They match by the `name_hash` of both names only, never
+    by `vpdive_id` (they have none). The request page shows them on the
+    requester's outing; the outing page and the views do not. Erasure
+    (§4.5) deletes those of the name hash, a homonym's included, and blanks
+    the author where it is the erased member's full name in either order.
   - Category tints (§12.2): up to five muted tints of our own, set in
     `config/calendar.yaml` with the labels of category, activity,
     environment and role. VPDive's colours are ignored; an unknown value
