@@ -69,13 +69,7 @@ func renderFence(w util.BufWriter, source []byte, n ast.Node, entering bool) (as
 	if !entering || !ok {
 		return ast.WalkContinue, nil
 	}
-	var body strings.Builder
-	lines := fence.Lines()
-	for i := range lines.Len() {
-		seg := lines.At(i)
-		body.Write(seg.Value(source))
-	}
-	text := template.HTMLEscapeString(body.String())
+	text := template.HTMLEscapeString(string(fence.Lines().Value(source)))
 	out := "<pre><code>" + text + "</code></pre>"
 	if string(fence.Language(source)) == draftLanguage {
 		out = `<div class="draft" data-draft-reply><p class="draft-label">Brouillon automatique, à relire</p><pre>` + text +

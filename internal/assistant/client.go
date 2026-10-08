@@ -37,6 +37,7 @@ const (
 	// Content block types.
 	blockText     = "text"
 	blockThinking = "thinking"
+	blockRedacted = "redacted_thinking"
 	blockToolUse  = "tool_use" // a block asking for a tool
 )
 
@@ -345,14 +346,14 @@ func (b *block) raw() (raw json.RawMessage, keep bool, err error) {
 		v = textBlock{Type: blockText, Text: b.Text}
 	case blockThinking:
 		v = thinkingBlock{Type: blockThinking, Thinking: b.Thinking, Signature: b.Signature}
-	case "redacted_thinking":
-		v = redactedBlock{Type: "redacted_thinking", Data: b.Data}
+	case blockRedacted:
+		v = redactedBlock{Type: blockRedacted, Data: b.Data}
 	case blockToolUse:
-		input := json.RawMessage(cmp.Or(b.input, "{}"))
-		if !json.Valid(input) {
+		b.input = cmp.Or(b.input, "{}") // a call without arguments streams no input
+		if !json.Valid([]byte(b.input)) {
 			return nil, false, fmt.Errorf("%w: tool input is not JSON", ErrInvalid)
 		}
-		v = toolUseBlock{Type: blockToolUse, ID: b.ID, Name: b.Name, Input: input}
+		v = toolUseBlock{Type: blockToolUse, ID: b.ID, Name: b.Name, Input: json.RawMessage(b.input)}
 	default:
 		return nil, false, nil
 	}
@@ -406,7 +407,7 @@ func readStream(body io.Reader, idle *time.Timer, k call) (reply, error) {
 			applyDelta(blocks[ev.Index], *ev.Delta, k)
 		case "message_delta":
 			if ev.Delta != nil {
-				rep.StopReason = ev.Delta.StopReason
+				rep.StopReason = cmp.Or(ev.Delta.StopReason, rep.StopReason) // a usage-only delta keeps it
 			}
 			if ev.Usage != nil {
 				rep.Usage.merge(*ev.Usage)
@@ -446,7 +447,7 @@ func assemble(blocks []*block, rep reply) (reply, error) {
 		case blockText:
 			rep.Text += b.Text
 		case blockToolUse:
-			rep.ToolUses = append(rep.ToolUses, ToolUse{ID: b.ID, Name: b.Name, Input: json.RawMessage(cmp.Or(b.input, "{}"))})
+			rep.ToolUses = append(rep.ToolUses, ToolUse{ID: b.ID, Name: b.Name, Input: json.RawMessage(b.input)})
 		}
 	}
 	if rep.StopReason == "max_tokens" {

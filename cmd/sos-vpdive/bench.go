@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"strings"
 
@@ -35,12 +36,12 @@ type benchMetrics struct {
 // regular files named message* are read: the directory may hold a grading
 // grid that must never reach the model.
 func assistantBench(ctx context.Context, getenv func(string) string, args []string, stdout io.Writer) (err error) {
-	fs := flag.NewFlagSet("assistant-bench", flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
-	dir := fs.String("messages", "", "directory of messages, one per file")
-	out := fs.String("out", "", "directory for transcripts and metrics")
-	account := fs.String("account", "bench", "committee account the answers run as")
-	if err := fs.Parse(args); err != nil || *dir == "" || *out == "" {
+	flags := flag.NewFlagSet("assistant-bench", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	dir := flags.String("messages", "", "directory of messages, one per file")
+	out := flags.String("out", "", "directory for transcripts and metrics")
+	account := flags.String("account", "bench", "committee account the answers run as")
+	if err := flags.Parse(args); err != nil || *dir == "" || *out == "" {
 		return usageError{"assistant-bench needs -messages DIR and -out DIR"}
 	}
 	cfg, err := config.Load(getenv)
@@ -60,7 +61,7 @@ func assistantBench(ctx context.Context, getenv func(string) string, args []stri
 		return err
 	}
 	defer func() { err = errors.Join(err, root.Close()) }()
-	entries, err := os.ReadDir(*dir)
+	entries, err := fs.ReadDir(root.FS(), ".")
 	if err != nil {
 		return err
 	}
@@ -79,6 +80,9 @@ func assistantBench(ctx context.Context, getenv func(string) string, args []stri
 	defer func() { err = errors.Join(err, metrics.Close()) }()
 	enc := json.NewEncoder(metrics)
 	for _, e := range entries {
+		if err := ctx.Err(); err != nil {
+			return err // interrupted: the remaining messages would all read « canceled »
+		}
 		if !e.Type().IsRegular() || !strings.HasPrefix(e.Name(), "message") {
 			continue
 		}

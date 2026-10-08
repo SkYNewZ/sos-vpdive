@@ -40,7 +40,7 @@ const (
 // schema is a JSON Schema object of string properties, required ones first.
 func schema(required []string, optional ...string) json.RawMessage {
 	props := make([]string, 0, len(required)+len(optional))
-	for _, p := range append(append([]string{}, required...), optional...) {
+	for _, p := range slices.Concat(required, optional) {
 		props = append(props, strconv.Quote(p)+`:{"type":"string"}`)
 	}
 	req := make([]string, len(required))
@@ -70,9 +70,6 @@ var toolDefs = []assistant.Tool{
 	{Name: "read_fiche", InputSchema: schema([]string{"id"}),
 		Description: "Une fiche d'aide du club par son identifiant : réponse pour l'adhérent, procédure pour le résolveur, liens VPDive."},
 }
-
-// unknownTool stands for a tool name the model made up, in telemetry.
-const unknownTool = "unknown"
 
 // refArg is the argument that names a person in the member tools.
 const refArg = "ref"
@@ -109,12 +106,8 @@ type toolProblem struct {
 // the step the resolver sees. A call the model got wrong, an unknown tool
 // included, is answered in the JSON: only a failure of ours is an error.
 func (t *toolbox) run(ctx context.Context, name string, input json.RawMessage) (string, string, error) {
-	// The model chooses name: telemetry never records one it made up.
-	spanName := unknownTool
-	if slices.ContainsFunc(toolDefs, func(d assistant.Tool) bool { return d.Name == name }) {
-		spanName = name
-	}
-	ctx, span := t.s.tracer.Start(ctx, "assistant.tool", trace.WithAttributes(attribute.String("assistant.tool.name", spanName)))
+	ctx, span := t.s.tracer.Start(ctx, "assistant.tool",
+		trace.WithAttributes(attribute.String("assistant.tool.name", assistant.KnownTool(toolDefs, name))))
 	outcome := "ok" // or "refused" for a call the model got wrong, else the error code
 	defer func() {
 		span.SetAttributes(attribute.String("assistant.tool.outcome", outcome))
@@ -190,13 +183,14 @@ func decode[T any](input json.RawMessage) (T, bool) {
 }
 
 // addSource records a piece of data the answer read, once.
-func (t *toolbox) addSource(src assistant.Source) {
-	for _, s := range t.sources {
-		if s.Label == src.Label && s.Link == src.Link {
-			return
-		}
+func (t *toolbox) addSource(src assistant.Source) { t.sources = appendSource(t.sources, src) }
+
+// appendSource adds src to sources unless one of the same label and link is there.
+func appendSource(sources []assistant.Source, src assistant.Source) []assistant.Source {
+	if slices.ContainsFunc(sources, func(o assistant.Source) bool { return o.Label == src.Label && o.Link == src.Link }) {
+		return sources
 	}
-	t.sources = append(t.sources, src)
+	return append(sources, src)
 }
 
 // importState is an import as the model reads it.
@@ -368,8 +362,7 @@ func (t *toolbox) member(input json.RawMessage, back int) (assistant.Person, tim
 // period reads du and au, Paris days: from defaults to back days before
 // today, to (exclusive) to none.
 func (s *Server) period(du, au string, back int) (from, to time.Time, ok bool) {
-	today := s.now().In(s.paris)
-	from = time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, s.paris).AddDate(0, 0, -back)
+	from = midnight(s.now(), s.paris).AddDate(0, 0, -back)
 	if du != "" {
 		d, err := time.ParseInLocation(time.DateOnly, du, s.paris)
 		if err != nil {

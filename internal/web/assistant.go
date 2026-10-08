@@ -8,7 +8,6 @@ import (
 	"html/template"
 	"net/http"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -80,7 +79,7 @@ func views(exs []assistant.Exchange) []exchangeView {
 
 // quotaKey counts an account's questions of the Paris day.
 func (s *Server) quotaKey(account string) string {
-	return "assistant:" + account + ":" + s.now().In(s.paris).Format(time.DateOnly)
+	return "assistant:" + account + ":" + parisDay(s.now(), s.paris)
 }
 
 // remaining says how many questions account has left today.
@@ -89,32 +88,24 @@ func (s *Server) remaining(ctx context.Context, account string) (string, error) 
 	if err != nil {
 		return "", err
 	}
-	switch left := max(0, s.cfg.Assistant.DailyQuestions-used); left {
-	case 0:
+	left := s.cfg.Assistant.DailyQuestions - used
+	if left <= 0 {
 		return "Plus de question aujourd'hui : le quota repart à minuit.", nil
-	case 1:
-		return "Il te reste 1 question aujourd'hui.", nil
-	default:
-		return "Il te reste " + strconv.Itoa(left) + " questions aujourd'hui.", nil
 	}
+	return "Il te reste " + plural(left, "question", "questions") + " aujourd'hui.", nil
 }
 
 // dossier gathers what c's answers read, current's included (an answer
 // still running), with the people found.
 func (s *Server) dossier(c assistant.Conversation, current []assistant.Source, remaining string) dossierView {
 	d := dossierView{People: c.People, Remaining: remaining}
-	add := func(src assistant.Source) {
-		if !slices.ContainsFunc(d.Sources, func(o assistant.Source) bool { return o.Label == src.Label && o.Link == src.Link }) {
-			d.Sources = append(d.Sources, src)
-		}
-	}
 	for _, ex := range c.Exchanges {
 		for _, src := range ex.Sources {
-			add(src)
+			d.Sources = appendSource(d.Sources, src)
 		}
 	}
 	for _, src := range current {
-		add(src)
+		d.Sources = appendSource(d.Sources, src)
 	}
 	parts := []string{"Dossier"}
 	if n := len(d.People); n > 0 {
@@ -236,10 +227,15 @@ func (s *Server) openStream(w http.ResponseWriter, r *http.Request) *ndjson {
 	return &ndjson{enc: json.NewEncoder(w), rc: rc}
 }
 
-// dossierEvent is the Dossier column of d and the summary of its phone bar.
-func (s *Server) dossierEvent(d dossierView) (streamEvent, error) {
+// sendDossier streams the Dossier column of d and the summary of its phone
+// bar. A render failure is logged; the column keeps its last state.
+func (s *Server) sendDossier(ctx context.Context, out *ndjson, d dossierView) {
 	html, err := s.fragment("assistantDossier", d)
-	return streamEvent{Type: "dossier", HTML: html, Summary: d.Summary}, err
+	if err != nil {
+		s.logger.ErrorContext(ctx, "render assistant dossier", "error", err)
+		return
+	}
+	out.send(streamEvent{Type: "dossier", HTML: html, Summary: d.Summary})
 }
 
 // questionOf is the question an exchange shows: the resolver's text, or the
@@ -277,15 +273,6 @@ func failureText(code string, limit int) string {
 	return "Erreur interne. Réessaie dans un instant."
 }
 
-// formID reads a positive id; 0 otherwise.
-func formID(v string) int64 {
-	id, err := strconv.ParseInt(v, 10, 64)
-	if err != nil || id < 0 {
-		return 0
-	}
-	return id
-}
-
 // assistantAsk answers one question as an NDJSON stream (POST /assistant/messages).
 func (s *Server) assistantAsk(w http.ResponseWriter, r *http.Request) {
 	if !s.postForm(w, r) {
@@ -302,7 +289,7 @@ func (s *Server) assistantAsk(w http.ResponseWriter, r *http.Request) {
 		ticket   *tickets.Detail
 		ticketID int64
 	)
-	if id := formID(r.PostForm.Get("demande")); id != 0 {
+	if id := formInt(r.PostForm, "demande"); id > 0 {
 		t, err := s.tickets.Detail(ctx, id)
 		if errors.Is(err, tickets.ErrNotFound) {
 			s.notFound(w, r)
@@ -408,11 +395,8 @@ func (s *Server) streamAnswer(ctx context.Context, out *ndjson, c assistant.Conv
 			Thinking: func() { out.send(streamEvent{Type: "thinking"}) },
 			Step: func(label string) {
 				out.send(streamEvent{Type: "step", Label: label})
-				if !standalone {
-					return
-				}
-				if ev, err := s.dossierEvent(s.dossier(*tb.c, tb.sources, "")); err == nil {
-					out.send(ev)
+				if standalone {
+					s.sendDossier(ctx, out, s.dossier(*tb.c, tb.sources, ""))
 				}
 			},
 		}
@@ -447,9 +431,7 @@ func (s *Server) streamAnswer(ctx context.Context, out *ndjson, c assistant.Conv
 	}
 	out.send(streamEvent{Type: "done", HTML: assistant.Render(ex.Answer), Sources: sources, Remaining: left})
 	if standalone {
-		if ev, err := s.dossierEvent(s.dossier(c, nil, left)); err == nil {
-			out.send(ev)
-		}
+		s.sendDossier(ctx, out, s.dossier(c, nil, left))
 	}
 }
 

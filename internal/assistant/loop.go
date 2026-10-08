@@ -17,14 +17,13 @@ const (
 // toolLimitResult is what a call past MaxToolCalls gets instead of data.
 const toolLimitResult = `{"erreur":"Limite de 8 lectures atteinte pour cette question : réponds avec ce que tu as."}`
 
-// unknownTool counts the calls to a name the model made up: that name came
-// from the model, and the usage journal never records it.
+// unknownTool stands for a tool name the model made up.
 const unknownTool = "unknown"
 
-// Tools is what the model may call during one answer. Run executes one call
-// and returns the JSON the model reads and the step the resolver sees. A
-// call the model got wrong (unknown ref, bad dates) is answered in that
-// JSON; an error stops the answer.
+// Tools is what the model may call during one answer. Run executes one call,
+// of a name in Defs or one the model made up, and returns the JSON the model
+// reads and the step the resolver sees. A call the model got wrong (unknown
+// tool or ref, bad dates) is answered in that JSON; an error stops the answer.
 type Tools struct {
 	Defs []Tool
 	Run  func(ctx context.Context, name string, input json.RawMessage) (result, step string, err error)
@@ -48,9 +47,9 @@ type Result struct {
 }
 
 // Answer runs one question to its answer: history ends with the resolver's
-// message. Past MaxToolCalls the model must answer with what it read. On
-// error, Result keeps what was spent and no History: the conversation
-// rolls back.
+// message. Past MaxToolCalls the model must answer with what it read: a
+// tool call then ends the answer with ErrInvalid. On error, Result keeps
+// what was spent and no History: the conversation rolls back.
 func (c *Client) Answer(ctx context.Context, system string, history []Message, tools Tools, ev Events) (Result, error) {
 	ctx, cancel := context.WithTimeout(ctx, AnswerTimeout)
 	defer cancel()
@@ -101,7 +100,7 @@ func (c *Client) Answer(ctx context.Context, system string, history []Message, t
 					}
 					return res, err
 				}
-				res.Tools[journalName(tools.Defs, u.Name)]++
+				res.Tools[KnownTool(tools.Defs, u.Name)]++
 				if ev.Step != nil {
 					ev.Step(step)
 				}
@@ -118,8 +117,9 @@ func (c *Client) Answer(ctx context.Context, system string, history []Message, t
 	}
 }
 
-// journalName is name when defs offers that tool, unknownTool otherwise.
-func journalName(defs []Tool, name string) string {
+// KnownTool is name when defs offers that tool, "unknown" otherwise: a
+// name the model made up never reaches telemetry or the usage journal.
+func KnownTool(defs []Tool, name string) string {
 	if slices.ContainsFunc(defs, func(t Tool) bool { return t.Name == name }) {
 		return name
 	}

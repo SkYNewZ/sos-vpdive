@@ -18,7 +18,7 @@
 <tbody>{{range $d.Rows}}<tr>
 <td class="whitespace-nowrap">{{formatTime .At}}</td><td>{{author .Account}}</td><td>{{if eq .Origin "demande"}}Demande{{else}}Page{{end}}</td>
 <td>{{.Model}}{{if .Thinking}} · réflexion{{end}}</td><td>{{.Calls}}</td><td>{{.Tools}}</td><td>{{.Input}} · {{.Output}} · {{.CacheRead}}</td>
-<td>{{with .FirstMS}}{{if .Valid}}{{.Int64}} ms · {{end}}{{end}}{{.DurationMS}} ms</td><td>{{dollars .Cost}}</td><td>{{.Outcome}}</td>
+<td>{{if .FirstMS.Valid}}{{.FirstMS.Int64}} ms · {{end}}{{.DurationMS}} ms</td><td>{{dollars .Cost}}</td><td>{{.Outcome}}</td>
 </tr>{{end}}</tbody></table></div>
 </section>
 {{end}}

@@ -62,6 +62,9 @@ func (s *Server) recordUsage(ctx context.Context, u usageEntry) {
 	}
 }
 
+// toolsText writes the tools JSON of a row as « find_member × 1, outing × 2 ».
+var toolsText = strings.NewReplacer(`{`, "", `}`, "", `"`, "", `:`, " × ", `,`, ", ")
+
 // journalTotal sums an account's questions over a period.
 type journalTotal struct {
 	Account                  string
@@ -107,8 +110,7 @@ var outcomeLabel = map[string]string{
 // it cost (GET /assistant/journal).
 func (s *Server) assistantJournal(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	now := s.now().In(s.paris)
-	day := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, s.paris)
+	day := midnight(s.now(), s.paris)
 	var (
 		d   journalData
 		err error
@@ -152,7 +154,7 @@ func (s *Server) journalRows(ctx context.Context) ([]journalRow, error) {
 		err = rows.Scan(&j.Account, &at, &j.Origin, &j.Model, &j.Thinking, &j.Calls, &j.Tools, &j.Input, &j.Output,
 			&j.CacheRead, &j.Cost, &j.FirstMS, &j.DurationMS, &j.Outcome)
 		j.At = time.Unix(at, 0)
-		j.Tools = strings.NewReplacer(`{`, "", `}`, "", `"`, "", `:`, " × ", `,`, ", ").Replace(j.Tools)
+		j.Tools = toolsText.Replace(j.Tools)
 		j.Outcome = outcomeLabel[j.Outcome]
 		return j, err
 	})

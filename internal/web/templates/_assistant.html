@@ -3,7 +3,7 @@
 {{define "assistantThread"}}<ol class="flex flex-col gap-8" data-assistant-thread aria-live="polite">{{range .}}{{template "assistantExchange" .}}{{end}}</ol>{{end}}
 
 {{define "assistantExchange"}}<li class="flex flex-col gap-3" data-exchange>
-{{if .Question}}<p class="ml-auto max-w-[85%] rounded-box rounded-br-sm bg-primary px-4 py-3 whitespace-pre-wrap break-words text-primary-content" data-question>{{.Question}}</p>{{else}}<p class="ml-auto max-w-[85%] rounded-box rounded-br-sm bg-primary px-4 py-3 whitespace-pre-wrap break-words text-primary-content" data-question></p>{{end}}
+<p class="ml-auto max-w-[85%] rounded-box rounded-br-sm bg-primary px-4 py-3 whitespace-pre-wrap break-words text-primary-content" data-question>{{.Question}}</p>
 <div class="flex min-w-0 flex-col gap-2">
 <details class="text-sm text-base-content/80" data-steps-box{{if not .Answer}} open{{end}}>
 <summary class="inline-flex min-h-11 cursor-pointer items-center gap-2" data-steps-summary>{{if .Steps}}{{plural (len .Steps) "donnée consultée" "données consultées"}}{{else if .Answer}}Aucune donnée consultée{{else}}Recherche en cours…{{end}}</summary>
