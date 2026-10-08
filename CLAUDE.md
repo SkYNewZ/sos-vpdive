@@ -117,13 +117,13 @@ is ambiguous, ask.
   read-only tools (`internal/web/assistant_tools.go`), conversations in memory
   bound to the session (30 min idle, 2 h max), per-account daily quota, owner
   journal `/assistant/journal` without content. The model gets masked text
-  (`assistant.Mask`) and opaque refs (`m1`), never an address. Tool results are
-  masked string by string (`assistant.MaskJSON`): masking the encoded JSON
-  missed a phone number after a newline escape. An answer reads the payments,
-  outings and requests of at most 3 people (the `outing` tool still lists every
-  participant). Its output is rendered by `assistant.Render` only (links and
-  images neutralised). §5.2's « no tools » and §12.4's bans no longer hold for
-  it.
+  (`assistant.Mask`: addresses, phones, IBANs, by pattern) and opaque refs
+  (`m1`). Tool results are masked string by string (`assistant.MaskJSON`):
+  masking the encoded JSON missed a phone number after a newline escape. An
+  answer reads the payments, outings and requests of at most 3 people (the
+  `outing` tool still lists every participant). Its output is rendered by
+  `assistant.Render` only (links and images neutralised). §5.2's « no tools »
+  and §12.4's bans no longer hold for it.
 
 ## Private material: `.local/` is gitignored
 

@@ -225,10 +225,10 @@ startup, and the service starts anyway.
 With `LLM_API_KEY` set, a model picks up to three fiches to show the member
 before sending, and writes a short summary for the committee. Members only
 ever read fiches, never model output. The model receives the category, the
-extra fields and the description, never the name, the email address or the
-screenshots. Without a key, or when the model fails or takes longer than
-`LLM_TIMEOUT` (8 s), the request leaves at once. `LLM_DAILY_LIMIT` (200 by
-default) caps the calls per day.
+extra fields and the description as typed, unmasked. The requester's name and
+email address and the screenshots are not sent. Without a key, or when the
+model fails or takes longer than `LLM_TIMEOUT` (8 s), the request leaves at
+once. `LLM_DAILY_LIMIT` (200 by default) caps the calls per day.
 
 Any provider that speaks Anthropic's Messages API works:
 
@@ -254,15 +254,19 @@ being analysed, with email addresses, phone numbers and IBANs masked. Every
 string a tool returns is masked the same way. The tools return member and
 participant names, seasons and licence end, payment lines, outings and carts,
 summaries of past requests and the fiches. One answer reads the payments,
-outings and requests of three people at most; an outing it opens lists the
-names of all its participants. Email addresses, phone numbers and IBANs are
-masked before leaving. Screenshots and internal notes are never sent.
+outings and requests of three people at most. An outing it opens lists every
+participant with their registration, role and cart (payment status and
+amount), and the names of those who unregistered, with the author of each
+unregistration. Email addresses, phone numbers and IBANs are masked by pattern
+before leaving. Screenshots and internal notes are never sent.
 
 Conversations live in the server's memory only: 30 minutes after the last
-question, 2 hours at most, and they go at logout, on an erasure or a
-deletion, and on restart. Each account gets `ASSISTANT_DAILY_QUESTIONS`
-questions a day (50 by default). The owner sees a usage journal at `/assistant/journal`: who asked,
-when, tokens and an estimated cost (`ASSISTANT_PRICE_*`), never the questions.
+question, 2 hours at most. Logout drops the conversations of that session. An
+erasure or a deletion (of a request, a message or a capture) drops every
+conversation, and so does a restart. Each account gets
+`ASSISTANT_DAILY_QUESTIONS` questions a day (50 by default). The owner sees a
+usage journal at `/assistant/journal`: who asked, when, tokens and an estimated
+cost (`ASSISTANT_PRICE_*`), never the questions.
 `ASSISTANT_MODEL` picks the model (`LLM_MODEL` when empty) and
 `ASSISTANT_THINKING` turns its reasoning on. The provider must support tool
 use through the Messages API.
@@ -345,11 +349,11 @@ On a real Android phone and a real iPhone:
 - Logs and traces never hold a token, an email address, a name or a request's
   text.
 - Suggestions send the model provider a request's category, extra fields and
-  description, never the requester's name, email address or screenshots. With
-  the committee assistant on, it also gets the resolver's masked text and the
-  names and data the tools read. Email addresses, phone numbers and IBANs are
-  masked before leaving; screenshots and internal notes are never sent (see
-  « Committee assistant »).
+  description as typed, unmasked, and never the requester's name, email address
+  or screenshots. The committee assistant sends the resolver's text and its tool
+  results with email addresses, phone numbers and IBANs masked by pattern, plus
+  the names and data its tools read; screenshots and internal notes are never
+  sent (see « Committee assistant »).
 - Erasing a person on the « Effacement » page deletes their requests, their
   member entry and every payment, Mollie line, calendar participation and
   unregistration under their name, a namesake's included. Where they
