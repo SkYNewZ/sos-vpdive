@@ -112,6 +112,16 @@ is ambiguous, ask.
     `/annulations`.
   - `/annulations` links an outing to its calendar page when title and
     Paris day match one event, otherwise to the day view.
+- Committee assistant (design 2026-10-08, off by default): `/assistant` and the
+  « Analyser » panel of a request; streamed Messages API calls with eight
+  read-only tools (`internal/web/assistant_tools.go`), conversations in memory
+  bound to the session (30 min idle, 2 h max), per-account daily quota, owner
+  journal `/assistant/journal` without content. The model gets masked text
+  (`assistant.Mask`) and opaque refs (`m1`), never an address. Tool results are
+  masked string by string (`assistant.MaskJSON`): masking the encoded JSON
+  missed a phone number after a newline escape. An answer reads at most 3
+  people. Its output is rendered by `assistant.Render` only (links and images
+  neutralised). §5.2's « no tools » and §12.4's bans no longer hold for it.
 
 ## Private material: `.local/` is gitignored
 
@@ -173,14 +183,19 @@ No i18n framework.
 - `tickets.Store` owns request state changes; it writes mails and alerts to
   the `mail.Outbox` in the same transaction, and `Outbox.Run` delivers them per
   channel (SMTP, Pushover, Web Push). Its `OnChange` feeds the SSE `Broker`.
+- `assistant.Client.Answer` runs the tool loop; `web.Server.streamAnswer`
+  streams it as NDJSON on `POST /assistant/messages`.
 - Background jobs in `serve`: outbox delivery, accounts reload, daily purge
   (`app.purge`, spec §8.3).
 
 ## Layout and commands
 
-- `cmd/sos-vpdive` (subcommands) + `internal/{config,secure,telemetry,store,xlsx,imports,members,payments,calendar,admins,tickets,mail,blobs,images,kb,suggest,push,web}`.
+- `cmd/sos-vpdive` (subcommands) + `internal/{config,secure,telemetry,store,xlsx,imports,members,payments,calendar,admins,tickets,mail,blobs,images,kb,suggest,assistant,push,web}`.
   Migrations: `internal/store/migrations/NNNN_*.sql`. Content files `config/*.yaml`
   (categories, products, vpdive, robots, calendar) are embedded by the root `content.go`.
+- `sos-vpdive assistant-bench -messages DIR -out DIR [-account NAME]` answers
+  message files with the assistant, headless, to compare models (needs
+  `ASSISTANT_ENABLED` and `LLM_API_KEY`).
 - `make test` / `make lint` (golangci-lint v2, `default: all`) / `make css` /
   `make build` / `make fixtures` (regenerates `testdata/fixtures/*.xlsx`).
 - One test: `go test ./internal/web -run TestName` (`make test` adds `-race`).
@@ -272,3 +287,7 @@ No i18n framework.
   endpoint downgrades it): `telemetry.sentryExporter` sets the URL with
   `WithEndpointURL` instead. A Sentry client with a custom `Transport` (tests) skips the telemetry
   buffer and delivers logs and events to it on `Flush`.
+- `//go:embed` of a directory skips files starting with `_` or `.`: `assets.go`
+  lists `templates/_*.html` explicitly.
+- File-edit tools may turn a typed `\uXXXX` escape into the raw character: write
+  such lines through the shell and check the bytes with `od -c`.

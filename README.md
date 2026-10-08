@@ -240,6 +240,32 @@ Any provider that speaks Anthropic's Messages API works:
 Every call turns reasoning off. DeepSeek reasons by default and would
 otherwise spend the 400-token answer budget before writing anything.
 
+### Committee assistant
+
+Off by default: set `ASSISTANT_ENABLED=true`, with `LLM_API_KEY`. It adds an
+« Assistant » page to the committee site and an « Analyser » button on each
+request. A resolver pastes a member's message or asks a question, and the model
+answers from the club's data through read-only tools: the members list, VPDive
+and Mollie payments, the calendar, the requests filed in the tool, cancelled
+outings and the fiches. It changes nothing. The resolver acts in VPDive.
+
+The model provider receives the resolver's text and the text of the request
+being analysed, with email addresses, phone numbers and IBANs masked. Every
+string a tool returns is masked the same way. The tools return member and
+participant names, seasons and licence end, payment lines, outings and carts,
+summaries of past requests and the fiches. One answer reads at most three
+people. Email addresses, phone numbers, IBANs, screenshots and internal notes
+never leave.
+
+Conversations live in the server's memory only: 30 minutes after the last
+question, 2 hours at most, and they go at logout, on an erasure and on
+restart. Each account gets `ASSISTANT_DAILY_QUESTIONS` questions a day (50 by
+default). The owner sees a usage journal at `/assistant/journal`: who asked,
+when, tokens and an estimated cost (`ASSISTANT_PRICE_*`), never the questions.
+`ASSISTANT_MODEL` picks the model (`LLM_MODEL` when empty) and
+`ASSISTANT_THINKING` turns its reasoning on. The provider must support tool
+use through the Messages API.
+
 ### Mail
 
 Mail goes out through the SMTP relay of `SMTP_*`, always encrypted:
@@ -317,6 +343,11 @@ On a real Android phone and a real iPhone:
   the data is lost. Back the key up apart from the database.
 - Logs and traces never hold a token, an email address, a name or a request's
   text.
+- Suggestions send the model provider a request's category, extra fields and
+  description, never the requester's name, email address or screenshots. With
+  the committee assistant on, it also gets the resolver's masked text and the
+  names and data the tools read. Email addresses, phone numbers, IBANs,
+  screenshots and internal notes are never sent (see « Committee assistant »).
 - Erasing a person on the « Effacement » page deletes their requests, their
   member entry and every payment, Mollie line, calendar participation and
   unregistration under their name, a namesake's included. Where they
