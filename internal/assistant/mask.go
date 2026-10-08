@@ -27,8 +27,10 @@ var (
 	// Cros samedi »): maskIBANs keeps a match only when isIBAN says so.
 	ibanPattern = regexp.MustCompile(`(?i)\b[A-Z]{2}\d{2}(?:` + numberSep + `?[A-Z0-9]{4}){2,7}(?:` + numberSep + `?[A-Z0-9]{1,3})?\b`)
 	// emailPattern takes the whole local part RFC 5322 allows (o'connor@,
-	// jean+club@): a partial capture would name another address.
-	emailPattern = regexp.MustCompile("[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)+")
+	// jean+club@), and letters, marks and digits of any script there and in
+	// the domain (léa@, @école.fr), as the members import keeps them: a
+	// partial capture would name another address.
+	emailPattern = regexp.MustCompile("[\\pL\\pM\\pN.!#$%&'*+/=?^_`{|}~-]+@[\\pL\\pM\\pN-]+(?:\\.[\\pL\\pM\\pN-]+)+")
 	// phonePattern has three alternatives, their groups joined by a
 	// numberSep.
 	//  1. a French number written in pairs after its leading 0;
@@ -61,7 +63,7 @@ const (
 func Mask(text string, emails []string) (string, []string) {
 	text = maskIBANs(ribPattern.ReplaceAllString(text, "[iban]"))
 	text = emailPattern.ReplaceAllStringFunc(text, func(m string) string {
-		addr := strings.ToLower(m)
+		addr := strings.ToLower(m) // as secure.NormalizeEmail stores it: m holds no space
 		i := slices.Index(emails, addr)
 		if i < 0 {
 			emails = append(emails, addr)

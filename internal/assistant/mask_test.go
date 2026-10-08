@@ -2,11 +2,14 @@ package assistant
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 )
 
 func TestMask(t *testing.T) {
@@ -34,6 +37,23 @@ func TestMaskKeepsWholeAddresses(t *testing.T) {
 	got, ok := Placeholder("[email 1]", emails)
 	assert.True(t, ok)
 	assert.Equal(t, "o'connor@example.org", got)
+}
+
+// Codex review: an address with letters of any script, in its local part or
+// in its domain, is masked whole (never « lé[email 1] ») and resolves to the
+// address the members import stores, through secure.NormalizeEmail.
+func TestMaskUnicodeAddresses(t *testing.T) {
+	addrs := []string{"léa@example.org", "lea@école.fr", "LÉA.Ünal@Straße.de", "иван@пример.рф",
+		"le\u0301a@example.org", "chloé2@exemple.fr"}
+	text, emails := Mask("À : «"+strings.Join(addrs, "», «")+"».", nil)
+	assert.Equal(t, "À : «[email 1]», «[email 2]», «[email 3]», «[email 4]», «[email 5]», «[email 6]».", text)
+	for i, addr := range addrs {
+		want, err := secure.NormalizeEmail(addr)
+		require.NoError(t, err)
+		got, ok := Placeholder("[email "+strconv.Itoa(i+1)+"]", emails)
+		assert.True(t, ok, addr)
+		assert.Equal(t, want, got, "the address as the members list stores it")
+	}
 }
 
 func TestMaskSeparatorsAndCase(t *testing.T) {
