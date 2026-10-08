@@ -704,7 +704,7 @@ func (t *toolbox) findOutings(ctx context.Context, input json.RawMessage) (any, 
 		}
 		out.Sorties = append(out.Sorties, t.s.eventJSON(ev))
 	}
-	return out, "Sorties du " + t.s.formatDate(from) + " cherchées : " + plural(len(out.Sorties), "sortie", "sorties"), nil
+	return out, "Recherche des sorties du " + t.s.formatDate(from) + " : " + plural(len(out.Sorties), "sortie", "sorties"), nil
 }
 
 type participantJSON struct {

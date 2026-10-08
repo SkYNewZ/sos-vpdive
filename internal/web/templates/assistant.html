@@ -3,7 +3,10 @@
 <section class="flex min-h-[70dvh] min-w-0 flex-col" aria-labelledby="assistant-titre">
 <div class="flex flex-wrap items-center justify-between gap-3 pb-4">
 <h1 id="assistant-titre" class="text-2xl font-bold text-primary max-lg:sr-only">Assistant</h1>
+<div class="flex flex-wrap items-center gap-2">
+{{if $d.Owner}}<a class="link link-hover inline-flex min-h-11 items-center px-2 text-sm" href="/assistant/journal">Journal de l'assistant</a>{{end}}
 <a class="btn btn-ghost min-h-11" href="/assistant">Nouvelle conversation</a>
+</div>
 </div>
 {{if $d.Gone}}<div role="status" class="alert alert-soft alert-info mb-4"><span>Cette conversation est effacée : elle disparaît 30 minutes après la dernière question.</span></div>{{end}}
 <details class="panel mb-4 lg:hidden"><summary class="flex min-h-11 cursor-pointer items-center px-4 font-semibold">{{$d.Dossier.Summary}}</summary>

@@ -87,7 +87,7 @@ func (s *Server) newPage(r *http.Request, title string) page {
 	if sess, ok := sessionFrom(r.Context()); ok {
 		a := sess.account
 		p.Account = &a
-		p.Nav = navFor(s.isOwner(a.Username))
+		p.Nav = navFor(s.isOwner(a.Username), s.assistant != nil)
 		p.CSRF = s.keys.CSRFToken(sess.hash)
 	}
 	return p

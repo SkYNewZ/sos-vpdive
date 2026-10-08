@@ -345,6 +345,208 @@ for (const button of document.querySelectorAll("[data-reload]")) {
   button.addEventListener("click", () => location.reload());
 }
 
+// Committee assistant (design 2026-10-08): sends a question and reads the
+// answer as it streams, one JSON event per line. The server renders every
+// piece of HTML (answer, dossier, sources) and this script only places it;
+// whatever comes from the model or from an import (step labels, error
+// texts) is set as text.
+const assistantBox = (box) => {
+  const form = box.querySelector("[data-assistant-form]");
+  const field = form.elements.text;
+  const thread = box.querySelector("[data-assistant-thread]");
+  const shape = box.querySelector("template[data-assistant-new]");
+  const send = form.querySelector("[data-assistant-send]");
+  let running = null; // AbortController of the answer in flight
+
+  const busy = (on) => {
+    send.querySelector("[data-label-send]").hidden = on;
+    send.querySelector("[data-label-stop]").hidden = !on;
+    // On the live region itself: a screen reader waits for the end of the answer.
+    thread.setAttribute("aria-busy", on ? "true" : "false");
+  };
+
+  const ask = async (question) => {
+    const node = shape.content.firstElementChild.cloneNode(true);
+    const asked = node.querySelector("[data-question]");
+    if (question) asked.textContent = question;
+    else asked.remove();
+    document.querySelector("[data-assistant-empty]")?.remove();
+    thread.append(node);
+    const stepsBox = node.querySelector("[data-steps-box]");
+    const steps = node.querySelector("[data-steps]");
+    const summary = node.querySelector("[data-steps-summary]");
+    const answer = node.querySelector("[data-answer]");
+    const error = node.querySelector("[data-error]");
+    let ended = false; // a "done" or an "error" event came
+    const tally = () => {
+      const n = steps.children.length;
+      summary.textContent = n === 0 ? "Aucune donnée consultée" : n === 1 ? "1 donnée consultée" : `${n} données consultées`;
+    };
+    const fail = (message) => {
+      ended = true;
+      error.textContent = message;
+      error.hidden = false;
+      if (steps.children.length) {
+        tally();
+        stepsBox.open = false;
+      } else {
+        stepsBox.hidden = true;
+      }
+    };
+    const show = (event) => {
+      switch (event.type) {
+        case "start":
+          box.dataset.conversation = event.conversation;
+          if (event.url) history.replaceState(null, "", event.url);
+          break;
+        case "thinking":
+          summary.textContent = "Réflexion…";
+          break;
+        case "step": {
+          const li = document.createElement("li");
+          li.textContent = event.label;
+          steps.append(li);
+          tally();
+          break;
+        }
+        case "answer":
+          answer.innerHTML = event.html;
+          break;
+        case "dossier":
+          for (const d of document.querySelectorAll("[data-assistant-dossier]")) d.innerHTML = event.html;
+          break;
+        case "done":
+          ended = true;
+          answer.innerHTML = event.html;
+          node.querySelector("[data-sources]").innerHTML = event.sources ?? "";
+          stepsBox.open = false;
+          tally();
+          for (const r of document.querySelectorAll("[data-assistant-remaining]")) r.textContent = event.remaining ?? "";
+          break;
+        case "error":
+          fail(event.message);
+          break;
+      }
+    };
+    node.scrollIntoView({ block: "end" });
+    const body = new URLSearchParams({
+      csrf: form.elements.csrf.value,
+      text: question,
+      conversation: box.dataset.conversation ?? "",
+      demande: box.dataset.demande ?? "",
+    });
+    running = new AbortController();
+    busy(true);
+    try {
+      const response = await fetch(form.action, { method: "POST", body, signal: running.signal });
+      if (!response.ok) {
+        fail((await response.text()).trim() || "Erreur : réessaie.");
+        return;
+      }
+      const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+      let buffer = "";
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += value;
+        let end;
+        while ((end = buffer.indexOf("\n")) >= 0) {
+          const line = buffer.slice(0, end);
+          buffer = buffer.slice(end + 1);
+          if (line) show(JSON.parse(line));
+        }
+      }
+      if (!ended) fail("Connexion perdue : réessaie.");
+    } catch (err) {
+      fail(err.name === "AbortError" ? "Réponse arrêtée." : "Connexion perdue : réessaie.");
+    } finally {
+      running = null;
+      busy(false);
+      node.scrollIntoView({ block: "end" });
+    }
+  };
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (running) {
+      running.abort();
+      return;
+    }
+    const question = field.value.trim();
+    if (!question) {
+      field.focus();
+      return;
+    }
+    field.value = "";
+    field.style.height = "";
+    ask(question);
+  });
+  field.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault();
+      form.requestSubmit();
+    }
+  });
+  // Grows with its text: CSSOM, allowed by the style-src CSP.
+  field.addEventListener("input", () => {
+    field.style.height = "auto";
+    field.style.height = `${field.scrollHeight}px`;
+  });
+  box.addEventListener("click", (event) => {
+    const starter = event.target.closest("[data-starter]");
+    if (starter) {
+      field.value = starter.dataset.starter;
+      field.focus();
+    }
+    const pick = event.target.closest("[data-pick]");
+    if (pick && !running) ask(pick.dataset.pick);
+  });
+  return { ask, field };
+};
+
+const assistants = new Map();
+for (const box of document.querySelectorAll("[data-assistant]")) assistants.set(box, assistantBox(box));
+
+// A draft reply (the model's « brouillon » block): its button copies the text.
+document.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-copy-draft]");
+  if (!button) return;
+  try {
+    await navigator.clipboard.writeText(button.closest("[data-draft-reply]").querySelector("pre").textContent.trim());
+    button.textContent = "Copié";
+  } catch {
+    button.textContent = "Copie impossible : sélectionne le texte";
+  }
+});
+
+// Request page: « Analyser » opens the panel beside the request (a sheet on
+// a phone) and starts the analysis once; closing returns to the same place.
+const panel = document.querySelector("aside[data-assistant]");
+const opener = document.querySelector("[data-assistant-open]");
+if (panel && opener) {
+  let scroll = 0;
+  const openPanel = (on) => {
+    if (on) scroll = window.scrollY;
+    panel.hidden = !on;
+    opener.setAttribute("aria-expanded", String(on));
+    ticketPage?.toggleAttribute("data-panel-open", on);
+    if (!on) {
+      opener.focus({ preventScroll: true });
+      if (!wide.matches) window.scrollTo(0, scroll);
+    }
+  };
+  opener.addEventListener("click", () => {
+    openPanel(true);
+    const box = assistants.get(panel);
+    if (!panel.querySelector("[data-exchange]")) box.ask("");
+    else box.field.focus();
+  });
+  for (const b of panel.querySelectorAll("[data-assistant-close]")) b.addEventListener("click", () => openPanel(false));
+  panel.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") openPanel(false);
+  });
+}
+
 // Committee notifications page (spec §9.6): push on or off for this device.
 // pushManager.subscribe comes first in the tap handler: Safari asks for the
 // permission only from a direct tap.

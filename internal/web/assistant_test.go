@@ -106,6 +106,7 @@ func TestAssistantAnswersWithTools(t *testing.T) {
 	require.Equal(t, http.StatusOK, status)
 	assert.Contains(t, page, "Hugo Bernard <hugo.bernard@example.org>, 06 12 34 56 78", "the question as typed")
 	assert.Contains(t, page, "<strong>membre</strong>")
+	assert.Contains(t, page, "1 donnée consultée</summary>", "the singular for one step")
 	assert.Equal(t, 1, e.count(t, "assistant_usage"))
 }
 
@@ -153,7 +154,7 @@ func TestAssistantQuota(t *testing.T) {
 	require.Len(t, ev.of("done"), 1)
 	_, ev, _ = e.ask(t, cookie, url.Values{"text": {"Q"}})
 	require.Len(t, ev.of("error"), 1)
-	assert.Contains(t, ev.of("error")[0]["message"], "1 question du jour")
+	assert.Contains(t, ev.of("error")[0]["message"], "Quota atteint : 1 question par jour")
 	assert.Len(t, stub.calls(), 1, "a refused question costs nothing")
 	var outcome string
 	require.NoError(t, e.db.QueryRowContext(context.Background(), `SELECT outcome FROM assistant_usage ORDER BY id DESC LIMIT 1`).Scan(&outcome))
@@ -353,7 +354,7 @@ func TestAssistantReplay(t *testing.T) {
 		text: "Qui n'a pas encore réglé la sortie Cap Garonne ?",
 		replies: []string{sseTool(t, "find_outings", `{"du":"2026-09-01","au":"2026-09-30","texte":"garonne"}`),
 			sseTool(t, "outing", `{"id":"evt-cap"}`), sseText(t, "Voici les inscrits.")},
-		steps: []string{"Sorties du 01/09/2026 cherchées : 1 sortie", "Sortie « Sortie Cap Garonne » lue"},
+		steps: []string{"Recherche des sorties du 01/09/2026 : 1 sortie", "Sortie « Sortie Cap Garonne » lue"},
 	}, {
 		name:    "unknown sender",
 		text:    "Message de zoe.inconnue@example.org :\nJe n'arrive pas à m'inscrire.\n+33 6 98 76 54 32",

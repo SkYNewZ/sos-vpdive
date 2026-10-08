@@ -67,6 +67,7 @@ type assistantPageData struct {
 	Dossier  dossierView
 	Starters []string
 	Gone     bool // the conversation asked for is erased
+	Owner    bool // shows the link to the usage journal
 }
 
 func views(exs []assistant.Exchange) []exchangeView {
@@ -162,7 +163,7 @@ func (s *Server) renderAssistant(w http.ResponseWriter, r *http.Request, status 
 	p.Data = assistantPageData{
 		Panel:    assistantPanel{CSRF: p.CSRF, Conversation: c.ID, Exchanges: views(c.Exchanges), Remaining: left},
 		Dossier:  s.dossier(c, nil, left),
-		Starters: assistantStarters, Gone: gone,
+		Starters: assistantStarters, Gone: gone, Owner: s.isOwner(sess.account.Username),
 	}
 	s.render(w, r, status, "assistant", p)
 }
@@ -246,7 +247,7 @@ func (s *Server) fragment(name string, data any) (template.HTML, error) {
 func failureText(code string, limit int) string {
 	switch code {
 	case outcomeLimit:
-		return "Tu as utilisé ta limite de " + plural(limit, "question", "questions") + " du jour. Elle repart à minuit."
+		return "Quota atteint : " + plural(limit, "question", "questions") + " par jour. Il repart à minuit."
 	case outcomeTimeout:
 		return "Le modèle a mis trop de temps à répondre. Réessaie, ou pose une question plus précise."
 	case outcomeCanceled:

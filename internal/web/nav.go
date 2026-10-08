@@ -16,6 +16,7 @@ type navItem struct {
 	Tab       bool
 	PhoneOnly bool // « Plus » gathers on phones what the sidebar shows
 	OwnerOnly bool // « Comptes »: OWNER_USERNAME only
+	Assistant bool // shown only when the assistant is on
 }
 
 // importsPath is the imports page, linked from the navigation and from the
@@ -27,6 +28,7 @@ var adminNav = []navItem{
 	{Section: "anomalies", Path: "/anomalies", Label: "À vérifier", Icon: "list-checks", Tab: true},
 	{Section: "annulations", Path: "/annulations", Label: "Annulations", Icon: "calendar-x", Tab: true},
 	{Section: "calendrier", Path: "/calendrier", Label: "Calendrier", Icon: "calendar-days"},
+	{Section: "assistant", Path: "/assistant", Label: "Assistant", Icon: "sparkles", Assistant: true},
 	{Section: "fiches", Path: "/fiches", Label: "Fiches", Icon: "book-open", Tab: true},
 	{Section: "imports", Path: importsPath, Label: "Imports", Icon: "upload"},
 	{Section: "effacement", Path: "/effacement", Label: "Effacement", Icon: "user-x"},
@@ -36,11 +38,11 @@ var adminNav = []navItem{
 }
 
 // navFor is the navigation of a committee page: « Comptes » for the owner
-// only.
-func navFor(owner bool) []navItem {
+// only, « Assistant » when the assistant is on.
+func navFor(owner, assistant bool) []navItem {
 	out := make([]navItem, 0, len(adminNav))
 	for _, it := range adminNav {
-		if !it.OwnerOnly || owner {
+		if (!it.OwnerOnly || owner) && (!it.Assistant || assistant) {
 			out = append(out, it)
 		}
 	}

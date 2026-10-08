@@ -6,7 +6,7 @@
 {{if .Question}}<p class="ml-auto max-w-[85%] rounded-box rounded-br-sm bg-primary px-4 py-3 whitespace-pre-wrap break-words text-primary-content" data-question>{{.Question}}</p>{{else}}<p class="ml-auto max-w-[85%] rounded-box rounded-br-sm bg-primary px-4 py-3 whitespace-pre-wrap break-words text-primary-content" data-question></p>{{end}}
 <div class="flex min-w-0 flex-col gap-2">
 <details class="text-sm text-base-content/80" data-steps-box{{if not .Answer}} open{{end}}>
-<summary class="inline-flex min-h-11 cursor-pointer items-center gap-2" data-steps-summary>{{if .Steps}}{{len .Steps}} données consultées{{else}}Recherche en cours…{{end}}</summary>
+<summary class="inline-flex min-h-11 cursor-pointer items-center gap-2" data-steps-summary>{{if .Steps}}{{plural (len .Steps) "donnée consultée" "données consultées"}}{{else}}Recherche en cours…{{end}}</summary>
 <ul class="flex flex-col gap-1 border-l-2 border-base-300 pl-3" data-steps>{{range .Steps}}<li>{{.}}</li>{{end}}</ul>
 </details>
 <div class="answer" data-answer>{{.Answer}}</div>

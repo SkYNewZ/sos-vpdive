@@ -36,9 +36,19 @@ func TestUsageJournal(t *testing.T) {
 		assert.Contains(t, page, want)
 	}
 
+	assert.NotContains(t, page, "1 questions")
+	_, assistantPage := e.page(t, cookie, "/assistant")
+	assert.Contains(t, assistantPage, `href="/assistant/journal"`, "the owner finds the journal")
+
 	bob := e.loginBob(t)
 	status, _ = e.page(t, bob, "/assistant/journal")
 	assert.Equal(t, http.StatusNotFound, status, "the owner only")
+	_, assistantPage = e.page(t, bob, "/assistant")
+	assert.NotContains(t, assistantPage, "/assistant/journal", "no link for the others")
+	e.srv.recordUsage(ctx, usageEntry{Account: "bob", Origin: "page", Model: "test-model", Outcome: "ok"})
+	_, page = e.page(t, cookie, "/assistant/journal")
+	assert.Contains(t, page, "<td>1 question</td>", "singular for one question")
+	assert.NotContains(t, page, "1 questions")
 
 	e.clock.advance(13 * 30 * 24 * time.Hour)
 	require.NoError(t, e.srv.Purge(ctx))

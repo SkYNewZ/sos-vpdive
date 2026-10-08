@@ -163,6 +163,7 @@ func New(d Deps) (*Server, error) {
 		"longDay":   func(t time.Time) string { return frLongDay(t.In(s.paris)) },
 		"cart":      cartText,
 		"dollars":   dollars,
+		"plural":    plural,
 	}
 	if s.pages, err = parsePages(funcs); err != nil {
 		return nil, err
