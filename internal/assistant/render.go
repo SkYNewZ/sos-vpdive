@@ -18,9 +18,11 @@ const draftLanguage = "brouillon"
 
 // markdown renders CommonMark with GFM tables and strikethrough, line breaks
 // kept. Raw HTML is dropped (no html.WithUnsafe), and safeNodes takes over
-// links, images and fences.
+// links, images and fences. A table cell's alignment is an align attribute:
+// the CSP (style-src 'self') refuses the default style attribute.
 var markdown = goldmark.New(
-	goldmark.WithExtensions(extension.Table, extension.Strikethrough),
+	goldmark.WithExtensions(extension.NewTable(extension.WithTableCellAlignMethod(extension.TableCellAlignAttribute)),
+		extension.Strikethrough),
 	goldmark.WithRendererOptions(html.WithHardWraps(), renderer.WithNodeRenderers(util.Prioritized(safeNodes{}, 100))),
 )
 

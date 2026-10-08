@@ -39,6 +39,9 @@ func TestMaskKeepsWholeAddresses(t *testing.T) {
 func TestMaskSeparatorsAndCase(t *testing.T) {
 	text, _ := Mask("+33-6-12-34-56-78, +33.6.12.34.56.78, 0033 6 12 34 56 78, +33 (0)6 12 34 56 78, fr7630006000011234567890189, Fr76 3000 6000 0112 3456 7890 189", nil)
 	assert.Equal(t, "[téléphone], [téléphone], [téléphone], [téléphone], [iban], [iban]", text)
+
+	text, _ = Mask("GB29 NWBK 6016 1331 9268 19, NL91ABNA0417164300, DE89 3704 0044 0532 0130 00", nil)
+	assert.Equal(t, "[iban], [iban], [iban]", text, "letters in the account number, 12 digits in all")
 }
 
 func TestMaskUnicodeSpacesAndForeignNumbers(t *testing.T) {
@@ -73,6 +76,13 @@ func TestMaskLeavesDatesAmountsAndRequestNumbers(t *testing.T) {
 	text, emails := Mask(in, nil)
 	assert.Equal(t, in, text)
 	assert.Empty(t, emails)
+
+	// Dive levels look like an IBAN's head: PA40 and the next words are no IBAN.
+	for _, in := range []string{"Sortie PA40 Porquerolles samedi", "Formation PE40 avec Marc dans la fosse",
+		"PA40 Port Cros 2026", "pe60 niveau trois au port"} {
+		text, _ := Mask(in, nil)
+		assert.Equal(t, in, text)
+	}
 }
 
 func TestPlaceholder(t *testing.T) {
