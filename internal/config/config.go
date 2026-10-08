@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/mail"
 	"net/netip"
 	"net/url"
@@ -91,6 +92,21 @@ type LLM struct {
 	DailyLimit int           // model calls per day, Europe/Paris
 }
 
+// Assistant holds the committee assistant settings (design 2026-10-08);
+// Config.Assistant is nil when it is off.
+type Assistant struct {
+	Model          string // LLM_MODEL when ASSISTANT_MODEL is empty
+	Thinking       bool
+	DailyQuestions int // per committee account and Paris day
+	// Priced is false unless both input and output prices are set; prices
+	// are in micro-dollars per million tokens, for the usage journal.
+	Priced                               bool
+	PriceInput, PriceOutput, PriceCached int64
+}
+
+// defaultDailyQuestions is ASSISTANT_DAILY_QUESTIONS when unset.
+const defaultDailyQuestions = 50
+
 // VAPID identifies the server to the push services (RFC 8292).
 type VAPID struct {
 	PrivateKey *ecdsa.PrivateKey
@@ -139,6 +155,7 @@ type Config struct {
 	RetentionDays      int           // days a closed request is kept
 	FormRateLimit      int           // form submissions per hour and IP address
 	LLM                *LLM          // nil without LLM_API_KEY: no suggestions, no screen 2
+	Assistant          *Assistant    // nil unless ASSISTANT_ENABLED with LLM_API_KEY
 	PushoverToken      string        // "" turns Pushover off; each resolver sets a user key on « Notifications »
 	VAPID              *VAPID        // nil turns Web Push off
 	PushAllowedHosts   []string      // push services a subscription may point at
@@ -198,6 +215,7 @@ func Load(getenv func(string) string) (*Config, error) {
 	p.turnstile(c)
 	c.S3 = p.s3(c.Env)
 	c.LLM = p.llm(c.Env)
+	c.Assistant = p.assistant(c.LLM)
 	c.PushoverToken = p.pushoverToken()
 	c.VAPID = p.vapid()
 	c.PushAllowedHosts = p.hosts("PUSH_ALLOWED_HOSTS", defaultPushHosts)
@@ -461,6 +479,67 @@ func (p *parser) llm(env Env) *LLM {
 		return nil
 	}
 	return l
+}
+
+// assistant reads the committee assistant variables. It is off by default.
+// An invalid value warns and keeps its default; an assistant without
+// LLM_API_KEY warns and stays off, like the other optional tools.
+func (p *parser) assistant(llm *LLM) *Assistant {
+	if !p.flag("ASSISTANT_ENABLED") {
+		return nil
+	}
+	if llm == nil {
+		p.warn("ASSISTANT_ENABLED", errors.New("needs LLM_API_KEY: the assistant is off"))
+		return nil
+	}
+	a := &Assistant{Model: p.optional("ASSISTANT_MODEL", llm.Model), DailyQuestions: defaultDailyQuestions}
+	a.Thinking = p.flag("ASSISTANT_THINKING")
+	if raw := p.value("ASSISTANT_DAILY_QUESTIONS"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > 10000 {
+			p.warn("ASSISTANT_DAILY_QUESTIONS", errors.New("must be an integer between 1 and 10000: 50 kept"))
+		} else {
+			a.DailyQuestions = n
+		}
+	}
+	input, inputSet := p.price("ASSISTANT_PRICE_INPUT")
+	output, outputSet := p.price("ASSISTANT_PRICE_OUTPUT")
+	cached, cachedSet := p.price("ASSISTANT_PRICE_CACHED")
+	if !cachedSet {
+		cached = input
+	}
+	a.Priced, a.PriceInput, a.PriceOutput, a.PriceCached = inputSet && outputSet, input, output, cached
+	return a
+}
+
+// flag reads an optional boolean: false when unset, and when invalid with
+// a warning.
+func (p *parser) flag(name string) bool {
+	raw := p.value(name)
+	if raw == "" {
+		return false
+	}
+	v, err := strconv.ParseBool(raw)
+	if err != nil {
+		p.warn(name, errors.New("must be true or false: ignored"))
+		return false
+	}
+	return v
+}
+
+// price reads an optional price in dollars per million tokens, a comma
+// accepted, as micro-dollars. set is false when unset or invalid.
+func (p *parser) price(name string) (micro int64, set bool) {
+	raw := p.value(name)
+	if raw == "" {
+		return 0, false
+	}
+	v, err := strconv.ParseFloat(strings.Replace(raw, ",", ".", 1), 64)
+	if err != nil || math.IsNaN(v) || v < 0 || v > 1000 {
+		p.warn(name, errors.New("must be a price in dollars per million tokens, such as 0.3: costs are not shown"))
+		return 0, false
+	}
+	return int64(math.Round(v * 1e6)), true
 }
 
 func (p *parser) s3(env Env) *S3 {

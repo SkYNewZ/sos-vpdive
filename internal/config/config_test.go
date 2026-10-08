@@ -493,3 +493,66 @@ func TestOwnerUsername(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, c.Owner, "optional in development")
 }
+
+func TestLoadAssistant(t *testing.T) {
+	m := validEnv()
+	m["ASSISTANT_ENABLED"] = "true"
+	c, err := Load(getenv(m))
+	require.NoError(t, err)
+	assert.Nil(t, c.Assistant, "no LLM_API_KEY: off")
+	require.Len(t, c.Warnings, 1)
+	assert.Contains(t, c.Warnings[0].Error(), "ASSISTANT_ENABLED")
+
+	m["LLM_API_KEY"] = "sk-test"
+	m["LLM_MODEL"] = "deepseek-flash"
+	c, err = Load(getenv(m))
+	require.NoError(t, err)
+	assert.Equal(t, &Assistant{Model: "deepseek-flash", DailyQuestions: 50}, c.Assistant, "LLM_MODEL by default")
+
+	m["ASSISTANT_MODEL"] = "deepseek-v4-pro"
+	m["ASSISTANT_THINKING"] = "true"
+	m["ASSISTANT_DAILY_QUESTIONS"] = "20"
+	m["ASSISTANT_PRICE_INPUT"] = "0.3"
+	m["ASSISTANT_PRICE_OUTPUT"] = "1,2"
+	c, err = Load(getenv(m))
+	require.NoError(t, err)
+	assert.Equal(t, &Assistant{
+		Model: "deepseek-v4-pro", Thinking: true, DailyQuestions: 20,
+		Priced: true, PriceInput: 300_000, PriceOutput: 1_200_000, PriceCached: 300_000,
+	}, c.Assistant, "a cached price defaults to the input price")
+}
+
+func TestLoadAssistantOffByDefault(t *testing.T) {
+	m := validEnv()
+	m["LLM_API_KEY"] = "sk-test"
+	c, err := Load(getenv(m))
+	require.NoError(t, err)
+	assert.Nil(t, c.Assistant)
+	assert.Empty(t, c.Warnings)
+}
+
+func TestLoadAssistantInvalidValuesWarn(t *testing.T) {
+	for name, value := range map[string]string{
+		"ASSISTANT_THINKING":        "oui",
+		"ASSISTANT_DAILY_QUESTIONS": "0",
+		"ASSISTANT_PRICE_INPUT":     "cher",
+		"ASSISTANT_PRICE_CACHED":    "-1",
+	} {
+		t.Run(name, func(t *testing.T) {
+			m := validEnv()
+			m["LLM_API_KEY"], m["ASSISTANT_ENABLED"] = "sk-test", "true"
+			m[name] = value
+			c, err := Load(getenv(m))
+			require.NoError(t, err, "an optional value never stops the start")
+			require.NotNil(t, c.Assistant)
+			require.Len(t, c.Warnings, 1)
+			assert.Contains(t, c.Warnings[0].Error(), name)
+		})
+	}
+	m := validEnv()
+	m["LLM_API_KEY"], m["ASSISTANT_ENABLED"] = "sk-test", "peut-être"
+	c, err := Load(getenv(m))
+	require.NoError(t, err)
+	assert.Nil(t, c.Assistant)
+	assert.Len(t, c.Warnings, 1)
+}
