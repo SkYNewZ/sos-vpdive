@@ -249,16 +249,16 @@ answers from the club's data through read-only tools: the members list, VPDive
 and Mollie payments, the calendar, the requests filed in the tool, cancelled
 outings and the fiches. It changes nothing. The resolver acts in VPDive.
 
-The model provider receives the resolver's text and the text of the request
-being analysed, with email addresses, phone numbers and IBANs masked. Every
-string a tool returns is masked the same way. The tools return member and
-participant names, seasons and licence end, payment lines, outings and carts,
-summaries of past requests and the fiches. One answer reads the payments,
-outings and requests of three people at most. An outing it opens lists every
-participant with their registration, role and cart (payment status and
-amount), and the names of those who unregistered, with the author of each
-unregistration. Email addresses, phone numbers and IBANs are masked by pattern
-before leaving. Screenshots and internal notes are never sent.
+The model provider receives the resolver's text, the request being analysed
+(with its requester's name, seasons and licence end) and what the tools
+return: member and participant names, seasons and licence end, payment lines,
+outings and carts, summaries of past requests and the fiches. One answer reads
+the payments, outings and requests of three people at most. An outing it opens
+lists every participant with their registration, role and cart (payment status
+and amount), and the names of those who unregistered, with the author of each
+unregistration. In all of it, email addresses, phone numbers and IBANs are
+masked by pattern before leaving. Screenshots and internal notes are never
+sent.
 
 Conversations live in the server's memory only: 30 minutes after the last
 question, 2 hours at most. Logout drops the conversations of that session. An
@@ -268,8 +268,11 @@ conversation, and so does a restart. Each account gets
 usage journal at `/assistant/journal`: who asked, when, tokens and an estimated
 cost (`ASSISTANT_PRICE_*`), never the questions.
 `ASSISTANT_MODEL` picks the model (`LLM_MODEL` when empty) and
-`ASSISTANT_THINKING` turns its reasoning on. The provider must support tool
-use through the Messages API.
+`ASSISTANT_THINKING` turns its reasoning on. `ASSISTANT_MAX_TOKENS` caps each
+model call, reasoning included: 8 000 tokens by default, 32 000 with reasoning
+(DeepSeek ignores the reasoning budget, so its reasoning uses up the same cap).
+When an answer hits the cap, the resolver sees what it wrote, with a note that
+it was cut. The provider must support tool use through the Messages API.
 
 ### Mail
 
@@ -350,10 +353,10 @@ On a real Android phone and a real iPhone:
   text.
 - Suggestions send the model provider a request's category, extra fields and
   description as typed, unmasked, and never the requester's name, email address
-  or screenshots. The committee assistant sends the resolver's text and its tool
-  results with email addresses, phone numbers and IBANs masked by pattern, plus
-  the names and data its tools read; screenshots and internal notes are never
-  sent (see « Committee assistant »).
+  or screenshots. The committee assistant sends the resolver's text, the request
+  it analyses and its tool results with email addresses, phone numbers and IBANs
+  masked by pattern, plus the names and data it reads; screenshots and internal
+  notes are never sent (see « Committee assistant »).
 - Erasing a person on the « Effacement » page deletes their requests, their
   member entry and every payment, Mollie line, calendar participation and
   unregistration under their name, a namesake's included. Where they
