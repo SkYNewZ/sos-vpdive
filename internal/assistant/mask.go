@@ -22,16 +22,15 @@ var (
 		numberSep + `?[A-Z0-9]{11}` + numberSep + `?\d{2}\b`)
 	// ibanPattern runs next: an IBAN holds runs of digits a phone number
 	// could match. Any case: people type them in lower case too. Groups are
-	// joined by nothing or one numberSep: a space of any kind (no-break ones
-	// included), a dash or a dot, as banks print them. It also matches a dive
-	// level and the words after it (« PA40 Port Cros samedi »): maskIBANs
-	// keeps a match only when isIBAN says so.
+	// joined by nothing or one numberSep, as banks print them or tables paste
+	// them. It also matches a dive level and the words after it (« PA40 Port
+	// Cros samedi »): maskIBANs keeps a match only when isIBAN says so.
 	ibanPattern = regexp.MustCompile(`(?i)\b[A-Z]{2}\d{2}(?:` + numberSep + `?[A-Z0-9]{4}){2,7}(?:` + numberSep + `?[A-Z0-9]{1,3})?\b`)
 	// emailPattern takes the whole local part RFC 5322 allows (o'connor@,
 	// jean+club@): a partial capture would name another address.
 	emailPattern = regexp.MustCompile("[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)+")
-	// phonePattern has three alternatives, each joined by a separator: any
-	// space (no-break ones included), a dot or a dash.
+	// phonePattern has three alternatives, their groups joined by a
+	// numberSep.
 	//  1. a French number written in pairs after its leading 0;
 	//  2. a French number with its country code, +33 or 0033, maybe in
 	//     parentheses, maybe followed by the trunk zero in parentheses;
@@ -44,8 +43,9 @@ var (
 )
 
 // numberSep is what may sit between the groups of a phone number, an IBAN
-// or a RIB.
-const numberSep = `[\p{Zs}.-]`
+// or a RIB: a dot, a dash, or a run of blanks (spaces of any kind, no-break
+// ones included, and tabs, from a pasted table). Never a line break.
+const numberSep = `(?:[\t\p{Zs}]+|[.-])`
 
 // An IBAN is 15 characters at least (Norway's) and its account number is
 // mostly digits: 12 at least with the check digits, in Europe. A dive level
@@ -109,7 +109,7 @@ func runsInto(text string, from, end int) bool {
 func isIBAN(m string) bool {
 	chars, digits := 0, 0
 	for _, r := range m {
-		if unicode.Is(unicode.Zs, r) || r == '-' || r == '.' {
+		if r == '\t' || unicode.Is(unicode.Zs, r) || r == '-' || r == '.' {
 			continue
 		}
 		chars++

@@ -174,6 +174,39 @@ func TestMaskRIB(t *testing.T) {
 	assert.Equal(t, kept, text, "postcodes and short numbers are no RIB")
 }
 
+// Codex review: a number typed with doubled spaces or pasted from a table
+// has runs of blanks (spaces of any kind, tabs) between its groups. A line
+// break never joins two groups.
+func TestMaskRunsOfBlanks(t *testing.T) {
+	for _, c := range []struct{ in, want string }{
+		{"06  12  34  56  78", "[téléphone]"},
+		{"06\t12\t34\t56\t78", "[téléphone]"},
+		{"+33 \t6  12  34  56  78", "[téléphone]"},
+		{"+32\t\t475 12 34 56", "[téléphone]"},
+		{"FR76\t3000\t6000\t0112\t3456\t7890\t189", "[iban]"},
+		{"FR76  3000  6000  0112  3456  7890  189", "[iban]"},
+		{"FR76\u00a0 3000 \u00a06000\u202f\t0112 3456 7890 189", "[iban]"},
+		{"GB29\tNWBK\t6016\t1331\t9268\t19", "[iban]"},
+		{"30006\t00001\t12345678901\t89", "[iban]"},
+		{"FR76\t\t30006\t\t00001\t\t12345678901\t\t89", "[iban]"},
+	} {
+		text, _ := Mask("Copie : "+c.in+".", nil)
+		assert.Equal(t, "Copie : "+c.want+".", text, c.in)
+	}
+	for _, in := range []string{
+		"06\n12\n34\n56\n78",
+		"06 12\r\n34 56 78",
+		"05/01/2026\t250 €\tCPP-0042\tPA40  Porquerolles",
+		"PA40\tPorquerolles\tsamedi",
+		"PE40\t\tavec  Marc  dans  la  fosse",
+		"0,50 €\t\t120 €\t1\u00a0250,00 €",
+		"2026\t2025\t2024\t2023",
+	} {
+		text, _ := Mask(in, nil)
+		assert.Equal(t, in, text)
+	}
+}
+
 func TestPlaceholder(t *testing.T) {
 	emails := []string{"lea.martin@example.org"}
 	got, ok := Placeholder(" [email 1] ", emails)
