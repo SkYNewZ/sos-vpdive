@@ -542,9 +542,7 @@ mollie:
 	if err != nil {
 		return nil, "", err
 	}
-	if out.ImportCartes, err = t.importOf(ctx, imports.Carnets); err != nil {
-		return nil, "", err
-	}
+	out.ImportCartes = t.importSource(imports.Carnets, t.s.stateOf(cards.Import, cards.Import.ID != 0))
 	out.EtatCartes, out.Cartes = blockState[cards.State], make([]carteJSON, 0, len(cards.Cards))
 	for _, v := range cards.Cards {
 		out.Cartes = append(out.Cartes, t.s.carteJSON(v))

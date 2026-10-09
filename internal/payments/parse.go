@@ -296,15 +296,21 @@ func amount(c xlsx.Cell) (Amount, bool) {
 	case xlsx.KindBool, xlsx.KindError:
 		return 0, false
 	}
+	return Hundredths(text)
+}
+
+// Hundredths reads an already validated decimal text as an exact count of
+// hundredths, rounded half away from zero.
+func Hundredths(text string) (Amount, bool) {
 	r, ok := new(big.Rat).SetString(text)
 	if !ok {
 		return 0, false
 	}
-	hundredths, err := strconv.ParseInt(r.Mul(r, big.NewRat(100, 1)).FloatString(0), 10, 64)
+	n, err := strconv.ParseInt(r.Mul(r, big.NewRat(100, 1)).FloatString(0), 10, 64)
 	if err != nil {
 		return 0, false
 	}
-	return Amount(hundredths), true
+	return Amount(n), true
 }
 
 // dateAt reads a native Excel date or text in one of layouts, as a wall clock

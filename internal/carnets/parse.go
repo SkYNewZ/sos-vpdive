@@ -6,7 +6,6 @@ package carnets
 
 import (
 	"encoding/json"
-	"math/big"
 	"regexp"
 	"slices"
 	"strconv"
@@ -180,12 +179,7 @@ func parseAmount(s string) (payments.Amount, bool) {
 	if !decimal.MatchString(s) {
 		return 0, false
 	}
-	r, ok := new(big.Rat).SetString(s)
-	if !ok {
-		return 0, false
-	}
-	n, err := strconv.ParseInt(r.Mul(r, big.NewRat(100, 1)).FloatString(0), 10, 64)
-	return payments.Amount(n), err == nil
+	return payments.Hundredths(s)
 }
 
 // holder is the name key of the one member a split of name designates
