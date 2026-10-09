@@ -259,6 +259,7 @@ func (s *Server) readExport(ctx context.Context, kind imports.Kind, data []byte)
 			if exp.calendar, err = calendar.Parse(data, s.paris, s.now()); err == nil {
 				exp.calendar.FileHash = hash
 			}
+		case imports.Carnets: // pushed through its own route
 		}
 		return err
 	})
@@ -434,7 +435,7 @@ func refusal(kind imports.Kind, err error) (code, message string, refused bool) 
 func unreadableMessage(kind imports.Kind) string {
 	const unreadable = "Ce fichier n'est pas un classeur Excel (.xlsx) lisible."
 	switch kind {
-	case imports.Calendar: // JSON pushed by the script: never an unreadable workbook
+	case imports.Calendar, imports.Carnets: // JSON pushed by the script: never an unreadable workbook
 	case imports.Members:
 		return unreadable + " Dépose l'export « Télécharger » de la liste des membres."
 	case imports.Payments:

@@ -1,4 +1,4 @@
-// Package imports holds what the members, payments, Mollie and calendar imports share
+// Package imports holds what the members, payments, Mollie, calendar and carnets imports share
 // (spec §7.2, §7.6): the imports journal, unconfirmed previews kept in
 // memory, the replacement transaction with the guards of a pushed import, and
 // the « ambiguë » mark of payment lines (§7.3).
@@ -36,6 +36,7 @@ const (
 	Payments Kind = "payments"
 	Mollie   Kind = "vpaydive" // the VPayDive export, Mollie collections (spec §7.5)
 	Calendar Kind = "calendar" // the activity calendar pushed as JSON (lot 8)
+	Carnets  Kind = "carnets"  // the carnet carts pushed as JSON (design 2026-10-09)
 )
 
 // ScriptAuthor is the journal author of a pushed import (spec §7.6).
@@ -47,6 +48,7 @@ var inPlace = map[Kind]string{
 	Members:  `SELECT COUNT(*) FROM members`,
 	Payments: `SELECT COUNT(*) FROM payment_lines`,
 	Mollie:   `SELECT COUNT(*) FROM online_payment_lines`,
+	Carnets:  `SELECT COUNT(*) FROM carnets`,
 }
 
 // Limits are the workbook limits applied to every upload (spec §7.2): 50 MiB
@@ -191,7 +193,7 @@ func replace(ctx context.Context, tx *sql.Tx, e Entry, fn func(ctx context.Conte
 	return MarkAmbiguous(ctx, tx)
 }
 
-// MarkAmbiguous marks the payment and Mollie lines whose name belongs to
+// MarkAmbiguous marks the payment, Mollie and card lines whose name belongs to
 // several members. The mark is never cleared: only a new import of the lines
 // starts afresh (spec §7.3, §7.5).
 func MarkAmbiguous(ctx context.Context, tx *sql.Tx) error {
@@ -199,6 +201,8 @@ func MarkAmbiguous(ctx context.Context, tx *sql.Tx) error {
 		`UPDATE payment_lines SET ambiguous = 1
 		 WHERE ambiguous = 0 AND name_hash IN (SELECT name_hash FROM members GROUP BY name_hash HAVING COUNT(*) > 1)`,
 		`UPDATE online_payment_lines SET ambiguous = 1
+		 WHERE ambiguous = 0 AND name_hash IN (SELECT name_hash FROM members GROUP BY name_hash HAVING COUNT(*) > 1)`,
+		`UPDATE carnets SET ambiguous = 1
 		 WHERE ambiguous = 0 AND name_hash IN (SELECT name_hash FROM members GROUP BY name_hash HAVING COUNT(*) > 1)`,
 	} {
 		if _, err := tx.ExecContext(ctx, q); err != nil {
