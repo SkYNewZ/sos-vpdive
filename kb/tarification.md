@@ -56,5 +56,5 @@ Anomalies à repérer :
 
 Pour vérifier et corriger :
 
-1. Pour savoir sur quelle carte une plongée a été débitée : page Paiements, filtrer sur l'adhérent et la période, déplier le panier de la carte, puis survoler le « i » de chaque ligne. L'info-bulle donne l'activité et la date de la plongée ; la date de la ligne est celle de l'inscription.
+1. Pour savoir sur quelle carte une plongée a été débitée : le bloc « Cartes VPDive » de la demande liste chaque carte avec chaque débit (sortie, date, montant, qui, quand). Pour vérifier un total partiel ou corriger, page Paiements de VPDive : filtrer sur l'adhérent, déplier le panier de la carte, survoler le « i » ; la date de la ligne est celle de l'inscription.
 2. Pour corriger un débit : recréditer la carte du bon montant (une ligne négative) avec un commentaire qui dit pourquoi.

@@ -37,7 +37,7 @@ func assistantSystem(base *kb.Base) string {
 const assistantRules = `Tu assistes un résolveur du comité d'un club de plongée associatif. Les adhérents utilisent VPDive, le logiciel en ligne du club, pour s'inscrire aux sorties et payer. Le résolveur traite leurs demandes à ce sujet.
 
 ## Ton rôle
-- Tu lis les données du club uniquement avec les outils fournis : liste des membres, paiements VPDive, encaissements Mollie, calendrier des sorties, demandes déposées dans l'outil, sorties annulées, fiches d'aide.
+- Tu lis les données du club uniquement avec les outils fournis : liste des membres, paiements VPDive, encaissements Mollie, cartes de plongées avec leur historique, calendrier des sorties, demandes déposées dans l'outil, sorties annulées, fiches d'aide.
 - Tu n'agis jamais et tu ne promets aucune action : c'est le résolveur qui agit dans VPDive. Tu peux lui suggérer quoi vérifier ou corriger.
 - Tu réponds en français, en Markdown, et tu tutoies le résolveur.
 
@@ -65,7 +65,7 @@ const assistantRules = `Tu assistes un résolveur du comité d'un club de plong�
 - Un carnet ou une formation est un avoir : VPDive le range sous « À payer » avec un montant négatif. Ce n'est pas une dette ; le solde est la valeur absolue de cette ligne. Un carnet épuisé reste dans soldes à 0,00 € : c'est un solde nul, pas un solde absent.
 - Cite le solde VPDive exactement comme les données le donnent. À côté, pose le reste attendu avec la fiche tarification : le montant crédité par la carte, moins chaque plongée débitée au prix de la grille. Montre le calcul, et compare aussi avec les plongées que le message annonce. Si le reste attendu et le solde diffèrent, chiffre l'écart et cherche sa cause dans les lignes.
 - Un montant débité absent de la grille (2 €, ou 50 € sur une carte) est une anomalie : signale-la.
-- Nos données ne disent pas sur quelle carte une plongée a été débitée. VPDive le montre : sur la page Paiements, déplie le panier de la carte, l'info-bulle « i » de chaque ligne donne l'activité et sa date. Quand la réponse en dépend, mets cette vérification dans « À faire dans VPDive ».
+- member_payments donne dans cartes chaque carte de la personne avec chaque plongée débitée ou recréditée (sortie, date, montant, qui, quand), les changements de prix et les commentaires du comité. Pose le reste attendu carte par carte avec ces lignes. Une carte en totaux_partiels n'a pas de reste attendu ni de correction chiffrée : renvoie à son panier dans Paiements de VPDive. Un débit inhabituel est à vérifier avant d'y voir une cause : la grille, une plongée repartie sur deux cartes, une autre carte de la personne. Renvoie aussi au panier VPDive si cartes est vide ou l'import périmé.
 - Une plongée peut être réglée à cheval sur deux cartes, et une inscription antérieure à l'achat peut être réglée avec la carte.
 - Une ligne « Payé » en « Prépayé » est une plongée débitée du carnet. Une ligne « Annulé » en « Prépayé » est une plongée recréditée.
 - Une ligne de location à 0 € annulée accompagne chaque inscription : elle n'a aucun effet.
@@ -139,7 +139,7 @@ func (s *Server) assistantContext(ctx context.Context) (string, error) {
 	now := s.now().In(s.paris)
 	var b strings.Builder
 	b.WriteString("Nous sommes le " + frLongDay(now) + ", " + now.Format("15:04") + " (heure de Paris).\nImports en place :\n")
-	for _, kind := range []imports.Kind{imports.Members, imports.Payments, imports.Mollie, imports.Calendar} {
+	for _, kind := range []imports.Kind{imports.Members, imports.Payments, imports.Mollie, imports.Calendar, imports.Carnets} {
 		st, err := s.importState(ctx, kind)
 		if err != nil {
 			return "", err

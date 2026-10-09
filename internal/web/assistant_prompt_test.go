@@ -25,12 +25,12 @@ func TestAssistantSystem(t *testing.T) {
 		"demande au résolveur qui l'a écrit", "nom_saisi", "« hors période », pas absente", "periode_lue",
 		"ne suppose jamais qu'il a été écrit aujourd'hui", "ne réclame jamais sa date", "deposee_le", "couvre aussi ses invités",
 		"reste dans soldes à 0,00 €", "Cite le solde VPDive exactement", "pose le reste attendu", "lance find_outings sur ce jour",
-		"Sans homonyme, n'en parle pas", "action manuelle d'un membre du comité", "déplie le panier de la carte",
+		"Sans homonyme, n'en parle pas", "action manuelle d'un membre du comité", "totaux_partiels", "repartie", "inhabituel", "cartes de plongées",
 		"### Constat", "### Écart et cause probable", "### À faire dans VPDive", "omets ce titre", "jamais la date du message", "double débit", "celle du conjoint", "tarif carnet gardé sur une carte vide"} {
 		assert.Contains(t, sys, rule)
 	}
 	for _, gone := range []string{"Ne convertis jamais un solde", "n'additionne ni ne soustrais", "range la date du message",
-		"L'export ne dit pas sur quel carnet", "### Pistes", "Ne donne jamais un tarif"} {
+		"L'export ne dit pas sur quel carnet", "### Pistes", "Ne donne jamais un tarif", "Nos données ne disent pas sur quelle carte", "déplie le panier"} {
 		assert.NotContains(t, sys, gone)
 	}
 	assert.NotContains(t, sys, "'''", "the fence placeholder is replaced")
