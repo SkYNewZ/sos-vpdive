@@ -163,9 +163,14 @@ off-topic extras are a second or third fiche, never the first one.
 
 ### Neutral
 
-- Only the system prompt is cached (`cache_control`). In a tool loop each call
-  resends the conversation at the full input price, which is about 40 % of the
-  Sonnet cost per answer.
+- The system prompt and the conversation are cached: a breakpoint on the
+  system block, and Anthropic's automatic caching (a top-level
+  `cache_control`) for the conversation, which each call of the tool loop
+  resends. Measured on 2026-10-09 on the six messages, Sonnet 5.5 high:
+  0.066 $ an answer against 0.074 and 0.075 $ before (−12 %). The input side
+  fell from 0.028–0.034 $ to 0.024 $ and uncached input from 11 000–14 500
+  tokens to 8; what remains is the cache writes (1.25 times the input) of
+  what each call adds. Output is now 63 % of the cost.
 - A server deployed before this decision keeps its assistant off until
   `ASSISTANT_API_KEY` is set.
 
@@ -174,7 +179,7 @@ off-topic extras are a second or third fiche, never the first one.
 ### Current state
 
 Done: request shape for Claude Sonnet 5.5 and DeepSeek, `ASSISTANT_EFFORT`,
-separate assistant provider, cache writes in the journal cost,
+separate assistant provider, conversation caching, cache writes in the journal cost,
 `suggest-bench`, defaults and docs. The benchmark data, transcripts and grades
 are private (`.local/assistant-messages-benchmark/`, gitignored).
 
@@ -192,9 +197,7 @@ are private (`.local/assistant-messages-benchmark/`, gitignored).
 
 1. Tighten the prompt rules on namesakes, seasons and the message's date, then
    rerun `assistant-bench` on Sonnet 5.5 high.
-2. Cache the conversation, not only the system prompt (a breakpoint on the last
-   message), and measure the cost per answer again.
-3. Rerun both benches when a model version or the prompt changes.
+2. Rerun both benches when a model version or the prompt changes.
 
 ### How to verify
 

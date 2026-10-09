@@ -72,8 +72,10 @@ func TestAnswerSendsThinkingBack(t *testing.T) {
 	s := &scripted{replies: []string{toolStream(true, [3]string{"call_1", "find_member", `{"query":"Léa"}`}), textStream("Fait.")}}
 	_, err := newTestClient(t, s, true).Answer(context.Background(), "S", userMessages(t, "Q"), (&runner{}).tools(), Events{})
 	require.NoError(t, err)
-	assistantTurn := s.body(t, 1)["messages"].([]any)[1].(map[string]any)["content"].([]any)
+	first, second := s.body(t, 0)["messages"].([]any), s.body(t, 1)["messages"].([]any)
+	assistantTurn := second[1].(map[string]any)["content"].([]any)
 	assert.Equal(t, map[string]any{"type": "thinking", "thinking": "Chercher Léa.", "signature": "sig"}, assistantTurn[0])
+	assert.Equal(t, first, second[:len(first)], "append-only, no marker in the history: preserved thinking and the cache need it unchanged")
 }
 
 func TestAnswerForcesAnAnswerPastTheToolLimit(t *testing.T) {
