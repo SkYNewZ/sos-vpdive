@@ -35,6 +35,8 @@ var (
 	// priceChange is « -125,00 € -> -100,00 € ».
 	priceChange = regexp.MustCompile(`(-?` + euroAmount + `) ?€ ?-> ?(-?` + euroAmount + `) ?€$`)
 	// signedEuros ends a tooltip that moves money: one no form reads is unread.
+	// qualifier is what a title ends with besides its name: « (N2) ».
+	qualifier   = regexp.MustCompile(`(?:\s*\([^()]*\))+$`)
 	signedEuros = regexp.MustCompile(`[+-]` + euroAmount + ` ?€$`)
 )
 
@@ -194,7 +196,11 @@ func frenchAmount(s string) (payments.Amount, bool) {
 // moved: it is not split. Each part carries the sum of the parts.
 func markSplit(views []View) {
 	type outing struct{ title, date string }
-	key := func(l Line) outing { return outing{strings.ToLower(clean(l.Outing)), l.Date} }
+	// ponytail: two same-day outings differing only by a qualifier merge into
+	// one key.
+	key := func(l Line) outing {
+		return outing{qualifier.ReplaceAllString(strings.ToLower(clean(l.Outing)), ""), l.Date}
+	}
 	net := map[outing][]payments.Amount{} // per outing, the net debit of each card
 	for i, v := range views {
 		for _, l := range v.Lines {

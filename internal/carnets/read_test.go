@@ -33,6 +33,8 @@ func TestReadEntryForms(t *testing.T) {
 			Line{Kind: KindDebit, Outing: "Sortie Épave (N2)", Date: "14/06/2026", Amount: -2500}},
 		"recredit": {Entry{Action: "prépaye", At: at, Detail: "Sortie Épave (14/06/2026) +25€"},
 			Line{Kind: KindRecredit, Outing: "Sortie Épave", Date: "14/06/2026", Amount: 2500}},
+		"capitalised tooltip": {Entry{Action: "prépaye", At: at, Detail: "Prépaye Sortie Cap Garonne (13/06/2026) -30€"},
+			Line{Kind: KindDebit, Outing: "Sortie Cap Garonne", Date: "13/06/2026", Amount: -3000}},
 		"cents and a space": {Entry{Action: "prépaye", At: at, Detail: "prépaye Sortie (14/06/2026) -25,50 €"},
 			Line{Kind: KindDebit, Outing: "Sortie", Date: "14/06/2026", Amount: -2550}},
 		"no-break space, capital, double space": {Entry{Action: "Prépaye", At: at, Detail: "prépaye Sortie  Épave (14/06/2026) -25\u00a0€"},
@@ -107,10 +109,42 @@ func TestReadMovedDiveIsNotSplit(t *testing.T) {
 		}},
 		{Title: "Carte B", Entries: []Entry{debit("2026-06-03T10:00:00+02:00", "Sortie Épave (14/06/2026)", "25")}},
 	})
+	require.Len(t, views, 2)
 	for _, v := range views {
 		for _, l := range v.Lines {
 			assert.Zero(t, l.Split, v.Title)
 		}
+	}
+}
+
+// The debit tooltip may carry a qualifier the recredit lacks: the dive still
+// moved.
+func TestReadMovedDiveWithAsymmetricQualifierIsNotSplit(t *testing.T) {
+	views := Read([]Card{
+		{Title: "Carte A", Entries: []Entry{
+			recredit("2026-06-02T10:00:00+02:00", "Sortie Épave (14/06/2026)", "25"),
+			debit("2026-06-01T10:00:00+02:00", "Sortie Épave (N2) (14/06/2026)", "25"),
+		}},
+		{Title: "Carte B", Entries: []Entry{debit("2026-06-03T10:00:00+02:00", "Sortie Épave (N2) (14/06/2026)", "25")}},
+	})
+	require.Len(t, views, 2)
+	for _, v := range views {
+		for _, l := range v.Lines {
+			assert.Zero(t, l.Split, v.Title)
+		}
+	}
+}
+
+// Two cards each keeping a net debit of one dive split it, whatever the
+// qualifier of each title.
+func TestReadSplitDiveWithAsymmetricQualifier(t *testing.T) {
+	views := Read([]Card{
+		{Title: "Carte A", Entries: []Entry{debit("2026-06-01T10:00:00+02:00", "Sortie Épave (N2) (14/06/2026)", "10")}},
+		{Title: "Carte B", Entries: []Entry{debit("2026-06-03T10:00:00+02:00", "Sortie Épave (14/06/2026)", "15")}},
+	})
+	require.Len(t, views, 2)
+	for _, v := range views {
+		assert.Equal(t, payments.Amount(2500), v.Lines[0].Split, v.Title)
 	}
 }
 
