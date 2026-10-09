@@ -868,20 +868,31 @@ func (t *toolbox) readFiche(input json.RawMessage) (any, string) {
 	return out, "Fiche « " + f.Title + " » lue"
 }
 
-// blocksText writes blocks back as plain text, lists numbered or dashed.
+// blocksText writes blocks back as plain text: lists numbered or dashed,
+// tables and the diagram as Markdown.
 func blocksText(bs []kb.Block) string {
 	var b strings.Builder
 	for _, bl := range bs {
-		for i, item := range bl.Items {
-			switch bl.Kind {
-			case kb.Paragraph:
-				// no prefix
-			case kb.Numbers:
-				b.WriteString(strconv.Itoa(i+1) + ". ")
-			case kb.Bullets:
-				b.WriteString("- ")
+		switch bl.Kind {
+		case kb.Paragraph:
+			b.WriteString(bl.Items[0] + "\n")
+		case kb.Numbers:
+			for i, item := range bl.Items {
+				b.WriteString(strconv.Itoa(i+1) + ". " + item + "\n")
 			}
-			b.WriteString(item + "\n")
+		case kb.Bullets:
+			for _, item := range bl.Items {
+				b.WriteString("- " + item + "\n")
+			}
+		case kb.Table:
+			for i, row := range bl.Rows {
+				b.WriteString("| " + strings.Join(row, " | ") + " |\n")
+				if i == 0 {
+					b.WriteString("|" + strings.Repeat(" --- |", len(row)) + "\n")
+				}
+			}
+		case kb.Diagram:
+			b.WriteString("```mermaid\n" + bl.Source + "```\n")
 		}
 		b.WriteString("\n")
 	}

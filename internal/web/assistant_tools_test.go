@@ -361,6 +361,14 @@ func TestBlocksText(t *testing.T) {
 	assert.Equal(t, "Vérifie le solde.\n\n1. Ouvre la fiche.\n2. Note le montant.\n\n- carnet\n- formation", text)
 }
 
+func TestBlocksTextTableAndDiagram(t *testing.T) {
+	text := blocksText([]kb.Block{
+		{Kind: kb.Table, Rows: [][]string{{"Cas", "Prix"}, {"Sans carte", "37 €"}}},
+		{Kind: kb.Diagram, Items: []string{"Le prix."}, Source: "flowchart TD\n  A --> B\n"},
+	})
+	assert.Equal(t, "| Cas | Prix |\n| --- | --- |\n| Sans carte | 37 € |\n\n```mermaid\nflowchart TD\n  A --> B\n```", text)
+}
+
 // Every definition has a valid schema and is served by run.
 func TestToolDefsAreServed(t *testing.T) {
 	_, tb := toolEnv(t)
