@@ -48,19 +48,19 @@ type Report struct {
 // Store imports payments exports and reads the lines back (table
 // payment_lines).
 type Store struct {
-	lineTable
+	LineTable[Line]
 
 	previews *imports.Previews[*Preview]
 }
 
 // NewStore returns a Store; now is injectable for tests.
 func NewStore(db *sql.DB, keys *secure.Keys, now func() time.Time) *Store {
-	return &Store{lineTable: paymentLines(db, keys, now), previews: imports.NewPreviews[*Preview](now)}
+	return &Store{LineTable: paymentLines(db, keys, now), previews: imports.NewPreviews[*Preview](now)}
 }
 
 // paymentLines is the table of the payments export.
-func paymentLines(db *sql.DB, keys *secure.Keys, now func() time.Time) lineTable {
-	return newLineTable(db, keys, now, imports.Payments, "payments", "payment_lines")
+func paymentLines(db *sql.DB, keys *secure.Keys, now func() time.Time) LineTable[Line] {
+	return NewLineTable[Line](db, keys, now, imports.Payments, "payments", "payment_lines")
 }
 
 // ShortPeriod reports a period under 12 months (spec §7.3).
@@ -111,7 +111,7 @@ func (s *Store) Confirm(ctx context.Context, id, username string, secondConfirm 
 		Kind: imports.Payments, ExportedAt: p.Created, PeriodFrom: p.PeriodFrom, PeriodTo: p.PeriodTo,
 		ImportedAt: s.now(), ImportedBy: username, Rows: p.Lines, Skipped: p.Skipped, FileHash: p.FileHash,
 	}
-	return imports.Replace(ctx, s.db, "payments.replace", &p.Meta, e, replaceLines(s.lineTable, p.lines))
+	return imports.Replace(ctx, s.db, "payments.replace", &p.Meta, e, s.ReplaceWith(p.lines))
 }
 
 // Import replaces every line with a pushed export, without preview (spec
@@ -122,5 +122,5 @@ func (s *Store) Import(ctx context.Context, exp *Export) error {
 		Kind: imports.Payments, ExportedAt: exp.Created, PeriodFrom: exp.PeriodFrom, PeriodTo: exp.PeriodTo,
 		ImportedAt: s.now(), ImportedBy: imports.ScriptAuthor, Rows: len(exp.Lines), Skipped: exp.Skipped, FileHash: exp.FileHash,
 	}
-	return imports.Push(ctx, s.db, "payments.replace", e, replaceLines(s.lineTable, exp.Lines))
+	return imports.Push(ctx, s.db, "payments.replace", e, s.ReplaceWith(exp.Lines))
 }

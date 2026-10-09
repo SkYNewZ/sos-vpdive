@@ -64,8 +64,8 @@ type CheckStore struct {
 	keys     *secure.Keys
 	now      func() time.Time
 	members  *members.Store
-	payments lineTable
-	mollie   lineTable
+	payments LineTable[Line]
+	mollie   LineTable[MollieLine]
 }
 
 // NewCheckStore returns a CheckStore; now is injectable for tests.

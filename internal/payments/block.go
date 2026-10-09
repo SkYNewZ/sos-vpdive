@@ -86,16 +86,10 @@ func (l Line) ProbableRefund() bool {
 // members list.
 func (s *Store) Block(ctx context.Context, nameHash []byte) (Block, error) {
 	var b Block
-	state, info, found, err := s.nameLines(ctx, nameHash)
+	state, info, lines, err := s.NameLines(ctx, nameHash)
 	b.State, b.Import = state, info
 	if err != nil || state != BlockLines {
 		return b, err
-	}
-	lines := make([]Line, len(found))
-	for i, r := range found {
-		if lines[i], err = openLine[Line](s.keys, r.data); err != nil {
-			return Block{}, err
-		}
 	}
 	dismissed, err := dismissals(ctx, s.db)
 	if err != nil {
