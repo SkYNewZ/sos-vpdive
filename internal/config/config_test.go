@@ -226,7 +226,7 @@ func TestLoadLLM(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, c.LLM)
 	assert.Equal(t, "https://api.anthropic.com", c.LLM.BaseURL.String())
-	assert.Equal(t, "claude-haiku-4-5-20251001", c.LLM.Model)
+	assert.Equal(t, "claude-haiku-5-5", c.LLM.Model, "the suggestion bench of 2026-10-09")
 	assert.Equal(t, 8*time.Second, c.LLM.Timeout)
 	assert.Equal(t, 200, c.LLM.DailyLimit)
 

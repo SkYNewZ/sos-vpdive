@@ -123,9 +123,15 @@ is ambiguous, ask.
   answer reads the payments, outings and requests of at most 3 people (the
   `outing` tool still lists every participant). Its output is rendered by
   `assistant.Render` only (links and images neutralised). §5.2's « no tools »
-  and §12.4's bans no longer hold for it. Reasoning is on by default
-  (`ASSISTANT_THINKING`) and `.env.example` recommends `deepseek-flash`: the
-  owner's choice after the benchmark (2026-10-09).
+  and §12.4's bans no longer hold for it. Models (benchmark 2026-10-09,
+  `docs/adr/0002-*`): the assistant runs on Claude Sonnet 5.5 at effort
+  `high`, with its own `ASSISTANT_BASE_URL` and `ASSISTANT_API_KEY` (it never
+  reads `LLM_*`); suggestions default to Claude Haiku 5.5. Reasoning is
+  adaptive with `display: "summarized"`: omitted, nothing streams while Claude
+  thinks and `idleTimeout` cuts the answer. Sonnet 5.5 refuses
+  `thinking: disabled` and DeepSeek refuses `between_tools`
+  (`config.ThinkingOff`); Claude 5.5 refuses forced `tool_choice` any/tool,
+  `none` is fine.
   Answers (2026-10-09): Adhérent · Constat (one table per person) · Écart et cause
   probable · À faire dans VPDive · Ce qui manque (only what blocks, omitted when
   empty). The fiche `tarification` ends the system prompt: the assistant poses the
@@ -205,7 +211,9 @@ No i18n framework.
   (categories, products, vpdive, robots, calendar) are embedded by the root `content.go`.
 - `sos-vpdive assistant-bench -messages DIR -out DIR [-account NAME]` answers
   message files with the assistant, headless, to compare models (needs
-  `ASSISTANT_ENABLED` and `LLM_API_KEY`).
+  `ASSISTANT_ENABLED` and `ASSISTANT_API_KEY`); `suggest-bench -messages DIR
+  -out DIR [-runs N]` does the same for suggestions, from JSON request files
+  (needs `LLM_API_KEY`).
 - `make test` / `make lint` (golangci-lint v2, `default: all`) / `make css` /
   `make build` / `make fixtures` (regenerates `testdata/fixtures/*.xlsx`).
 - One test: `go test ./internal/web -run TestName` (`make test` adds `-race`).

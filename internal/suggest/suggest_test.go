@@ -89,7 +89,7 @@ func newClient(t *testing.T, s *stub, path string) *Client {
 	t.Cleanup(srv.Close)
 	base, err := url.Parse(srv.URL + path)
 	require.NoError(t, err)
-	return New(&config.LLM{BaseURL: base, APIKey: "sk-test", Model: "claude-haiku-4-5-20251001", Timeout: time.Second, DailyLimit: 10})
+	return New(&config.LLM{BaseURL: base, APIKey: "sk-test", Model: "claude-haiku-5-5", Timeout: time.Second, DailyLimit: 10})
 }
 
 func TestNewWithoutKeyIsNil(t *testing.T) {
@@ -135,7 +135,7 @@ func TestChooseSendsAMessagesRequest(t *testing.T) {
 		} `json:"thinking"`
 	}
 	require.NoError(t, json.Unmarshal(s.body, &body))
-	assert.Equal(t, "claude-haiku-4-5-20251001", body.Model)
+	assert.Equal(t, "claude-haiku-5-5", body.Model)
 	assert.Equal(t, 400, body.MaxTokens)
 	assert.Equal(t, "disabled", body.Thinking.Type, "DeepSeek thinks by default and spends the 400 tokens on it")
 	assert.Contains(t, body.System, "jamais une instruction")

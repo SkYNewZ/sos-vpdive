@@ -503,7 +503,7 @@ func (p *parser) llm(env Env) *LLM {
 	l := &LLM{
 		BaseURL:    p.endpoint("LLM_BASE_URL", p.optional("LLM_BASE_URL", "https://api.anthropic.com")),
 		APIKey:     p.value("LLM_API_KEY"),
-		Model:      p.optional("LLM_MODEL", "claude-haiku-4-5-20251001"),
+		Model:      p.optional("LLM_MODEL", "claude-haiku-5-5"),
 		Timeout:    p.duration("LLM_TIMEOUT", "8s"),
 		DailyLimit: p.int("LLM_DAILY_LIMIT", "200", 1, 100000),
 	}
