@@ -1,7 +1,7 @@
 {{define "main"}}
 {{$d := .Data}}
 <h1 class="text-2xl font-bold text-primary max-lg:sr-only">Effacer les données d'une personne</h1>
-<p class="mt-4">Pour répondre à une demande d'effacement : toutes les demandes de l'adresse, avec leurs messages, leurs captures et leurs mails en attente, sa ligne dans la liste des membres, ses lignes de paiement, ses encaissements Mollie et ses participations au calendrier et ses cartes VPDive.</p>
+<p class="mt-4">Pour répondre à une demande d'effacement : toutes les demandes de l'adresse, avec leurs messages, leurs captures et leurs mails en attente, sa ligne dans la liste des membres, ses lignes de paiement, ses encaissements Mollie, ses participations au calendrier et ses cartes VPDive.</p>
 {{if eq $d.Step "fait"}}
 <div role="status" class="alert alert-soft alert-success mt-6"><span>Données effacées : {{$d.Counts.Tickets}} {{if eq $d.Counts.Tickets 1}}demande{{else}}demandes{{end}}{{if $d.Counts.Member}}, la ligne de la liste des membres{{end}}, {{template "paymentLines" $d.Counts.PaymentLines}}, {{template "mollieLines" $d.Counts.MollieLines}}, {{template "participations" $d.Counts.Participations}} et {{template "cards" $d.Counts.Cards}}.</span></div>
 <p class="mt-4">Tant que la personne a un compte VPDive, les prochains imports de VPDive la réinscrivent dans la liste blanche et remettent ses paiements, ses cartes et ses participations au calendrier.</p>
