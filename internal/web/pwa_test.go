@@ -124,6 +124,8 @@ func TestServiceWorkerPerHost(t *testing.T) {
 		}
 	}
 	assert.Regexp(t, `const CACHE = "sos-[0-9a-f]{12}";`, workers[publicHost])
+	assert.Contains(t, workers[publicHost], `request.mode === "navigate" && request.method === "GET"`,
+		"a form post goes to the network untouched: relaid, iOS sends a multipart post empty")
 	assert.NotContains(t, workers[publicHost], `addEventListener("push"`, "members get no push")
 	assert.Contains(t, workers[adminHost], `addEventListener("push"`)
 	assert.Contains(t, workers[adminHost], `addEventListener("notificationclick"`)

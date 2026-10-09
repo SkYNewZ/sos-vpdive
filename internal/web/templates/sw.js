@@ -31,7 +31,11 @@ self.addEventListener("message", (event) => {
 
 self.addEventListener("fetch", (event) => {
   const request = event.request;
-  if (request.mode === "navigate") {
+  // GET only: a form post goes to the network as the browser sent it. Relaid
+  // with fetch(request), iOS 26.5 and later sends a multipart post empty
+  // (WebKit bug 319985): no token, no file. Offline, a post gets the
+  // browser's own error page.
+  if (request.mode === "navigate" && request.method === "GET") {
     event.respondWith(
       (async () => {
         try {
