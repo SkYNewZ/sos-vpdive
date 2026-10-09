@@ -75,6 +75,9 @@ The image has no shell, so `exec` runs the binary itself.
   timeout above 60 seconds (nginx: `proxy_buffering off; proxy_read_timeout 1h;`).
   It is a live stream with a keepalive every 25 seconds. Without it, the board
   still works but needs a manual refresh.
+- Do not buffer `/assistant/messages` either, and keep the read timeout above
+  150 seconds (nginx: `proxy_buffering off; proxy_read_timeout 180s;`). The
+  model can stay silent for over 60 seconds; otherwise answers stop mid-way.
 - Accept request bodies up to 16 MB on both sites (nginx:
   `client_max_body_size 16m;`). A request can carry three 5 MB screenshots.
 - Serve HTTP/2. Every open committee tab holds a live stream, and HTTP/1.1
