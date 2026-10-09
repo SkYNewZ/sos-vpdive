@@ -15,7 +15,7 @@ import (
 const (
 	journalDays   = 30
 	journalRecent = 5
-	markHeight    = 3 // of the failure mark at the foot of a column
+	markHeight    = 3 // of the failure mark at the foot of a column, which the bar stops above
 )
 
 // journal is the runs of one export over the last journalDays.
@@ -113,9 +113,15 @@ func buildJournal(kind imports.Kind, runs []imports.Run, now time.Time, paris *t
 	top := roundUp(largest)
 	j.Chart.Top = strconv.FormatInt(top, 10)
 	for i := range cols {
-		if h := height(int64(cols[i].Rows), top); h > 0 {
-			cols[i].Bar = bar(cols[i].MarkX, 100-h, 100, true)
+		h := height(int64(cols[i].Rows), top)
+		if h == 0 {
+			continue
 		}
+		bottom := 100.0
+		if cols[i].Failures > 0 { // the mark sits under the bar
+			bottom -= markHeight + 1
+		}
+		cols[i].Bar = bar(cols[i].MarkX, min(100-h, bottom-minHeight), bottom, true)
 	}
 	j.Chart.Columns = cols
 	return j

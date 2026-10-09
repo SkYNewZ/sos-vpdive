@@ -235,9 +235,9 @@ A run the script could not complete is reported to
 `^[a-z][a-z0-9_]{0,63}$`; the known ones read in French on the page
 (`sign_in_capped`, `vpdive_session`, `vpdive_failed`, `push_failed`,
 `push_refused`), any other shows its detail, cut to 200 characters. The
-answer is `{"result": "recorded"}`; a malformed report gets 400
-`invalid_failure`, and the route has its own counter of 10 calls an hour per
-address. A reported failure sends no mail. Runs are deleted after 90 days.
+answer is `{"result": "recorded"}`; a malformed report, or a body over 4 KiB,
+gets 400 `invalid_failure`, and the route has its own counter of 10 calls an
+hour per address. A reported failure sends no mail. Runs are deleted after 90 days.
 
 The script should download the members list without a filter and the two
 payment exports over the last 24 months, push each file unchanged, keep no

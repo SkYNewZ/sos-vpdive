@@ -264,7 +264,7 @@
 {{define "journal"}}{{if .Runs}}
 <h3 class="mt-5 text-lg font-semibold">Derniers passages</h3>
 <ul class="mt-2 flex flex-col gap-1">
-{{range .Recent}}<li class="flex items-start gap-2"><span class="status mt-1.5 shrink-0 {{if eq .Result "imported"}}status-success{{else if eq .Result "unchanged"}}status-neutral{{else}}status-error{{end}}" aria-hidden="true"></span><span><span class="whitespace-nowrap">{{formatTime .At}}</span> · {{author .By}} · {{.Outcome}}</span></li>
+{{range .Recent}}<li class="flex items-start gap-2"><span class="status mt-1.5 shrink-0 {{if eq .Result "imported"}}status-success{{else if eq .Result "unchanged"}}status-neutral{{else if eq .Result "refused"}}status-warning{{else}}status-error{{end}}" aria-hidden="true"></span><span><span class="whitespace-nowrap">{{formatTime .At}}</span> · {{author .By}} · {{.Outcome}}</span></li>
 {{end}}</ul>
 <p class="mt-2 text-sm">{{plural .Runs "passage" "passages"}} ces 30 derniers jours{{if .Failures}}, dont {{plural .Failures "échec" "échecs"}}{{end}}.</p>
 {{template "runsChart" .Chart}}

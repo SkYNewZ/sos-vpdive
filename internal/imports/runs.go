@@ -55,7 +55,7 @@ func Record(ctx context.Context, q store.Execer, r Run) error {
 func Runs(ctx context.Context, q store.Querier, kind Kind, since time.Time) ([]Run, error) {
 	rows, err := q.QueryContext(ctx,
 		`SELECT at, by, result, code, detail, row_count, skipped_count FROM import_runs
-		 WHERE kind = ? AND at >= ? ORDER BY id DESC`, string(kind), since.Unix())
+		 WHERE kind = ? AND at >= ? ORDER BY at DESC, id DESC`, string(kind), since.Unix())
 	out, err := store.Collect(rows, err, func(rows *sql.Rows) (Run, error) {
 		var (
 			r  = Run{Kind: kind}

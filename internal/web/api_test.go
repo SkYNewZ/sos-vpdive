@@ -343,7 +343,7 @@ func TestImportRunsAreJournaled(t *testing.T) {
 		"Échec : lecture de VPDive en échec (bridge: HTTP 403)", "Refusé : Ce fichier contient moins de la moitié",
 		"Fichier identique au précédent", "Importé : 6 comptes", "Alice (Présidente)",
 		"4 passages ces 30 derniers jours, dont 2 échecs", "Comptes du dernier passage réussi du jour", `class="fill-error"`,
-		"status-success", "status-neutral", "status-error",
+		"status-success", "status-neutral", "status-warning", "status-error",
 		"Aucun passage ces 30 derniers jours.", // the calendar and the cards
 	} {
 		assert.Contains(t, page, want)
@@ -363,7 +363,8 @@ func TestImportFailureReportIsGuarded(t *testing.T) {
 	e := newTestEnv(t, withImportToken)
 	assert.Equal(t, http.StatusUnauthorized, e.reportFailure(t, "members", `{"code":"push_failed"}`, "wrong").Code)
 	assert.Equal(t, http.StatusNotFound, e.reportFailure(t, "cartes", `{"code":"push_failed"}`, importToken).Code)
-	for _, body := range []string{``, `{"code":""}`, `{"code":"Push Failed"}`, `{"code":"` + strings.Repeat("a", 65) + `"}`, `[]`} {
+	for _, body := range []string{``, `{"code":""}`, `{"code":"Push Failed"}`, `{"code":"` + strings.Repeat("a", 65) + `"}`, `[]`,
+		`{"code":"push_failed","detail":"` + strings.Repeat("x", maxReportBytes) + `"}`} {
 		rec := e.reportFailure(t, "members", body, importToken)
 		assert.Equal(t, http.StatusBadRequest, rec.Code, body)
 		assert.Equal(t, "invalid_failure", answer(t, rec).Error)
@@ -373,7 +374,7 @@ func TestImportFailureReportIsGuarded(t *testing.T) {
 	assert.Empty(t, runs)
 	assert.Empty(t, e.clubMails(t), "a reported failure mails nobody")
 
-	for range apiImportLimit - 7 {
+	for range apiImportLimit - 8 { // after 401, 404 and six malformed bodies
 		require.Equal(t, http.StatusOK, e.reportFailure(t, "members", `{"code":"push_failed"}`, importToken).Code)
 	}
 	limited := e.reportFailure(t, "members", `{"code":"push_failed"}`, importToken)

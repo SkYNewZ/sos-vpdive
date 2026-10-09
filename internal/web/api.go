@@ -28,6 +28,10 @@ const apiImportLimit = 10
 // our own.
 const codeInternal = "internal"
 
+// maxReportBytes bounds the body of a failure report: a class and a detail
+// the journal cuts to imports.MaxDetail runes, which can take 800 bytes.
+const maxReportBytes = 4 << 10
+
 // exportNames name each export in the mails to the club; their keys are the
 // {type} values of the pushed-import route.
 var exportNames = map[imports.Kind]string{
@@ -38,11 +42,11 @@ var exportNames = map[imports.Kind]string{
 // pushed is the answer to an accepted pushed import (spec §7.6): what the
 // file held.
 type pushed struct {
-	Result  string `json:"result"` // imported or unchanged
-	Read    int    `json:"read"`
-	Kept    int    `json:"kept"`
-	Skipped int    `json:"skipped"`
-	ToCheck int    `json:"to_check"`
+	Result  imports.Result `json:"result"` // imports.Imported or imports.Unchanged
+	Read    int            `json:"read"`
+	Kept    int            `json:"kept"`
+	Skipped int            `json:"skipped"`
+	ToCheck int            `json:"to_check"`
 }
 
 // pushRefused is the answer to a refused pushed import: a stable code and,
@@ -109,9 +113,9 @@ func (s *Server) apiImport(w http.ResponseWriter, r *http.Request) {
 	answer := exp.counts()
 	switch {
 	case err == nil:
-		answer.Result = "imported"
+		answer.Result = imports.Imported
 	case errors.Is(err, imports.ErrUnchanged):
-		answer.Result = "unchanged"
+		answer.Result = imports.Unchanged
 	case errors.Is(err, imports.ErrTooFew):
 		s.refusePushed(w, r, kind, http.StatusUnprocessableEntity, pushRefused{Error: "too_few", Message: tooFewMessage(kind)})
 		return
@@ -126,11 +130,11 @@ func (s *Server) apiImport(w http.ResponseWriter, r *http.Request) {
 		s.writeJSON(w, r, http.StatusInternalServerError, pushRefused{Error: codeInternal, Recorded: recorded})
 		return
 	}
-	if answer.Result == "unchanged" {
+	if answer.Result == imports.Unchanged {
 		s.recordRun(ctx, imports.Run{Kind: kind, By: imports.ScriptAuthor, Result: imports.Unchanged,
 			Rows: answer.Kept, Skipped: answer.Skipped})
 	}
-	s.logger.InfoContext(ctx, "export pushed", "kind", string(kind), "result", answer.Result, "kept", answer.Kept)
+	s.logger.InfoContext(ctx, "export pushed", "kind", string(kind), "result", string(answer.Result), "kept", answer.Kept)
 	s.writeJSON(w, r, http.StatusOK, answer)
 }
 
@@ -162,7 +166,7 @@ func (s *Server) apiImportFailure(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var report failureReport
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxFieldBytes))
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxReportBytes))
 	if err != nil || json.Unmarshal(body, &report) != nil || !reportedCode.MatchString(report.Code) {
 		s.writeJSON(w, r, http.StatusBadRequest, pushRefused{Error: "invalid_failure"})
 		return
