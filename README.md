@@ -372,10 +372,11 @@ On a real Android phone and a real iPhone:
   reads; screenshots and internal notes are never sent (see « Committee
   assistant »).
 - Erasing a person on the « Effacement » page deletes their requests, their
-  member entry and every payment, Mollie line, calendar participation and
-  unregistration under their name, a namesake's included. Where they
-  unregistered someone else from an outing, their name is removed from that
-  record. The next imports bring back what VPDive still holds.
+  member entry and every payment, Mollie line, carnet card, calendar
+  participation and unregistration under their name, a namesake's included.
+  Where they unregistered someone else from an outing, or wrote a line of
+  someone else's card, their name is removed from that record. The next
+  imports bring back what VPDive still holds.
 
 ## Backup and restore
 

@@ -190,7 +190,7 @@ func newTestEnv(t *testing.T, opts ...func(*Deps)) *testEnv {
 	outbox := mail.NewOutbox(db, keys, clock.now)
 	broker := NewBroker()
 	ticketStore := tickets.NewStore(tickets.Deps{
-		DB: db, Keys: keys, Catalog: catalog, Members: memberStore, Payments: paymentStore, Mollie: mollieStore, Calendar: calendarStore,
+		DB: db, Keys: keys, Catalog: catalog, Members: memberStore, Payments: paymentStore, Mollie: mollieStore, Calendar: calendarStore, Carnets: carnetStore,
 		Outbox: outbox, Blobs: blobStore,
 		Account: registry.Get, BaseURL: cfg.BaseURL, AdminBaseURL: cfg.AdminBaseURL, ClubEmail: clubEmail,
 		RetentionDays: cfg.RetentionDays, Now: clock.now, Logger: logger, OnChange: broker.Publish,

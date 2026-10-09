@@ -2,6 +2,7 @@ package tickets
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/blobs"
+	"github.com/SkYNewZ/sos-vpdive/internal/carnets"
 	"github.com/SkYNewZ/sos-vpdive/internal/members/memberstest"
 	"github.com/SkYNewZ/sos-vpdive/internal/payments/paymentstest"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
@@ -108,18 +110,24 @@ func TestErase(t *testing.T) {
 	memberstest.Import(t, e.members, "members_valid.xlsx")
 	paymentstest.Import(t, e.payments, "payments_valid.xlsx")
 	paymentstest.ImportMollie(t, e.mollie, "vpaydive_valid.xlsx")
+	cards, err := os.ReadFile(memberstest.FixturePath("carnets_valid.json"))
+	require.NoError(t, err)
+	pushed, err := carnets.Parse(cards, time.UTC)
+	require.NoError(t, err)
+	require.NoError(t, e.store.Carnets.Resolve(ctx, pushed))
+	require.NoError(t, e.store.Carnets.Import(ctx, pushed))
 	e.submit(t, png())
 	first, _ := e.submit(t)
 	require.NoError(t, e.apply(t, first, Command{Action: ActionClose}))
 	other := submission(t)
 	other.Email = "hugo.bernard@example.org"
-	_, err := e.store.Submit(ctx, other, nil)
+	_, err = e.store.Submit(ctx, other, nil)
 	require.NoError(t, err)
 	require.NoError(t, e.store.SendLinks(ctx, memberAddress))
 
 	preview, err := e.store.PreviewErasure(ctx, " Lea.Martin@example.org")
 	require.NoError(t, err)
-	assert.Equal(t, Erasure{Tickets: 2, Member: true, PaymentLines: 2, MollieLines: 2}, preview, "the homonym's lines go too (owner decision)")
+	assert.Equal(t, Erasure{Tickets: 2, Member: true, PaymentLines: 2, MollieLines: 2, Cards: 1}, preview, "the homonym's lines go too (owner decision)")
 
 	done, err := e.store.Erase(ctx, " Lea.Martin@example.org", "alice")
 	require.NoError(t, err)
@@ -135,6 +143,7 @@ func TestErase(t *testing.T) {
 	assert.Equal(t, 18, e.count(t, `SELECT COUNT(*) FROM payment_lines`), "other people keep their lines")
 	assert.Zero(t, e.count(t, `SELECT COUNT(*) FROM online_payment_lines WHERE name_hash = ?`, e.keys.Hash(secure.NameKey("Martin", "Léa"))))
 	assert.Equal(t, 14, e.count(t, `SELECT COUNT(*) FROM online_payment_lines`), "and their Mollie lines")
+	assert.Equal(t, 3, e.count(t, `SELECT COUNT(*) FROM carnets`), "Léa's card goes, the others stay")
 	assert.Empty(t, e.objects(t))
 	assert.Equal(t, 1, e.count(t, `SELECT COUNT(*) FROM stats_monthly`), "the closed request is still counted")
 	assert.Contains(t, e.logs.String(), `"msg":"person erased"`)

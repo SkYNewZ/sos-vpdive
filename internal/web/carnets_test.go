@@ -16,8 +16,6 @@ import (
 
 // importCarnets stores the cards fixture as the script would push it; the
 // members list must be in place for the holders to resolve.
-//
-//nolint:unused // the carnet page tests of the next tasks call it
 func (e *testEnv) importCarnets(t *testing.T) {
 	t.Helper()
 	ctx := context.Background()

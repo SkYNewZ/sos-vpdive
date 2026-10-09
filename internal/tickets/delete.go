@@ -26,6 +26,7 @@ type Erasure struct {
 	PaymentLines   int // every line of the member's name, a homonym's included
 	MollieLines    int // same rule for the Mollie lines
 	Participations int // calendar participations of the member's name and of the same people (lot 8)
+	Cards          int // carnet cards of the member's name, a homonym's included (design 2026-10-09)
 }
 
 // deleteCapture removes one screenshot, a CACI sent by mistake for instance.
@@ -139,11 +140,14 @@ func (s *Store) PreviewErasure(ctx context.Context, email string) (Erasure, erro
 	if e.Participations, err = s.Calendar.Count(ctx, p.NameHash, p.LastName, p.FirstName); err != nil {
 		return Erasure{}, err
 	}
+	if e.Cards, err = s.Carnets.Count(ctx, p.NameHash); err != nil {
+		return Erasure{}, err
+	}
 	return e, nil
 }
 
 // Erase answers an erasure request (spec §4.5): every request of email, its
-// members row, the payment and Mollie lines and the calendar participations
+// members row, the payment and Mollie lines, the cards and the calendar participations
 // of that member's name and every mail to it, in one transaction, then the
 // stored captures. The next imports may list the address, the lines and the
 // participations again.
@@ -180,6 +184,9 @@ func (s *Store) Erase(ctx context.Context, email, actor string) (Erasure, error)
 		if e.Participations, err = s.Calendar.EraseTx(ctx, tx, p.NameHash, p.LastName, p.FirstName); err != nil {
 			return err
 		}
+		if e.Cards, err = s.Carnets.EraseTx(ctx, tx, p.NameHash, p.LastName, p.FirstName); err != nil {
+			return err
+		}
 		return s.Outbox.DeleteRecipient(ctx, tx, normalized)
 	})
 	if err != nil {
@@ -191,7 +198,7 @@ func (s *Store) Erase(ctx context.Context, email, actor string) (Erasure, error)
 		s.changed(ChangeDeleted, d.id, actor)
 	}
 	s.Logger.InfoContext(ctx, "person erased", "actor", actor, "tickets", e.Tickets, "member", e.Member,
-		"payment_lines", e.PaymentLines, "mollie_lines", e.MollieLines, "participations", e.Participations)
+		"payment_lines", e.PaymentLines, "mollie_lines", e.MollieLines, "participations", e.Participations, "cards", e.Cards)
 	return e, nil
 }
 
