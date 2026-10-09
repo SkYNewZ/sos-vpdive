@@ -71,7 +71,7 @@ func ticketButtons(fiches []kb.Fiche) []string {
 
 // kbDiagram serves the drawing of a fiche's diagram (make diagrams) on both
 // hosts: screen 2 shows member answers. Its own CSP lets Mermaid's inline
-// styles apply and nothing load or run.
+// styles apply and nothing load or run; it changes only with a deploy.
 func (s *Server) kbDiagram(w http.ResponseWriter, r *http.Request) {
 	id, ok := strings.CutSuffix(r.PathValue("file"), ".svg")
 	f, found := s.kb.Get(id)
@@ -79,6 +79,8 @@ func (s *Server) kbDiagram(w http.ResponseWriter, r *http.Request) {
 		s.notFound(w, r)
 		return
 	}
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
+	h := w.Header()
+	h.Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
+	h.Set("Cache-Control", "max-age=3600")
 	s.write(w, r, http.StatusOK, "image/svg+xml", f.Diagram)
 }

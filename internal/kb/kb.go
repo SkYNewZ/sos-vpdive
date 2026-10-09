@@ -26,6 +26,8 @@ var (
 	numberedPattern = regexp.MustCompile(`^\d+\. `)
 	separatorCell   = regexp.MustCompile(`^:?-+:?$`)
 	accDescrPattern = regexp.MustCompile(`(?m)^\s*accDescr:\s*(.+)$`)
+	// mermaidFence is a diagram as written: the model reads the tables instead.
+	mermaidFence = regexp.MustCompile("(?ms)^[ \t]*```mermaid[ \t]*\n.*?^[ \t]*```[ \t]*$")
 )
 
 // BlockKind is the kind of a block of text.
@@ -61,11 +63,13 @@ type Fiche struct {
 	Title      string
 	Categories []string // category ids
 	Links      []string // VPDive link keys, shown first on the request page
-	AnswerText string   // « Réponse adhérent » as written, sent to the model
+	AnswerText string   // « Réponse adhérent » as written, without its diagram: sent to the model
 	Answer     []Block
 	Procedure  []Block
-	Todo       int    // [À COMPLÉTER : …] marks still to fill in
-	Diagram    []byte // the SVG of the fiche's diagram, if it has one
+	// ProcedureText is « Procédure résolveur » as written, without its diagram.
+	ProcedureText string
+	Todo          int    // [À COMPLÉTER : …] marks still to fill in
+	Diagram       []byte // the SVG of the fiche's diagram, if it has one
 }
 
 // Base holds every fiche, in file order.
@@ -157,7 +161,7 @@ func parse(text string) (Fiche, error) {
 	}
 	return Fiche{
 		ID: fm.ID, Title: fm.Title, Categories: fm.Categories, Links: fm.Links,
-		AnswerText: sections[0], Answer: answer, Procedure: procedure,
+		AnswerText: withoutDiagram(sections[0]), Answer: answer, Procedure: procedure, ProcedureText: withoutDiagram(sections[1]),
 		Todo: strings.Count(text, todoMark),
 	}, nil
 }
@@ -272,29 +276,29 @@ func (f Fiche) check(knownCategory, knownLink func(string) bool) error {
 			return fmt.Errorf("unknown VPDive link %q (config/vpdive.yaml)", l)
 		}
 	}
-	if len(f.diagrams()) > 1 {
-		return errors.New("a fiche holds one diagram at most")
-	}
 	return nil
 }
 
-// diagrams returns the fiche's diagram blocks.
-func (f Fiche) diagrams() []Block {
-	var out []Block
-	for _, b := range slices.Concat(f.Answer, f.Procedure) {
-		if b.Kind == Diagram {
-			out = append(out, b)
-		}
-	}
-	return out
+// withoutDiagram is a section's text without its ```mermaid block.
+func withoutDiagram(text string) string {
+	return strings.TrimSpace(mermaidFence.ReplaceAllString(text, ""))
 }
 
-// drawing reads kb/<id>.svg, the drawing of the fiche's diagram if it has
-// one, and refuses it when it was drawn from another source or holds a
-// script.
+// drawing reads kb/<id>.svg, the drawing of the fiche's one diagram if it
+// has one, and refuses it when it was drawn from another source. The page
+// shows it as an image, and its route forbids scripts.
 func (f Fiche) drawing(content fs.FS) ([]byte, error) {
-	ds := f.diagrams()
-	if len(ds) == 0 {
+	var source string
+	for _, b := range slices.Concat(f.Answer, f.Procedure) {
+		if b.Kind != Diagram {
+			continue
+		}
+		if source != "" {
+			return nil, errors.New("a fiche holds one diagram at most")
+		}
+		source = b.Source
+	}
+	if source == "" {
 		return nil, nil
 	}
 	name := "kb/" + f.ID + ".svg"
@@ -302,11 +306,8 @@ func (f Fiche) drawing(content fs.FS) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("diagram: %w (make diagrams)", err)
 	}
-	if !bytes.Contains(svg, fmt.Appendf(nil, DiagramMark, sha256.Sum256([]byte(ds[0].Source)))) {
+	if !bytes.Contains(svg, fmt.Appendf(nil, DiagramMark, sha256.Sum256([]byte(source)))) {
 		return nil, fmt.Errorf("%s is stale: run make diagrams", name)
-	}
-	if bytes.Contains(bytes.ToLower(svg), []byte("<script")) {
-		return nil, fmt.Errorf("%s holds a script", name)
 	}
 	return svg, nil
 }
@@ -317,41 +318,35 @@ func (f Fiche) drawing(content fs.FS) ([]byte, error) {
 // between "```mermaid" and "```" are a diagram, served at /kb/<id>.svg.
 func blocks(text, id string) ([]Block, error) {
 	var out []Block
-	open := false                // the last block takes more lines
-	var diagram *strings.Builder // the Mermaid lines, inside the fence
+	open := false // the last block takes more lines
+	inFence := false
+	var fence strings.Builder // the Mermaid lines
 	for line := range strings.SplitSeq(text, "\n") {
-		if diagram != nil {
+		if inFence {
 			if strings.TrimSpace(line) != "```" {
-				diagram.WriteString(line + "\n")
+				fence.WriteString(line + "\n")
 				continue
 			}
-			m := accDescrPattern.FindStringSubmatch(diagram.String())
+			m := accDescrPattern.FindStringSubmatch(fence.String())
 			if m == nil {
 				return nil, errors.New("the diagram has no accDescr: line, its text alternative")
 			}
-			out = append(out, Block{Kind: Diagram, Items: []string{strings.TrimSpace(m[1])}, Source: diagram.String(), Image: "/kb/" + id + ".svg"})
-			diagram, open = nil, false
+			out = append(out, Block{Kind: Diagram, Items: []string{strings.TrimSpace(m[1])}, Source: fence.String(), Image: "/kb/" + id + ".svg"})
+			inFence, open = false, false
+			fence.Reset()
 			continue
 		}
 		line = strings.TrimSpace(line)
 		switch {
 		case line == "```mermaid":
-			diagram = &strings.Builder{}
+			inFence = true
 			continue
 		case strings.HasPrefix(line, "```"):
 			return nil, fmt.Errorf("fence %q: only ```mermaid is allowed", line)
 		case strings.HasPrefix(line, "|"):
-			cells := tableRow(line)
-			if last := len(out) - 1; open && last >= 0 && out[last].Kind == Table {
-				if want := len(out[last].Rows[0]); len(cells) != want {
-					return nil, fmt.Errorf("table row %q: %d cells, the header has %d", line, len(cells), want)
-				}
-				if !slices.ContainsFunc(cells, func(c string) bool { return !separatorCell.MatchString(c) }) {
-					continue // the |---| row
-				}
-				out[last].Rows = append(out[last].Rows, cells)
-			} else {
-				out = append(out, Block{Kind: Table, Rows: [][]string{cells}})
+			var err error
+			if out, err = addRow(out, open, line); err != nil {
+				return nil, err
 			}
 			open = true
 			continue
@@ -377,17 +372,28 @@ func blocks(text, id string) ([]Block, error) {
 			open = true
 		}
 	}
-	if diagram != nil {
+	if inFence {
 		return nil, errors.New("a ```mermaid fence is not closed")
 	}
 	return out, nil
 }
 
-// tableRow splits "| a | b |" into its trimmed cells.
-func tableRow(line string) []string {
+// addRow adds a "| a | b |" line to the table that ends out while open, or
+// starts a table; the "|---|" row is skipped.
+func addRow(out []Block, open bool, line string) ([]Block, error) {
 	cells := strings.Split(strings.TrimSuffix(strings.TrimPrefix(line, "|"), "|"), "|")
 	for i := range cells {
 		cells[i] = strings.TrimSpace(cells[i])
 	}
-	return cells
+	last := len(out) - 1
+	if !open || last < 0 || out[last].Kind != Table {
+		return append(out, Block{Kind: Table, Rows: [][]string{cells}}), nil
+	}
+	if want := len(out[last].Rows[0]); len(cells) != want {
+		return nil, fmt.Errorf("table row %q: %d cells, the header has %d", line, len(cells), want)
+	}
+	if slices.ContainsFunc(cells, func(c string) bool { return !separatorCell.MatchString(c) }) {
+		out[last].Rows = append(out[last].Rows, cells)
+	}
+	return out, nil
 }

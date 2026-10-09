@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/assistant"
@@ -19,17 +18,16 @@ const pricingFiche = "tarification"
 
 // assistantSystem is the system prompt (design: Prompt). It is fixed for a
 // build, so that providers cache it. French, like the answers it asks for.
-func assistantSystem(fiches []kb.Fiche) string {
+func assistantSystem(base *kb.Base) string {
 	var b strings.Builder
 	b.WriteString(strings.ReplaceAll(assistantRules, "'''", "```"))
 	b.WriteString("\n\n## Fiches du club\n\n")
-	for _, f := range fiches {
+	for _, f := range base.Fiches {
 		b.WriteString("- " + f.ID + " : " + f.Title + " (" + strings.Join(f.Categories, ", ") + ")\n")
 	}
-	if i := slices.IndexFunc(fiches, func(f kb.Fiche) bool { return f.ID == pricingFiche }); i >= 0 {
-		f := fiches[i]
+	if f, ok := base.Get(pricingFiche); ok {
 		b.WriteString("\n## Fiche tarification : " + f.Title + "\n\n### Réponse adhérent\n\n" + f.AnswerText +
-			"\n\n### Procédure résolveur\n\n" + blocksText(f.Procedure) + "\n")
+			"\n\n### Procédure résolveur\n\n" + f.ProcedureText + "\n")
 	}
 	return b.String()
 }
@@ -94,7 +92,7 @@ Pour chaque carte en cause : crédit, plongées débitées, reste attendu, solde
 ### À faire dans VPDive
 Ce que le résolveur peut vérifier ou corriger, en suggestions, avec le titre de la fiche utile.
 ### Ce qui manque
-Seulement ce qui empêche de décider ; s'il n'y a rien, omets ce titre.
+Seulement ce qui empêche de décider, jamais la date du message ; s'il n'y a rien, omets ce titre.
 
 Une simple question reçoit une réponse courte, sans ces titres. Va à l'essentiel : rien qui ne serve pas la décision. N'écris aucun lien.
 

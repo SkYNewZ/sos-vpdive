@@ -1,4 +1,5 @@
 {{define "main"}}{{$d := .Data}}{{$p := $d.Panel}}
+{{/* The chat column fills the screen: 11rem and 4.5rem are the committee header and main paddings of layout.html (phone, desktop). */}}
 <div class="lg:grid lg:grid-cols-[minmax(0,1fr)_19rem] lg:gap-8" data-assistant data-conversation="{{$p.Conversation}}">
 <section class="flex min-h-[calc(100dvh-11rem)] min-w-0 flex-col lg:min-h-[calc(100dvh-4.5rem)]" aria-labelledby="assistant-titre">
 <div class="flex flex-wrap items-center justify-between gap-3 pb-4">

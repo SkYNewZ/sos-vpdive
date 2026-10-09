@@ -144,6 +144,9 @@ func TestLoadTableAndDiagram(t *testing.T) {
 			{Kind: Paragraph, Items: []string{"Fin."}},
 		}, f.Answer, name)
 		assert.Equal(t, svgFor(diagramSource), string(f.Diagram), name)
+		assert.NotContains(t, f.AnswerText, "mermaid", name+": the model reads the tables, not the drawing")
+		assert.Contains(t, f.AnswerText, "| Avec carte | 30 € |", name)
+		assert.Equal(t, "1. Vérifier.", f.ProcedureText, name)
 	}
 }
 
@@ -157,7 +160,6 @@ func TestLoadRefusesBadTablesAndDiagrams(t *testing.T) {
 		{"two diagrams", fence + "\n\n" + fence, svgFor(diagramSource), "one diagram at most"},
 		{"svg missing", fence, "", "make diagrams"},
 		{"svg stale", fence, svgFor("flowchart LR\n"), "is stale"},
-		{"svg with a script", fence, "<SCRIPT>alert(1)</SCRIPT>" + svgFor(diagramSource), "holds a script"},
 	} {
 		files := map[string]string{"tarif-test.md": ficheWith(tc.answer)}
 		if tc.svg != "" {

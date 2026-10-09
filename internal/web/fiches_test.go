@@ -100,6 +100,7 @@ func TestFicheTablesAndDiagram(t *testing.T) {
 		assert.Equal(t, "image/svg+xml", rec.Header().Get("Content-Type"), host)
 		assert.Equal(t, "default-src 'none'; style-src 'unsafe-inline'", rec.Header().Get("Content-Security-Policy"), host)
 		assert.Contains(t, rec.Body.String(), "<!-- mermaid sha256:", host)
+		assert.Equal(t, "max-age=3600", rec.Header().Get("Cache-Control"), host+": it changes only with a deploy")
 		for _, path := range []string{"/kb/tarification.md", "/kb/carnet-solde-negatif.svg", "/kb/absente.svg"} {
 			assert.Equal(t, http.StatusNotFound, e.do(t, http.MethodGet, host, path, nil).Code, host+path)
 		}

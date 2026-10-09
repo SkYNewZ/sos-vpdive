@@ -145,7 +145,7 @@ func New(d Deps) (*Server, error) {
 	if a := d.Config.Assistant; a != nil {
 		s.assistant = assistant.NewClient(d.Config.LLM, a)
 		s.convs = assistant.NewStore(d.Now)
-		s.assistantPrompt = assistantSystem(d.KB.Fiches)
+		s.assistantPrompt = assistantSystem(d.KB)
 	}
 	funcs := template.FuncMap{
 		"static": s.assets.URL, "formatTime": s.formatTime, "formatDate": s.formatDate, "shortPeriod": payments.ShortPeriod, "author": s.tickets.AccountName,
@@ -293,7 +293,7 @@ const offlinePath = "/hors-ligne"
 func (s *Server) commonRoutes(mux *http.ServeMux, admin bool) {
 	mux.HandleFunc("GET /healthz", s.healthz)
 	mux.Handle("GET /static/", s.assets.handler())
-	mux.HandleFunc("GET /kb/{file}", s.kbDiagram)
+	s.handle(mux, "GET /kb/{file}", s.kbDiagram)
 	s.handle(mux, "GET /robots.txt", s.robotsTxt)
 	s.handle(mux, "GET /manifest.webmanifest", s.manifestFile(admin))
 	s.handle(mux, "GET /sw.js", s.serviceWorker(admin))
