@@ -17,11 +17,11 @@
 </div>
 <section class="mt-8 max-w-md" aria-labelledby="ma-photo">
 <h2 id="ma-photo" class="text-xl font-semibold">Ma photo</h2>
-{{$err := index $d.Errors "photo"}}<form method="post" action="/compte/photo" enctype="multipart/form-data" class="mt-4 flex flex-col gap-4">
+{{$err := index $d.Errors "photo"}}<form method="post" action="/compte/photo" enctype="multipart/form-data" data-photo class="mt-4 flex flex-col gap-4">
 <input type="hidden" name="csrf" value="{{.CSRF}}">
 <div class="flex flex-col gap-1">
 <label class="font-semibold" for="photo">Fichier</label>
-<p id="photo-aide" class="text-sm">PNG, JPEG ou WebP, 5 Mo au plus. On garde le carré du centre. Elle remplace ton avatar partout, y compris sur la page de suivi que voient les adhérents.</p>
+<p id="photo-aide" class="text-sm">PNG, JPEG ou WebP. On garde le carré du centre. Elle remplace ton avatar partout, y compris sur la page de suivi que voient les adhérents.</p>
 <input class="file-input w-full" id="photo" name="photo" type="file" accept="image/png,image/jpeg,image/webp" required aria-describedby="photo-aide{{if $err}} photo-erreur{{end}}"{{if $err}} aria-invalid="true"{{end}}>
 {{with $err}}<p id="photo-erreur" class="font-semibold text-error">{{.}}</p>{{end}}
 </div>

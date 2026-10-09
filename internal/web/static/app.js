@@ -118,6 +118,46 @@ window.addEventListener("pageshow", (event) => {
   for (const form of document.querySelectorAll("form[method=post]")) sent.delete(form);
 });
 
+// « Mon compte »: the browser shrinks the photo so a phone photo of any size
+// fits the server's limits (5 MB, 40 Mpx), at twice its 128 px avatar. A file
+// the browser cannot draw goes as chosen: the server says why.
+const shrinkPhoto = async (file) => {
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.src = url;
+  try {
+    await img.decode();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+  const scale = Math.min(1, 256 / Math.min(img.naturalWidth, img.naturalHeight));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(img.naturalWidth * scale);
+  canvas.height = Math.round(img.naturalHeight * scale);
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#fff"; // transparency becomes white, as on the server
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.9));
+  if (!blob) throw new Error("photo not drawn");
+  return new File([blob], "photo.jpg", { type: "image/jpeg" });
+};
+const photoForm = document.querySelector("form[data-photo]");
+photoForm?.addEventListener("submit", async (event) => {
+  const input = photoForm.elements.photo;
+  if (event.defaultPrevented || event.submitter?.value === "retirer" || !input.files[0]) return;
+  event.preventDefault();
+  try {
+    const files = new DataTransfer();
+    files.items.add(await shrinkPhoto(input.files[0]));
+    input.files = files.files;
+  } catch {
+    // Sent as chosen.
+  }
+  photoForm.submit();
+});
+
 // Committee board: a changed filter applies at once (spec §4.2 as amended);
 // « Filtrer » stays for a browser without this script.
 for (const form of document.querySelectorAll("form[data-autosubmit]")) {

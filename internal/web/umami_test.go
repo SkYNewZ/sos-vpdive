@@ -16,7 +16,7 @@ import (
 
 // lot1CSP is the policy of spec §11.5, unchanged while Umami is off.
 const lot1CSP = "default-src 'self'; script-src 'self' https://challenges.cloudflare.com; " +
-	"frame-src https://challenges.cloudflare.com; connect-src 'self'; img-src 'self' data:; " +
+	"frame-src https://challenges.cloudflare.com; connect-src 'self'; img-src 'self' data: blob:; " +
 	"style-src 'self'; worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; " +
 	"base-uri 'self'; form-action 'self'"
 
@@ -79,7 +79,7 @@ func TestUmamiReportsRouteTemplatesOnly(t *testing.T) {
 	assert.Equal(t, map[string]string{"src": umamiScript, "website": membersSiteID, "path": "/suivi/[masqué]"},
 		umamiAttrs(tracking.Body.String()))
 	assert.Equal(t, "default-src 'self'; script-src 'self' https://challenges.cloudflare.com "+umamiCSPOrigin+"; "+
-		"frame-src https://challenges.cloudflare.com; connect-src 'self' "+umamiCSPOrigin+"; img-src 'self' data:; "+
+		"frame-src https://challenges.cloudflare.com; connect-src 'self' "+umamiCSPOrigin+"; img-src 'self' data: blob:; "+
 		"style-src 'self'; worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; "+
 		"base-uri 'self'; form-action 'self'", tracking.Header().Get("Content-Security-Policy"))
 	for _, m := range scriptSrc.FindAllStringSubmatch(tracking.Body.String(), -1) {
