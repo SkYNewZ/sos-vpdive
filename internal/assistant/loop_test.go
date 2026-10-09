@@ -293,3 +293,12 @@ func TestAnswerKeepsTextThatOnlyLooksLikeMarkup(t *testing.T) {
 		assert.Equal(t, text, res.Text)
 	}
 }
+
+// Claude may decline mid-answer (stop_reason refusal): what it wrote so far
+// is no answer, and the page takes it back.
+func TestAnswerWithholdsARefusal(t *testing.T) {
+	s := &scripted{replies: []string{strings.Replace(textStream("Le solde est "), "end_turn", "refusal", 1)}}
+	res, err := newTestClient(t, s, false).Answer(context.Background(), "S", userMessages(t, "Q"), (&runner{}).tools(), Events{})
+	require.ErrorIs(t, err, ErrInvalid)
+	assert.Nil(t, res.History, "the conversation rolls back")
+}

@@ -68,10 +68,11 @@ type Request struct {
 }
 
 // Result is the checked answer: known fiche ids, three at most, and a plain
-// text summary.
+// text summary, with the tokens the call used.
 type Result struct {
-	IDs     []string
-	Summary string
+	IDs                       []string
+	Summary                   string
+	InputTokens, OutputTokens int
 }
 
 // Client calls the model.
@@ -106,7 +107,7 @@ func (c *Client) Choose(ctx context.Context, req Request, fiches []Fiche) (res R
 	defer func() {
 		code := "ok"
 		if err != nil {
-			code = codeOf(err)
+			code = Code(err)
 			telemetry.Fail(span, code)
 		}
 		span.SetAttributes(attribute.String("llm.result", code), attribute.Int("llm.fiches", len(res.IDs)))
@@ -118,7 +119,7 @@ func (c *Client) Choose(ctx context.Context, req Request, fiches []Fiche) (res R
 	if err != nil {
 		return Result{}, err
 	}
-	text, err := c.post(ctx, body)
+	text, used, err := c.post(ctx, body)
 	if err != nil {
 		return Result{}, err
 	}
@@ -126,11 +127,15 @@ func (c *Client) Choose(ctx context.Context, req Request, fiches []Fiche) (res R
 	for i, f := range fiches {
 		known[i] = f.ID
 	}
-	return parse(text, known)
+	if res, err = parse(text, known); err != nil {
+		return Result{}, err
+	}
+	res.InputTokens, res.OutputTokens = used.Input, used.Output
+	return res, nil
 }
 
-// codeOf returns the stable code of a Choose error.
-func codeOf(err error) string {
+// Code returns the stable code of a Choose error.
+func Code(err error) string {
 	for _, e := range []error{ErrTimeout, ErrCanceled, ErrHTTP, ErrInvalid} {
 		if errors.Is(err, e) {
 			return e.Error()
@@ -144,8 +149,8 @@ type message struct {
 	Content string `json:"content"`
 }
 
-// thinking turns reasoning off: DeepSeek thinks by default and spends the
-// 400 tokens before writing any text. Anthropic accepts the same value.
+// thinking turns reasoning off (config.ThinkingOff): DeepSeek thinks by
+// default and spends the 400 tokens before writing any text.
 type thinking struct {
 	Type string `json:"type"`
 }
@@ -164,6 +169,12 @@ type apiResponse struct {
 		Text string `json:"text"`
 	} `json:"content"`
 	StopReason string `json:"stop_reason"`
+	Usage      usage  `json:"usage"`
+}
+
+type usage struct {
+	Input  int `json:"input_tokens"`
+	Output int `json:"output_tokens"`
 }
 
 // body builds the Messages request: the instructions in the system message,
@@ -183,52 +194,53 @@ func (c *Client) body(req Request, fiches []Fiche) ([]byte, error) {
 		return nil, fmt.Errorf("encode prompt: %w", err)
 	}
 	return json.Marshal(apiRequest{
-		Model: c.model, MaxTokens: maxTokens, Thinking: thinking{Type: "disabled"}, System: systemPrompt,
+		Model: c.model, MaxTokens: maxTokens, Thinking: thinking{Type: config.ThinkingOff(c.model)}, System: systemPrompt,
 		Messages: []message{{Role: "user", Content: string(user)}},
 	})
 }
 
-// post sends the request and returns the first text block of the answer.
-func (c *Client) post(ctx context.Context, body []byte) (text string, err error) {
+// post sends the request and returns the first text block of the answer
+// and the tokens used.
+func (c *Client) post(ctx context.Context, body []byte) (text string, used usage, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(body))
 	if err != nil {
-		return "", fmt.Errorf("%w: %w", ErrHTTP, err)
+		return "", usage{}, fmt.Errorf("%w: %w", ErrHTTP, err)
 	}
 	req.Header.Set("X-Api-Key", c.key)
 	req.Header.Set("Anthropic-Version", apiVersion)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return "", transportError(ctx, err)
+		return "", usage{}, transportError(ctx, err)
 	}
 	defer func() {
 		if cerr := resp.Body.Close(); cerr != nil && err == nil {
-			text, err = "", fmt.Errorf("%w: %w", ErrHTTP, cerr)
+			text, used, err = "", usage{}, fmt.Errorf("%w: %w", ErrHTTP, cerr)
 		}
 	}()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, bodyLimit+1))
 	if err != nil {
-		return "", transportError(ctx, err)
+		return "", usage{}, transportError(ctx, err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("%w: status %d", ErrHTTP, resp.StatusCode)
+		return "", usage{}, fmt.Errorf("%w: status %d", ErrHTTP, resp.StatusCode)
 	}
 	if len(data) > bodyLimit {
-		return "", fmt.Errorf("%w: answer over %d bytes", ErrInvalid, bodyLimit)
+		return "", usage{}, fmt.Errorf("%w: answer over %d bytes", ErrInvalid, bodyLimit)
 	}
 	var out apiResponse
 	if err := json.Unmarshal(data, &out); err != nil {
-		return "", fmt.Errorf("%w: %w", ErrInvalid, err)
+		return "", usage{}, fmt.Errorf("%w: %w", ErrInvalid, err)
 	}
 	if out.StopReason == "max_tokens" {
-		return "", fmt.Errorf("%w: answer cut at max_tokens", ErrInvalid)
+		return "", usage{}, fmt.Errorf("%w: answer cut at max_tokens", ErrInvalid)
 	}
 	for _, b := range out.Content {
 		if b.Type == "text" {
-			return b.Text, nil
+			return b.Text, out.Usage, nil
 		}
 	}
-	return "", fmt.Errorf("%w: no text block, stop_reason %s", ErrInvalid, cmp.Or(out.StopReason, "missing"))
+	return "", usage{}, fmt.Errorf("%w: no text block, stop_reason %s", ErrInvalid, cmp.Or(out.StopReason, "missing"))
 }
 
 func transportError(ctx context.Context, err error) error {

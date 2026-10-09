@@ -15,6 +15,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/assistant"
+	"github.com/SkYNewZ/sos-vpdive/internal/suggest"
 	"github.com/SkYNewZ/sos-vpdive/internal/telemetry"
 	"github.com/SkYNewZ/sos-vpdive/internal/tickets"
 )
@@ -550,6 +551,29 @@ func (s *Server) BenchAnswer(ctx context.Context, account, text string) (BenchRe
 	out := BenchResult{Steps: ex.Steps, Answer: ex.Answer, Result: res, Duration: time.Since(start), Outcome: outcomeOK}
 	if err != nil {
 		out.Outcome = assistant.Code(err)
+	}
+	return out, nil
+}
+
+// SuggestResult is one call of cmd suggest-bench.
+type SuggestResult struct {
+	suggest.Result
+
+	Duration time.Duration
+	Outcome  string
+}
+
+// BenchSuggest asks for the suggestions of sub as the member form does,
+// without the daily cap (cmd suggest-bench).
+func (s *Server) BenchSuggest(ctx context.Context, sub tickets.Submission) (SuggestResult, error) {
+	if s.suggest == nil {
+		return SuggestResult{}, errors.New("suggestions are off")
+	}
+	start := time.Now()
+	res, err := s.suggest.Choose(ctx, s.suggestRequest(sub), s.fiches)
+	out := SuggestResult{Result: res, Duration: time.Since(start), Outcome: outcomeOK}
+	if err != nil {
+		out.Outcome = suggest.Code(err)
 	}
 	return out, nil
 }

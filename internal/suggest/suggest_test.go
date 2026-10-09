@@ -266,7 +266,7 @@ func TestChooseReportsACancelledCall(t *testing.T) {
 	time.AfterFunc(50*time.Millisecond, cancel) // the request went away while the model was thinking
 	_, err := c.Choose(ctx, request, fiches)
 	require.ErrorIs(t, err, ErrCanceled)
-	assert.Equal(t, "canceled", codeOf(err), "a cancelled call is not a provider error")
+	assert.Equal(t, "canceled", Code(err), "a cancelled call is not a provider error")
 }
 
 func TestChooseKeepsAwkwardTextAndPaths(t *testing.T) {
@@ -338,4 +338,32 @@ func TestChooseUnreachableProvider(t *testing.T) {
 	c := New(&config.LLM{BaseURL: base, APIKey: "k", Model: "m", Timeout: time.Second})
 	_, err = c.Choose(context.Background(), request, fiches)
 	require.ErrorIs(t, err, ErrHTTP)
+}
+
+func TestChooseTurnsReasoningOffOnSonnet(t *testing.T) {
+	s := &stub{status: http.StatusOK, text: `{"fiches": [], "resume": "x"}`}
+	srv := httptest.NewServer(s)
+	t.Cleanup(srv.Close)
+	base, err := url.Parse(srv.URL)
+	require.NoError(t, err)
+	c := New(&config.LLM{BaseURL: base, APIKey: "k", Model: "claude-sonnet-5-5", Timeout: time.Second})
+	_, err = c.Choose(context.Background(), request, fiches)
+	require.NoError(t, err)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var body struct {
+		Thinking json.RawMessage `json:"thinking"`
+	}
+	require.NoError(t, json.Unmarshal(s.body, &body))
+	assert.JSONEq(t, `{"type":"between_tools"}`, string(body.Thinking), "Sonnet 5.5 answers 400 to disabled")
+}
+
+// The tokens of a call give its cost (suggest-bench).
+func TestChooseReportsItsTokens(t *testing.T) {
+	s := &stub{status: http.StatusOK,
+		reply: `{"content":[{"type":"text","text":"{\"fiches\":[],\"resume\":\"x\"}"}],"usage":{"input_tokens":3100,"output_tokens":40}}`}
+	res, err := newClient(t, s, "").Choose(context.Background(), request, fiches)
+	require.NoError(t, err)
+	assert.Equal(t, 3100, res.InputTokens)
+	assert.Equal(t, 40, res.OutputTokens)
 }
