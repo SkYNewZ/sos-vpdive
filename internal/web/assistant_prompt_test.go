@@ -191,3 +191,18 @@ func TestQuestionTextMasksBeforeEncoding(t *testing.T) {
 	assert.Contains(t, text, "[téléphone]")
 	assert.Equal(t, []string{"perso@example.org"}, c.Emails)
 }
+
+// periode_lue is the window a tool call read; periode_du and periode_au of
+// an import are all the export holds. A model that mixed them up promised to
+// read again, over a wider window, a card bought before the export starts.
+func TestAssistantSystemPeriods(t *testing.T) {
+	sys := assistantSystem(&kb.Base{})
+	for _, rule := range []string{"periode_lue est la fenêtre qu'un appel de member_payments ou member_outings vient de lire",
+		"periode_du et periode_au d'un import bornent tout ce que l'export contient",
+		"hors de periode_lue mais dans la période de l'export est « hors période », pas absente",
+		"Compare aussi chaque date citée par le message à la période de l'export, dès ta première réponse et même avant d'identifier l'adhérent",
+		"un fait hors de cette période n'est pas dans nos données", "ne relance aucun outil pour lui et ne promets pas de le chercher"} {
+		assert.Contains(t, sys, rule)
+	}
+	assert.NotContains(t, sys, "Une ligne ou une sortie hors de cette période est « hors période »")
+}
