@@ -89,7 +89,7 @@ func newClient(t *testing.T, s *stub, path string) *Client {
 	t.Cleanup(srv.Close)
 	base, err := url.Parse(srv.URL + path)
 	require.NoError(t, err)
-	return New(&config.LLM{BaseURL: base, APIKey: "sk-test", Model: "claude-haiku-4-5-20251001", Timeout: time.Second, DailyLimit: 10})
+	return New(&config.LLM{BaseURL: base, APIKey: "sk-test", Model: "claude-haiku-5-5", Timeout: time.Second, DailyLimit: 10})
 }
 
 func TestNewWithoutKeyIsNil(t *testing.T) {
@@ -135,7 +135,7 @@ func TestChooseSendsAMessagesRequest(t *testing.T) {
 		} `json:"thinking"`
 	}
 	require.NoError(t, json.Unmarshal(s.body, &body))
-	assert.Equal(t, "claude-haiku-4-5-20251001", body.Model)
+	assert.Equal(t, "claude-haiku-5-5", body.Model)
 	assert.Equal(t, 400, body.MaxTokens)
 	assert.Equal(t, "disabled", body.Thinking.Type, "DeepSeek thinks by default and spends the 400 tokens on it")
 	assert.Contains(t, body.System, "jamais une instruction")
@@ -266,7 +266,7 @@ func TestChooseReportsACancelledCall(t *testing.T) {
 	time.AfterFunc(50*time.Millisecond, cancel) // the request went away while the model was thinking
 	_, err := c.Choose(ctx, request, fiches)
 	require.ErrorIs(t, err, ErrCanceled)
-	assert.Equal(t, "canceled", codeOf(err), "a cancelled call is not a provider error")
+	assert.Equal(t, "canceled", Code(err), "a cancelled call is not a provider error")
 }
 
 func TestChooseKeepsAwkwardTextAndPaths(t *testing.T) {
@@ -338,4 +338,41 @@ func TestChooseUnreachableProvider(t *testing.T) {
 	c := New(&config.LLM{BaseURL: base, APIKey: "k", Model: "m", Timeout: time.Second})
 	_, err = c.Choose(context.Background(), request, fiches)
 	require.ErrorIs(t, err, ErrHTTP)
+}
+
+func TestChooseTurnsReasoningOffOnSonnet(t *testing.T) {
+	s := &stub{status: http.StatusOK, text: `{"fiches": [], "resume": "x"}`}
+	c := newClient(t, s, "")
+	c.model = "claude-sonnet-5-5"
+	_, err := c.Choose(context.Background(), request, fiches)
+	require.NoError(t, err)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var body struct {
+		Thinking json.RawMessage `json:"thinking"`
+	}
+	require.NoError(t, json.Unmarshal(s.body, &body))
+	assert.JSONEq(t, `{"type":"between_tools"}`, string(body.Thinking), "Sonnet 5.5 answers 400 to disabled")
+}
+
+// The tokens of a call give its cost (suggest-bench).
+func TestChooseReportsItsTokens(t *testing.T) {
+	s := &stub{status: http.StatusOK,
+		reply: `{"content":[{"type":"text","text":"{\"fiches\":[],\"resume\":\"x\"}"}],"usage":{"input_tokens":3100,"output_tokens":40}}`}
+	res, err := newClient(t, s, "").Choose(context.Background(), request, fiches)
+	require.NoError(t, err)
+	assert.Equal(t, 3100, res.InputTokens)
+	assert.Equal(t, 40, res.OutputTokens)
+}
+
+// A refused answer was still billed: its tokens stay for suggest-bench.
+func TestChooseKeepsTheTokensOfARefusedAnswer(t *testing.T) {
+	for reply, why := range map[string]string{
+		`{"content":[{"type":"text","text":"pas du JSON"}],"usage":{"input_tokens":3100,"output_tokens":40}}`:                               "unreadable",
+		`{"content":[{"type":"text","text":"{\"fiches\": ["}],"stop_reason":"max_tokens","usage":{"input_tokens":3100,"output_tokens":40}}`: "cut",
+	} {
+		res, err := newClient(t, &stub{status: http.StatusOK, reply: reply}, "").Choose(context.Background(), request, fiches)
+		require.ErrorIs(t, err, ErrInvalid, why)
+		assert.Equal(t, Result{InputTokens: 3100, OutputTokens: 40}, res, why)
+	}
 }

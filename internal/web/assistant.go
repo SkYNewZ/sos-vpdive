@@ -15,6 +15,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/assistant"
+	"github.com/SkYNewZ/sos-vpdive/internal/suggest"
 	"github.com/SkYNewZ/sos-vpdive/internal/telemetry"
 	"github.com/SkYNewZ/sos-vpdive/internal/tickets"
 )
@@ -552,4 +553,10 @@ func (s *Server) BenchAnswer(ctx context.Context, account, text string) (BenchRe
 		out.Outcome = assistant.Code(err)
 	}
 	return out, nil
+}
+
+// BenchSuggest asks for the suggestions of sub as the member form does,
+// without the daily cap (cmd suggest-bench, which needs LLM_API_KEY).
+func (s *Server) BenchSuggest(ctx context.Context, sub tickets.Submission) (suggest.Result, error) {
+	return s.suggest.Choose(ctx, s.suggestRequest(sub), s.fiches)
 }

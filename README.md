@@ -238,16 +238,18 @@ Any provider that speaks Anthropic's Messages API works:
 
 | Provider | `LLM_BASE_URL` | `LLM_MODEL` |
 | --- | --- | --- |
-| Anthropic (default) | `https://api.anthropic.com` | `claude-haiku-4-5-20251001` |
-| DeepSeek | `https://api.deepseek.com/anthropic` | `deepseek-flash` |
+| Anthropic (default) | `https://api.anthropic.com` | `claude-haiku-5-5` |
+| DeepSeek | `https://api.deepseek.com/anthropic` | `deepseek-v4-pro` |
 
 Every suggestion call turns reasoning off. DeepSeek reasons by default and
 would otherwise spend the 400-token answer budget before writing anything.
+Both were as accurate in our tests; Claude Haiku 5.5 keeps one provider for
+the suggestions and the assistant.
 
 ### Committee assistant
 
-Off by default: set `ASSISTANT_ENABLED=true`, with `LLM_API_KEY`. It adds an
-« Assistant » page to the committee site and an « Analyser » button on each
+Off by default: set `ASSISTANT_ENABLED=true`, with `ASSISTANT_API_KEY`. It adds
+an « Assistant » page to the committee site and an « Analyser » button on each
 request. A resolver pastes a member's message or asks a question, and the model
 answers from the club's data through read-only tools: the members list, VPDive
 and Mollie payments, the calendar, the requests filed in the tool, cancelled
@@ -271,11 +273,20 @@ conversation, and so does a restart. Each account gets
 `ASSISTANT_DAILY_QUESTIONS` questions a day (50 by default). The owner sees a
 usage journal at `/assistant/journal`: who asked, when, tokens and an estimated
 cost (`ASSISTANT_PRICE_*`), never the questions.
-`ASSISTANT_MODEL` picks the model (`LLM_MODEL` when empty); `deepseek-flash`
-with reasoning gave the best answers in our tests. Reasoning is on by default:
-`ASSISTANT_THINKING=false` turns it off. `ASSISTANT_MAX_TOKENS` caps each model
-call, reasoning included: 32 000 tokens by default, 8 000 without reasoning
-(DeepSeek ignores the reasoning budget, so its reasoning uses up the same cap).
+The assistant has its own provider, apart from the suggestions':
+`ASSISTANT_BASE_URL` (Anthropic by default), `ASSISTANT_API_KEY` and
+`ASSISTANT_MODEL`. Claude Sonnet 5.5 at effort `high` gave the best answers in
+our tests
+([ADR 0002](docs/adr/0002-run-the-assistant-on-sonnet-and-suggestions-on-haiku.md)).
+
+![Model benchmark of 2026-10-09: scores, mean and longest durations, cost per answer or call](docs/adr/0002-benchmark.svg)
+
+Reasoning is on by default and streams its summary while the model thinks;
+`ASSISTANT_THINKING=false` turns it off.
+`ASSISTANT_EFFORT` (`low` to `max`) sets how much the model reasons and
+writes. `ASSISTANT_MAX_TOKENS` caps each model call, reasoning included:
+32 000 tokens by default, 8 000 without reasoning. The journal's cost counts
+cache writes at 1.25 times the input price.
 When an answer hits the cap, the resolver sees what it wrote, with a note that
 it was cut. The provider must support tool use through the Messages API.
 

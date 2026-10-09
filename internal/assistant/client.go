@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -30,7 +31,7 @@ const (
 	apiVersion     = "2023-06-01"
 	errorBodyLimit = 4 << 10
 	lineLimit      = 1 << 20 // one stream line: a delta never comes near
-	thinkingBudget = 2048    // DeepSeek ignores it: its reasoning takes from max_tokens
+	legacyBudget   = 2048    // thinking tokens of a Claude model before 4.6
 
 	// Content block types.
 	blockText     = "text"
@@ -39,7 +40,12 @@ const (
 	blockToolUse  = "tool_use" // a block asking for a tool, and the stop reason of its reply
 
 	stopMaxTokens = "max_tokens" // a reply cut by the length limit
+	stopRefusal   = "refusal"    // Claude declined, maybe after some text
 )
+
+// legacyThinking matches the Claude models before 4.6: they refuse adaptive
+// thinking and take a token budget.
+var legacyThinking = regexp.MustCompile(`^claude-(3|[a-z]+-4-[0-5])`)
 
 // idleTimeout ends a stream that sends nothing for that long; tests shorten it.
 var idleTimeout = 30 * time.Second
@@ -100,6 +106,14 @@ type Usage struct {
 	CacheWrite int `json:"cache_creation_input_tokens"`
 }
 
+// CostMicro is what u cost at a's prices, in micro-dollars: prices are per
+// million tokens. A cache write costs 1.25 times the input, Anthropic's rate
+// for the 5-minute cache that cache_control asks for; DeepSeek reports none.
+func (u *Usage) CostMicro(a *config.Assistant) int64 {
+	return (int64(u.Input)*a.PriceInput + int64(u.CacheWrite)*a.PriceInput*5/4 +
+		int64(u.CacheRead)*a.PriceCached + int64(u.Output)*a.PriceOutput) / 1_000_000
+}
+
 func (u *Usage) add(o Usage) {
 	u.Input += o.Input
 	u.Output += o.Output
@@ -136,17 +150,18 @@ type Client struct {
 	Model    string
 	Thinking bool
 
+	effort    config.Effort
 	maxTokens int
 	endpoint  string
 	key       string
 	http      *http.Client // plain: no trace header leaves, no redirect followed
 }
 
-// NewClient returns a client of llm's provider with a's model and limits.
-func NewClient(llm *config.LLM, a *config.Assistant) *Client {
+// NewClient returns a client of a's provider, model and limits.
+func NewClient(a *config.Assistant) *Client {
 	return &Client{
-		Model: a.Model, Thinking: a.Thinking, maxTokens: a.MaxTokens,
-		endpoint: llm.BaseURL.JoinPath("v1", "messages").String(), key: llm.APIKey,
+		Model: a.Model, Thinking: a.Thinking, effort: a.Effort, maxTokens: a.MaxTokens,
+		endpoint: a.BaseURL.JoinPath("v1", "messages").String(), key: a.APIKey,
 		// The Messages API never redirects: following one would hand the key to another host.
 		http: &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
 	}
@@ -163,19 +178,28 @@ type call struct {
 }
 
 type request struct {
-	Model      string         `json:"model"`
-	MaxTokens  int            `json:"max_tokens"`
-	Stream     bool           `json:"stream"`
-	Thinking   thinkingConfig `json:"thinking"`
-	System     []systemBlock  `json:"system"`
-	Tools      []Tool         `json:"tools,omitempty"`
-	ToolChoice *typeOnly      `json:"tool_choice,omitempty"`
-	Messages   []Message      `json:"messages"`
+	Model        string         `json:"model"`
+	MaxTokens    int            `json:"max_tokens"`
+	Stream       bool           `json:"stream"`
+	Thinking     thinkingConfig `json:"thinking"`
+	OutputConfig *outputConfig  `json:"output_config,omitempty"`
+	System       []systemBlock  `json:"system"`
+	Tools        []Tool         `json:"tools,omitempty"`
+	ToolChoice   *typeOnly      `json:"tool_choice,omitempty"`
+	Messages     []Message      `json:"messages"`
 }
 
+// thinkingConfig is adaptive reasoning with its summary streamed: Claude
+// omits the text by default and then sends nothing while it thinks, longer
+// than idleTimeout. DeepSeek takes the same shape.
 type thinkingConfig struct {
 	Type         string `json:"type"`
+	Display      string `json:"display,omitempty"`
 	BudgetTokens int    `json:"budget_tokens,omitempty"`
+}
+
+type outputConfig struct {
+	Effort config.Effort `json:"effort"`
 }
 
 // systemBlock carries cache_control: Anthropic caches tools and system
@@ -192,12 +216,18 @@ type typeOnly struct {
 
 func (c *Client) request(k call) request {
 	r := request{
-		Model: c.Model, MaxTokens: c.maxTokens, Stream: true, Thinking: thinkingConfig{Type: "disabled"},
+		Model: c.Model, MaxTokens: c.maxTokens, Stream: true, Thinking: thinkingConfig{Type: config.ThinkingOff(c.Model)},
 		System: []systemBlock{{Type: blockText, Text: k.system, CacheControl: typeOnly{Type: "ephemeral"}}},
 		Tools:  k.tools, Messages: k.messages,
 	}
-	if c.Thinking {
-		r.Thinking = thinkingConfig{Type: "enabled", BudgetTokens: thinkingBudget}
+	switch {
+	case c.Thinking && legacyThinking.MatchString(c.Model):
+		r.Thinking = thinkingConfig{Type: "enabled", BudgetTokens: legacyBudget}
+	case c.Thinking:
+		r.Thinking = thinkingConfig{Type: "adaptive", Display: "summarized"}
+	}
+	if c.effort != "" {
+		r.OutputConfig = &outputConfig{Effort: c.effort}
 	}
 	if k.noTools {
 		r.ToolChoice = &typeOnly{Type: "none"}

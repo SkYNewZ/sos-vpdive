@@ -21,6 +21,7 @@ commands:
   validate-kb      check the fiches of kb/ and list the marks left to fill in
   vapid-keys       print a new key pair for the committee's push notifications
   assistant-bench  answer message files with the assistant, headless (-messages DIR -out DIR)
+  suggest-bench    ask for the suggestions of request files (-messages DIR -out DIR [-runs N])
 `
 
 // version names the build in logs and Sentry events. The Makefile and the
@@ -72,6 +73,8 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout 
 		return vapidKeys(stdout)
 	case "assistant-bench":
 		return assistantBench(ctx, getenv, args[1:], stdout)
+	case "suggest-bench":
+		return suggestBench(ctx, getenv, args[1:], stdout)
 	default:
 		return usageError{fmt.Sprintf("unknown command %q", args[0])}
 	}
