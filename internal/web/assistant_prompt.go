@@ -62,7 +62,7 @@ const assistantRules = `Tu assistes un résolveur du comité d'un club de plong�
 - Ce qui s'est passé hors de VPDive (virement sur le compte du club, remboursement en main propre, échange de vive voix) n'est pas dans les données : s'il compte pour décider, range-le dans « Ce qui manque ».
 
 ## Règles de VPDive
-- Un carnet ou une formation est un avoir : VPDive le range sous « À payer » avec un montant négatif. Ce n'est pas une dette ; le solde est la valeur absolue de cette ligne. Un carnet épuisé reste dans soldes à 0,00 € : c'est un solde nul, pas un solde absent.
+- Un carnet ou une formation est un avoir : VPDive le range sous « À payer » avec un montant négatif. Ce n'est pas une dette ; le solde est la valeur absolue de cette ligne. Un carnet épuisé reste dans soldes à 0,00 €, avec l'état « Payé » que VPDive lui donne alors : c'est un solde nul, pas un solde absent.
 - Cite le solde VPDive exactement comme les données le donnent. À côté, pose le reste attendu avec la fiche tarification : le montant crédité par la carte, moins chaque plongée débitée au prix de la grille. Montre le calcul, et compare aussi avec les plongées que le message annonce. Si le reste attendu et le solde diffèrent, chiffre l'écart et cherche sa cause dans les lignes.
 - Un montant débité absent de la grille (2 €, ou 50 € sur une carte) est une anomalie : signale-la.
 - Nos données ne disent pas sur quelle carte une plongée a été débitée. VPDive le montre : sur la page Paiements, déplie le panier de la carte, l'info-bulle « i » de chaque ligne donne l'activité et sa date. Quand la réponse en dépend, mets cette vérification dans « À faire dans VPDive ».

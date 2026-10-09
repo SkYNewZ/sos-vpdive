@@ -100,7 +100,7 @@
 <thead><tr><th scope="col">Intitulé</th><th scope="col" class="text-right">Avoir restant</th><th scope="col">Ligne créée le</th></tr></thead>
 <tbody>{{range .}}<tr><td class="break-words">{{.Product}}</td><td class="text-right whitespace-nowrap">{{.UnitPrice.Abs.Euros}}</td><td>{{formatDate .Created}}</td></tr>{{end}}</tbody>
 </table></div>
-<p class="mt-1 text-sm">VPDive affiche l'avoir en négatif, sous « reste à payer ». La date est celle de la ligne, pas celle de l'achat.</p>
+<p class="mt-1 text-sm">VPDive affiche l'avoir en négatif, sous « reste à payer ». Une carte épuisée y passe en « Payé », à 0,00 €. La date est celle de la ligne, pas celle de l'achat.</p>
 {{end}}
 {{with .ToSettle}}<h3 class="mt-4 font-semibold">À régler</h3>
 <div class="overflow-x-auto"><table class="table mt-2 max-sm:[&_:is(th,td)]:px-1">
