@@ -9,7 +9,7 @@ CREATE TABLE import_runs (
     id INTEGER PRIMARY KEY,
     kind TEXT NOT NULL CHECK (kind IN ('members', 'payments', 'vpaydive', 'calendar', 'carnets')),
     at INTEGER NOT NULL,
-    by TEXT NOT NULL,
+    run_by TEXT NOT NULL,
     result TEXT NOT NULL CHECK (result IN ('imported', 'unchanged', 'refused', 'failed')),
     code TEXT NOT NULL DEFAULT '',
     detail TEXT NOT NULL DEFAULT '',

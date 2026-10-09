@@ -75,25 +75,8 @@ var reportedCode = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
 // upload, then a replacement without preview.
 func (s *Server) apiImport(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	ok, err := s.limiter.allow(ctx, "import-api:"+s.clientIP(r).String(), apiImportLimit, time.Hour)
-	switch {
-	case err != nil:
-		s.logger.ErrorContext(ctx, "internal error", "error", err)
-		s.writeJSON(w, r, http.StatusInternalServerError, pushRefused{Error: codeInternal})
-		return
-	case !ok:
-		w.Header().Set("Retry-After", "3600")
-		s.writeJSON(w, r, http.StatusTooManyRequests, pushRefused{Error: "rate_limited"})
-		return
-	}
-	if !s.importTokenValid(r.Header.Get("Authorization")) {
-		s.logger.WarnContext(ctx, "import token refused")
-		s.writeJSON(w, r, http.StatusUnauthorized, pushRefused{Error: "unauthorized"})
-		return
-	}
-	kind := imports.Kind(r.PathValue("type"))
-	if _, known := exportNames[kind]; !known {
-		s.writeJSON(w, r, http.StatusNotFound, pushRefused{Error: "unknown_type"})
+	kind, ok := s.admitScript(w, r, "import-api")
+	if !ok {
 		return
 	}
 	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxUploadBytes))
@@ -144,25 +127,8 @@ func (s *Server) apiImport(w http.ResponseWriter, r *http.Request) {
 // on the imports page. No mail: the staleness alert covers a lasting failure.
 func (s *Server) apiImportFailure(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	ok, err := s.limiter.allow(ctx, "import-failure:"+s.clientIP(r).String(), apiImportLimit, time.Hour)
-	switch {
-	case err != nil:
-		s.logger.ErrorContext(ctx, "internal error", "error", err)
-		s.writeJSON(w, r, http.StatusInternalServerError, pushRefused{Error: codeInternal})
-		return
-	case !ok:
-		w.Header().Set("Retry-After", "3600")
-		s.writeJSON(w, r, http.StatusTooManyRequests, pushRefused{Error: "rate_limited"})
-		return
-	}
-	if !s.importTokenValid(r.Header.Get("Authorization")) {
-		s.logger.WarnContext(ctx, "import token refused")
-		s.writeJSON(w, r, http.StatusUnauthorized, pushRefused{Error: "unauthorized"})
-		return
-	}
-	kind := imports.Kind(r.PathValue("type"))
-	if _, known := exportNames[kind]; !known {
-		s.writeJSON(w, r, http.StatusNotFound, pushRefused{Error: "unknown_type"})
+	kind, ok := s.admitScript(w, r, "import-failure")
+	if !ok {
 		return
 	}
 	var report failureReport
@@ -181,6 +147,35 @@ func (s *Server) apiImportFailure(w http.ResponseWriter, r *http.Request) {
 	}
 	s.logger.InfoContext(ctx, "import failure reported", "kind", string(kind), "code", report.Code)
 	s.writeJSON(w, r, http.StatusOK, map[string]string{"result": "recorded"})
+}
+
+// admitScript gates a call of the external script (spec §7.6): its own
+// counter per client address, then the token, then the export the route
+// names. A refused call is answered here and reported false.
+func (s *Server) admitScript(w http.ResponseWriter, r *http.Request, counter string) (imports.Kind, bool) {
+	ctx := r.Context()
+	ok, err := s.limiter.allow(ctx, counter+":"+s.clientIP(r).String(), apiImportLimit, time.Hour)
+	switch {
+	case err != nil:
+		s.logger.ErrorContext(ctx, "internal error", "error", err)
+		s.writeJSON(w, r, http.StatusInternalServerError, pushRefused{Error: codeInternal})
+		return "", false
+	case !ok:
+		w.Header().Set("Retry-After", "3600")
+		s.writeJSON(w, r, http.StatusTooManyRequests, pushRefused{Error: "rate_limited"})
+		return "", false
+	}
+	if !s.importTokenValid(r.Header.Get("Authorization")) {
+		s.logger.WarnContext(ctx, "import token refused")
+		s.writeJSON(w, r, http.StatusUnauthorized, pushRefused{Error: "unauthorized"})
+		return "", false
+	}
+	kind := imports.Kind(r.PathValue("type"))
+	if _, known := exportNames[kind]; !known {
+		s.writeJSON(w, r, http.StatusNotFound, pushRefused{Error: "unknown_type"})
+		return "", false
+	}
+	return kind, true
 }
 
 // recordRun journals r at now, outside any transaction; a failure is logged

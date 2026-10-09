@@ -44,7 +44,7 @@ type Run struct {
 // Record journals r through q.
 func Record(ctx context.Context, q store.Execer, r Run) error {
 	if _, err := q.ExecContext(ctx,
-		`INSERT INTO import_runs (kind, at, by, result, code, detail, row_count, skipped_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO import_runs (kind, at, run_by, result, code, detail, row_count, skipped_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		string(r.Kind), r.At.Unix(), r.By, string(r.Result), r.Code, r.Detail, r.Rows, r.Skipped); err != nil {
 		return fmt.Errorf("journal %s run: %w", r.Kind, err)
 	}
@@ -54,7 +54,7 @@ func Record(ctx context.Context, q store.Execer, r Run) error {
 // Runs returns the runs of kind at or after since, the latest first.
 func Runs(ctx context.Context, q store.Querier, kind Kind, since time.Time) ([]Run, error) {
 	rows, err := q.QueryContext(ctx,
-		`SELECT at, by, result, code, detail, row_count, skipped_count FROM import_runs
+		`SELECT at, run_by, result, code, detail, row_count, skipped_count FROM import_runs
 		 WHERE kind = ? AND at >= ? ORDER BY at DESC, id DESC`, string(kind), since.Unix())
 	out, err := store.Collect(rows, err, func(rows *sql.Rows) (Run, error) {
 		var (

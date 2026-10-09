@@ -45,9 +45,9 @@ type runsChart struct {
 }
 
 type runColumn struct {
-	Label    string // « mar. 27 oct. »
-	Tick     string // under the axis, on some columns
-	X        int    // the left edge of its slot
+	axisDay
+
+	X        int // the left edge of its slot
 	MarkX    float64
 	Rows     int // of the last successful run, 0 without one
 	Runs     int
@@ -82,21 +82,15 @@ func buildJournal(kind imports.Kind, runs []imports.Run, now time.Time, paris *t
 	for _, r := range runs[:min(len(runs), journalRecent)] {
 		j.Recent = append(j.Recent, runRow{Run: r, Outcome: outcome(r, unit)})
 	}
-	today := midnight(now, paris)
-	cols, dayAt := make([]runColumn, journalDays), make(map[string]int, journalDays)
-	for i := range cols {
-		d := today.AddDate(0, 0, i+1-journalDays)
-		dayAt[parisDay(d, paris)] = i
-		cols[i].Label = frShortDay(d)
+	axis, dayAt := axisDays(midnight(now, paris), journalDays, paris)
+	cols := make([]runColumn, journalDays)
+	for i, d := range axis {
+		cols[i].axisDay = d
 		cols[i].X = i * slotWidth
 		cols[i].MarkX = float64(cols[i].X + (slotWidth-barWidth)/2)
-		if (journalDays-1-i)%7 == 0 {
-			cols[i].Tick = strconv.Itoa(d.Day()) + " " + frMonthsShort[d.Month()-1]
-		}
 	}
-	var largest int64
 	for _, r := range slices.Backward(runs) { // oldest first: the day's last success wins
-		c, ok := dayAt[parisDay(r.At.In(paris), paris)]
+		c, ok := dayAt[parisDay(r.At, paris)]
 		if !ok {
 			continue
 		}
@@ -104,11 +98,14 @@ func buildJournal(kind imports.Kind, runs []imports.Run, now time.Time, paris *t
 		switch r.Result {
 		case imports.Imported, imports.Unchanged:
 			cols[c].Rows = r.Rows
-			largest = max(largest, int64(r.Rows))
 		case imports.Refused, imports.Failed:
 			cols[c].Failures++
 			j.Failures++
 		}
+	}
+	var largest int64
+	for _, c := range cols { // the values drawn, not every success of a day
+		largest = max(largest, int64(c.Rows))
 	}
 	top := roundUp(largest)
 	j.Chart.Top = strconv.FormatInt(top, 10)

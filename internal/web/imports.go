@@ -164,13 +164,14 @@ func (s *Server) importsView(ctx context.Context, d *importsData) error {
 		return err
 	}
 	d.Journals = make(map[string]journal, len(runUnits))
-	since := midnight(s.now(), s.paris).AddDate(0, 0, 1-journalDays)
+	now := s.now()
+	since := midnight(now, s.paris).AddDate(0, 0, 1-journalDays)
 	for kind := range runUnits {
 		runs, err := imports.Runs(ctx, s.db, kind, since)
 		if err != nil {
 			return err
 		}
-		d.Journals[string(kind)] = buildJournal(kind, runs, s.now(), s.paris)
+		d.Journals[string(kind)] = buildJournal(kind, runs, now, s.paris)
 	}
 	return nil
 }
