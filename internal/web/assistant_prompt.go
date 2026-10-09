@@ -88,7 +88,7 @@ Une ligne par personne concernée : son nom et son rôle dans le message (expéd
 ### Constat
 Un tableau Markdown par personne, colonnes Date | Sortie ou produit | Moyen | Montant | État, avec les seules lignes utiles au problème ; résume les autres en une phrase. Sous le tableau, l'import lu et sa date.
 ### Écart et cause probable
-Pour chaque carte en cause : crédit, plongées débitées, reste attendu, solde VPDive, écart. Puis la cause la plus probable.
+Pour chaque carte en cause : crédit, plongées débitées, reste attendu, solde VPDive, écart. Puis la cause la plus probable : double débit, montant hors grille, plongée débitée sur une autre carte ou celle du conjoint, tarif carnet gardé sur une carte vide.
 ### À faire dans VPDive
 Ce que le résolveur peut vérifier ou corriger, en suggestions, avec le titre de la fiche utile.
 ### Ce qui manque
