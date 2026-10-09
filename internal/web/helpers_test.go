@@ -154,7 +154,7 @@ func newTestEnv(t *testing.T, opts ...func(*Deps)) *testEnv {
 	t.Cleanup(sentryClient.Close)
 	logger := telemetry.WithSentry(ctx, telemetry.NewLogger(logs, slog.LevelDebug), sentryClient)
 	clock := &testClock{t: time.Date(2026, 9, 2, 10, 0, 0, 0, time.UTC)}
-	registry, err := admins.Open(ctx, db, keys, logger, clock.now)
+	registry, err := admins.Open(ctx, db, keys, t.TempDir(), logger, clock.now)
 	require.NoError(t, err)
 	require.NoError(t, registry.Insert(ctx, alice()))
 	cfg := &config.Config{
@@ -339,6 +339,12 @@ func pngBytes(t *testing.T) []byte {
 // multipartBody encodes values and files (field "captures") as a member form.
 func multipartBody(t *testing.T, values url.Values, files ...[]byte) (io.Reader, func(*http.Request)) {
 	t.Helper()
+	return multipartFiles(t, values, captureField, files...)
+}
+
+// multipartFiles encodes values and files, sent in field, as a multipart form.
+func multipartFiles(t *testing.T, values url.Values, field string, files ...[]byte) (io.Reader, func(*http.Request)) {
+	t.Helper()
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
 	for name, vs := range values {
@@ -347,7 +353,7 @@ func multipartBody(t *testing.T, values url.Values, files ...[]byte) (io.Reader,
 		}
 	}
 	for i, data := range files {
-		fw, err := mw.CreateFormFile("captures", fmt.Sprintf("capture-%d.png", i+1))
+		fw, err := mw.CreateFormFile(field, fmt.Sprintf("file-%d.png", i+1))
 		require.NoError(t, err)
 		_, err = fw.Write(data)
 		require.NoError(t, err)

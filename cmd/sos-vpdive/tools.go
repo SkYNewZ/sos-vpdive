@@ -70,7 +70,7 @@ func resetPassword(ctx context.Context, getenv func(string) string, args []strin
 	if err := store.CheckKey(ctx, db, keys); err != nil {
 		return err
 	}
-	registry, err := admins.Open(ctx, db, keys, slog.New(slog.DiscardHandler), time.Now)
+	registry, err := admins.Open(ctx, db, keys, filepath.Join(cfg.DataDir, avatarsDir), slog.New(slog.DiscardHandler), time.Now)
 	if err != nil {
 		return err
 	}

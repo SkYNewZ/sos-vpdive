@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -35,11 +36,12 @@ var (
 // after each change made through it, and every Watch interval for changes
 // made by another process (the reset-password command).
 type Registry struct {
-	db     *sql.DB
-	keys   *secure.Keys
-	logger *slog.Logger
-	now    func() time.Time
-	style  *dicebear.Style
+	db      *sql.DB
+	keys    *secure.Keys
+	logger  *slog.Logger
+	now     func() time.Time
+	style   *dicebear.Style
+	avatars *os.Root // the sealed photo files
 
 	// OnChange, when set, runs after an account was removed or its password
 	// changed: sessions must be revoked (spec §4.1).
@@ -51,13 +53,21 @@ type Registry struct {
 	accounts map[string]Account
 }
 
-// Open loads the accounts of db.
-func Open(ctx context.Context, db *sql.DB, keys *secure.Keys, logger *slog.Logger, now func() time.Time) (*Registry, error) {
+// Open loads the accounts of db. avatarDir holds the photos; it is created
+// if needed.
+func Open(ctx context.Context, db *sql.DB, keys *secure.Keys, avatarDir string, logger *slog.Logger, now func() time.Time) (*Registry, error) {
 	style, err := dicebear.NewStyle([]byte(styles.VoxelArt))
 	if err != nil {
 		return nil, fmt.Errorf("avatar style: %w", err)
 	}
-	r := &Registry{db: db, keys: keys, logger: logger, now: now, style: style}
+	if err := os.MkdirAll(avatarDir, 0o700); err != nil {
+		return nil, fmt.Errorf("avatars directory: %w", err)
+	}
+	avatars, err := os.OpenRoot(avatarDir)
+	if err != nil {
+		return nil, fmt.Errorf("avatars directory: %w", err)
+	}
+	r := &Registry{db: db, keys: keys, logger: logger, now: now, style: style, avatars: avatars}
 	if _, err := r.Reload(ctx); err != nil {
 		return nil, err
 	}
@@ -108,13 +118,21 @@ func (r *Registry) Reload(ctx context.Context) ([]string, error) {
 	r.syncMu.Lock()
 	defer r.syncMu.Unlock()
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT username, name, role, password_hash, must_change_password, pushover_user_key FROM accounts`)
+		`SELECT username, name, role, password_hash, must_change_password, pushover_user_key, avatar_file FROM accounts`)
 	list, err := store.Collect(rows, err, r.scan)
 	if err != nil {
 		return nil, fmt.Errorf("read accounts: %w", err)
 	}
 	next := make(map[string]Account, len(list))
 	for _, a := range list {
+		// The avatar is read or drawn again only when the photo changed.
+		// r.accounts is safe to read without mu: only Reload writes it,
+		// under syncMu.
+		if old, ok := r.accounts[a.Username]; ok && old.avatarFile == a.avatarFile {
+			a.Avatar = old.Avatar
+		} else if a.Avatar, err = r.avatar(ctx, a); err != nil {
+			return nil, err
+		}
 		next[a.Username] = a
 	}
 
@@ -264,10 +282,23 @@ func (r *Registry) SetPushoverKey(ctx context.Context, username, key string) err
 		`UPDATE accounts SET pushover_user_key = ? WHERE username = ?`, sealed, username)
 }
 
-// Delete removes the account. Its sessions end and its open requests return
-// to « à traiter » through OnChange.
+// Delete removes the account and its photo. Its sessions end and its open
+// requests return to « à traiter » through OnChange.
 func (r *Registry) Delete(ctx context.Context, username string) error {
-	return r.update(ctx, "accounts.delete", ErrNotFound, `DELETE FROM accounts WHERE username = ?`, username)
+	var file sql.NullString
+	err := store.Tx(ctx, r.db, "accounts.delete", func(ctx context.Context, tx *sql.Tx) error {
+		err := tx.QueryRowContext(ctx, `DELETE FROM accounts WHERE username = ? RETURNING avatar_file`, username).Scan(&file)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("accounts.delete: %w", err)
+	}
+	r.removeAvatar(ctx, file.String)
+	r.reloadAfterWrite(ctx)
+	return nil
 }
 
 // poll is one Watch tick. A failed read is logged once while the same error
@@ -289,10 +320,12 @@ func (r *Registry) scan(rows *sql.Rows) (Account, error) {
 	var (
 		a         Account
 		name, key []byte
+		file      sql.NullString
 	)
-	if err := rows.Scan(&a.Username, &name, &a.Role, &a.PasswordHash, &a.MustChangePassword, &key); err != nil {
+	if err := rows.Scan(&a.Username, &name, &a.Role, &a.PasswordHash, &a.MustChangePassword, &key, &file); err != nil {
 		return Account{}, err
 	}
+	a.avatarFile = file.String
 	var err error
 	if a.Name, err = r.keys.OpenString(name); err != nil {
 		return Account{}, fmt.Errorf("account name: %w", err)
@@ -301,9 +334,6 @@ func (r *Registry) scan(rows *sql.Rows) (Account, error) {
 		if a.PushoverUserKey, err = r.keys.OpenString(key); err != nil {
 			return Account{}, fmt.Errorf("account pushover key: %w", err)
 		}
-	}
-	if a.Avatar, err = avatarURI(r.style, a.Username); err != nil {
-		return Account{}, err
 	}
 	return a, nil
 }
