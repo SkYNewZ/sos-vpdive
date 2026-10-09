@@ -4,12 +4,12 @@
 <p class="mt-4 max-w-3xl text-lg">Ce mois-ci{{template "usageSplit" $d.Month}}.</p>
 <p class="mt-1 max-w-3xl">Aujourd'hui{{template "usageSplit" $d.Today}}.</p>
 <section class="panel mt-6 p-4 lg:p-5" aria-labelledby="jours">
-<h2 id="jours" class="text-xl font-semibold">{{if $d.Cost}}Coût{{else}}Appels{{end}} par jour, 30 derniers jours</h2>
+<h2 id="jours" class="text-xl font-semibold">{{if $d.Days.Cost}}Coût{{else}}Appels{{end}} par jour, 30 derniers jours</h2>
 {{template "usageChart" $d.Days}}
 </section>
 <div class="mt-6 grid gap-6 lg:grid-cols-2">
 <section class="panel p-4 lg:p-5" aria-labelledby="mois">
-<h2 id="mois" class="text-xl font-semibold">{{if $d.Cost}}Coût{{else}}Appels{{end}} par mois, 12 derniers mois</h2>
+<h2 id="mois" class="text-xl font-semibold">{{if $d.Months.Cost}}Coût{{else}}Appels{{end}} par mois, 12 derniers mois</h2>
 {{template "usageChart" $d.Months}}
 </section>
 <section class="panel p-4 lg:p-5" aria-labelledby="comptes">

@@ -54,7 +54,8 @@ func TestBuildDashboard(t *testing.T) {
 	assert.Equal(t, split{Assistant: spend{Calls: 1, Cost: micro(40_000)}}, d.Months.Columns[10].split)
 	assert.Equal(t, split{Assistant: spend{Calls: 3, Cost: micro(200_000)}, Suggest: spend{Calls: 2, Cost: micro(3_000)}}, d.Month)
 	assert.Equal(t, micro(203_000), d.Month.Cost())
-	assert.True(t, d.Cost)
+	assert.True(t, d.Days.Cost)
+	assert.True(t, d.Months.Cost)
 	assert.Equal(t, "0,25\u00a0$", d.Months.Top, "the axis tops at a round amount")
 	assert.Equal(t, "0,10\u00a0$", d.Days.Top)
 
@@ -75,13 +76,41 @@ func TestBuildDashboardWithoutPrices(t *testing.T) {
 	require.NoError(t, err)
 	now := time.Date(2026, 10, 9, 10, 0, 0, 0, time.UTC)
 	d := buildDashboard([]usageCall{{Account: "alice", At: now}, {At: now}, {At: now}}, now, paris)
-	assert.False(t, d.Cost, "no price: the charts count calls")
+	assert.False(t, d.Days.Cost, "no price: the charts count calls")
 	assert.Equal(t, "5", d.Days.Top, "3 calls today")
 	assert.False(t, d.Month.Cost().Valid)
 	assert.Equal(t, []accountSpend{
 		{Calls: 2, Share: 100},
 		{Account: "alice", Calls: 1, Share: 50},
 	}, d.Accounts)
+}
+
+func TestBuildDashboardWithPartialPrices(t *testing.T) {
+	paris, err := time.LoadLocation("Europe/Paris")
+	require.NoError(t, err)
+	now := time.Date(2026, 10, 9, 10, 0, 0, 0, time.UTC)
+	calls := []usageCall{
+		{Account: "alice", At: now, Cost: micro(80_000)},
+		{At: now}, // LLM_PRICE_* unset
+		{At: now.AddDate(0, 0, -35), Cost: micro(1_000)}, // 4 September
+	}
+	d := buildDashboard(calls, now, paris)
+	assert.False(t, d.Days.Cost, "a call without a price: the days count calls")
+	assert.NotEmpty(t, d.Days.Columns[dashboardDays-1].S, "the suggestion still shows")
+	assert.False(t, d.Months.Cost)
+	assert.Equal(t, micro(80_000), d.Today.Assistant.Cost)
+	assert.False(t, d.Today.Suggest.Cost.Valid)
+	assert.False(t, d.Today.Cost().Valid, "no total that leaves calls out")
+	assert.Equal(t, []accountSpend{
+		{Calls: 1, Share: 100},
+		{Account: "alice", Calls: 1, Cost: micro(80_000), Share: 100},
+	}, d.Accounts, "shares count calls")
+
+	calls[1].At = now.AddDate(0, 0, -36) // 3 September: out of the days, in the months
+	d = buildDashboard(calls, now, paris)
+	assert.True(t, d.Days.Cost, "every call of the 30 days had a price")
+	assert.False(t, d.Months.Cost)
+	assert.False(t, d.Months.Columns[dashboardMonths-2].Suggest.Cost.Valid, "a partial sum would understate September")
 }
 
 func TestDollars(t *testing.T) {

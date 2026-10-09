@@ -276,8 +276,8 @@ conversation, and so does a restart. Each account gets
 usage journal at `/assistant/journal`: what the assistant and the suggestions
 cost per day over 30 days, per month over 12 and per account this month, then
 the last 100 questions with their tokens but not their text. Costs are
-estimates from `ASSISTANT_PRICE_*` and `LLM_PRICE_*`; without prices the
-charts count calls.
+estimates from `ASSISTANT_PRICE_*` and `LLM_PRICE_*`; a chart counts calls
+instead unless every call it shows has a price.
 The assistant has its own provider, apart from the suggestions':
 `ASSISTANT_BASE_URL` (Anthropic by default), `ASSISTANT_API_KEY` and
 `ASSISTANT_MODEL`. Claude Sonnet 5.5 at effort `high` gave the best answers in

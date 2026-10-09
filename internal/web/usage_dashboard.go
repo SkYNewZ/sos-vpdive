@@ -35,20 +35,21 @@ type usageCall struct {
 	Cost    sql.NullInt64
 }
 
-// spend sums model calls. Cost has SUM semantics: invalid when no call had
-// a price.
+// spend sums model calls. Cost is valid only while every call had a price:
+// a partial sum would understate it.
 type spend struct {
 	Calls int
 	Cost  sql.NullInt64
 }
 
 func (s spend) add(cost sql.NullInt64) spend {
+	s.Cost = sql.NullInt64{Int64: s.Cost.Int64 + cost.Int64, Valid: cost.Valid && (s.Calls == 0 || s.Cost.Valid)}
 	s.Calls++
-	if cost.Valid {
-		s.Cost = sql.NullInt64{Int64: s.Cost.Int64 + cost.Int64, Valid: true}
-	}
 	return s
 }
+
+// priced is true when s has a cost for every call, none included.
+func (s spend) priced() bool { return s.Calls == 0 || s.Cost.Valid }
 
 // value is what the charts measure: micro-dollars, or calls without prices.
 func (s spend) value(cost bool) int64 {
@@ -61,9 +62,10 @@ func (s spend) value(cost bool) int64 {
 // split is the spend of both modes over a period.
 type split struct{ Assistant, Suggest spend }
 
-// Cost sums both modes, SUM semantics too.
+// Cost sums both modes, valid when every call had a price.
 func (p split) Cost() sql.NullInt64 {
-	return sql.NullInt64{Int64: p.Assistant.Cost.Int64 + p.Suggest.Cost.Int64, Valid: p.Assistant.Cost.Valid || p.Suggest.Cost.Valid}
+	return sql.NullInt64{Int64: p.Assistant.Cost.Int64 + p.Suggest.Cost.Int64,
+		Valid: p.Assistant.Calls+p.Suggest.Calls > 0 && p.Assistant.priced() && p.Suggest.priced()}
 }
 
 func (p split) add(c usageCall) split {
@@ -86,6 +88,7 @@ type column struct {
 }
 
 type chart struct {
+	Cost    bool   // dollars, when every call shown had a price; else calls
 	Top     string // the value of the top gridline
 	Width   int    // of the viewBox
 	Columns []column
@@ -100,7 +103,6 @@ type accountSpend struct {
 }
 
 type dashboard struct {
-	Cost         bool // the charts measure dollars, else calls
 	Today, Month split
 	Days, Months chart
 	Accounts     []accountSpend // this month, the largest first
@@ -136,7 +138,6 @@ func buildDashboard(calls []usageCall, now time.Time, paris *time.Location) dash
 		}
 	}
 	accounts := map[string]spend{}
-	cost := false
 	for _, c := range calls {
 		t := c.At.In(paris)
 		if i, ok := dayAt[parisDay(t, paris)]; ok {
@@ -148,22 +149,23 @@ func buildDashboard(calls []usageCall, now time.Time, paris *time.Location) dash
 		if !t.Before(month) {
 			accounts[c.Account] = accounts[c.Account].add(c.Cost)
 		}
-		cost = cost || c.Cost.Valid
 	}
 	return dashboard{
-		Cost: cost, Today: days[dashboardDays-1].split, Month: months[dashboardMonths-1].split,
-		Days: draw(days, cost), Months: draw(months, cost), Accounts: ranked(accounts, cost),
+		Today: days[dashboardDays-1].split, Month: months[dashboardMonths-1].split,
+		Days: draw(days), Months: draw(months), Accounts: ranked(accounts),
 	}
 }
 
 // draw scales the columns to a round top and lays out their bars.
-func draw(cols []column, cost bool) chart {
+func draw(cols []column) chart {
+	cost := slices.ContainsFunc(cols, func(c column) bool { return c.Cost().Valid }) &&
+		!slices.ContainsFunc(cols, func(c column) bool { return !c.Assistant.priced() || !c.Suggest.priced() })
 	var largest int64
 	for _, c := range cols {
 		largest = max(largest, c.Assistant.value(cost)+c.Suggest.value(cost))
 	}
 	top := roundUp(largest)
-	ch := chart{Width: len(cols) * slotWidth, Columns: cols, Top: strconv.FormatInt(top, 10)}
+	ch := chart{Cost: cost, Width: len(cols) * slotWidth, Columns: cols, Top: strconv.FormatInt(top, 10)}
 	if cost {
 		ch.Top = dollars(sql.NullInt64{Int64: top, Valid: true})
 	}
@@ -218,11 +220,14 @@ func bar(x, y, bottom float64, round bool) string {
 		x, bottom, y+ry, rx, ry, x+rx, y, x+barWidth-rx, rx, ry, x+barWidth, y+ry, bottom)
 }
 
-// ranked sorts the month's accounts, the largest first.
-func ranked(accounts map[string]spend, cost bool) []accountSpend {
+// ranked sorts the month's accounts, the largest first: by cost when every
+// call had a price, else by calls.
+func ranked(accounts map[string]spend) []accountSpend {
 	out := make([]accountSpend, 0, len(accounts))
+	cost := true
 	for account, s := range accounts {
 		out = append(out, accountSpend{Account: account, spend: s})
+		cost = cost && s.Cost.Valid
 	}
 	slices.SortFunc(out, func(a, b accountSpend) int {
 		return cmp.Or(cmp.Compare(b.value(cost), a.value(cost)), cmp.Compare(a.Account, b.Account))
