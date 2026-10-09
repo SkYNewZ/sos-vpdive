@@ -256,7 +256,9 @@ No i18n framework.
 - Write invisible characters in Go tests as escapes (`\u00a0`, `\u0301`):
   editors and agents normalise raw ones away.
 - html/template outputs `+` as `&#43;` and `'` as `&#39;`.
-- `internal/web` tests take about 90 s (argon2id at 64 MiB per login).
+- `internal/web` tests take about 5 min with `-race` (a migrated SQLite per
+  test). Test accounts use `adminstest.Hash`, argon2id at the lowest cost: a
+  hash from `HashPassword` costs about a second under `-race`.
 - SQLite reuses the highest `INTEGER PRIMARY KEY` after a delete: ids that leave the
   process (URLs, in-flight sends) need `AUTOINCREMENT`.
 - Migrations are tracked by number only: never edit one that has shipped.

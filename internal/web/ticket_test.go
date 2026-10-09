@@ -15,13 +15,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/admins"
+	"github.com/SkYNewZ/sos-vpdive/internal/admins/adminstest"
 	"github.com/SkYNewZ/sos-vpdive/internal/tickets"
 )
 
 var versionField = regexp.MustCompile(`name="version" value="(\d+)"`)
 
 func bob() admins.Account {
-	return admins.Account{Username: "bob", Name: "Bob", Role: "Trésorier", PasswordHash: testHash()}
+	return admins.Account{Username: "bob", Name: "Bob", Role: "Trésorier", PasswordHash: adminstest.Hash}
 }
 
 // addBob adds a second committee account; alice's sessions stay valid.

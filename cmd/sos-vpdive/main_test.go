@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/admins"
+	"github.com/SkYNewZ/sos-vpdive/internal/admins/adminstest"
 	"github.com/SkYNewZ/sos-vpdive/internal/config"
 	"github.com/SkYNewZ/sos-vpdive/internal/mail"
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
@@ -30,14 +31,6 @@ import (
 	"github.com/SkYNewZ/sos-vpdive/internal/store"
 	"github.com/SkYNewZ/sos-vpdive/internal/tickets"
 )
-
-var testHash = sync.OnceValue(func() string {
-	h, err := admins.HashPassword("correct horse battery staple")
-	if err != nil {
-		return "unreachable"
-	}
-	return h
-})
 
 type lockedBuffer struct {
 	mu  sync.Mutex
@@ -205,7 +198,7 @@ func addAccounts(t *testing.T, r *admins.Registry, usernames ...string) {
 	t.Helper()
 	for _, u := range usernames {
 		require.NoError(t, r.Insert(context.Background(), admins.Account{
-			Username: u, Name: strings.ToUpper(u[:1]) + u[1:], Role: "Membre du comité", PasswordHash: testHash(),
+			Username: u, Name: strings.ToUpper(u[:1]) + u[1:], Role: "Membre du comité", PasswordHash: adminstest.Hash,
 		}))
 	}
 }
