@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/admins"
+	"github.com/SkYNewZ/sos-vpdive/internal/imports"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 	"github.com/SkYNewZ/sos-vpdive/internal/store"
 )
@@ -230,6 +231,9 @@ func (s *Server) Purge(ctx context.Context) error {
 		if _, err := s.db.ExecContext(ctx, query, s.now().AddDate(0, -usageRetention, 0).Unix()); err != nil {
 			return fmt.Errorf("purge usage: %w", err)
 		}
+	}
+	if err := imports.PurgeRuns(ctx, s.db, s.now()); err != nil {
+		return err
 	}
 	return s.limiter.purge(ctx)
 }

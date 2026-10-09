@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -22,6 +23,10 @@ import (
 // apiImportLimit is the number of pushed imports allowed per hour and per
 // client address (spec §7.6).
 const apiImportLimit = 10
+
+// codeInternal is the refusal code and the journal class of a failure of
+// our own.
+const codeInternal = "internal"
 
 // exportNames name each export in the mails to the club; their keys are the
 // {type} values of the pushed-import route.
@@ -41,11 +46,25 @@ type pushed struct {
 }
 
 // pushRefused is the answer to a refused pushed import: a stable code and,
-// for a refused file, the message the imports page would show.
+// for a refused file, the message the imports page would show. Recorded
+// tells the script the refusal is in the runs journal already (design
+// 2026-10-09), so it does not report the failure a second time.
 type pushRefused struct {
-	Error   string `json:"error"`
-	Message string `json:"message,omitempty"`
+	Error    string `json:"error"`
+	Message  string `json:"message,omitempty"`
+	Recorded bool   `json:"recorded,omitempty"`
 }
+
+// failureReport is what the script posts when a run could not reach the
+// push (design 2026-10-09): a stable class and the text it logged.
+type failureReport struct {
+	Code   string `json:"code"`
+	Detail string `json:"detail"`
+}
+
+// reportedCode bounds the class of a reported failure, as the script bounds
+// our refusal codes.
+var reportedCode = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
 
 // apiImport takes an export pushed by the external script (spec §7.6): no
 // session and no Origin, a token; the same reading and validation as an
@@ -56,7 +75,7 @@ func (s *Server) apiImport(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case err != nil:
 		s.logger.ErrorContext(ctx, "internal error", "error", err)
-		s.writeJSON(w, r, http.StatusInternalServerError, pushRefused{Error: "internal"})
+		s.writeJSON(w, r, http.StatusInternalServerError, pushRefused{Error: codeInternal})
 		return
 	case !ok:
 		w.Header().Set("Retry-After", "3600")
@@ -102,11 +121,73 @@ func (s *Server) apiImport(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.logger.ErrorContext(ctx, "internal error", "error", err)
-		s.writeJSON(w, r, http.StatusInternalServerError, pushRefused{Error: "internal"})
+		recorded := s.recordRun(ctx, imports.Run{Kind: kind, By: imports.ScriptAuthor, Result: imports.Failed,
+			Code: codeInternal, Detail: "Erreur interne de l'outil."})
+		s.writeJSON(w, r, http.StatusInternalServerError, pushRefused{Error: codeInternal, Recorded: recorded})
 		return
+	}
+	if answer.Result == "unchanged" {
+		s.recordRun(ctx, imports.Run{Kind: kind, By: imports.ScriptAuthor, Result: imports.Unchanged,
+			Rows: answer.Kept, Skipped: answer.Skipped})
 	}
 	s.logger.InfoContext(ctx, "export pushed", "kind", string(kind), "result", answer.Result, "kept", answer.Kept)
 	s.writeJSON(w, r, http.StatusOK, answer)
+}
+
+// apiImportFailure journals a run the script could not complete (design
+// 2026-10-09): same token and rate as a push, its own counter. The detail is
+// what the script logged, cut to imports.MaxDetail; the committee reads it
+// on the imports page. No mail: the staleness alert covers a lasting failure.
+func (s *Server) apiImportFailure(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	ok, err := s.limiter.allow(ctx, "import-failure:"+s.clientIP(r).String(), apiImportLimit, time.Hour)
+	switch {
+	case err != nil:
+		s.logger.ErrorContext(ctx, "internal error", "error", err)
+		s.writeJSON(w, r, http.StatusInternalServerError, pushRefused{Error: codeInternal})
+		return
+	case !ok:
+		w.Header().Set("Retry-After", "3600")
+		s.writeJSON(w, r, http.StatusTooManyRequests, pushRefused{Error: "rate_limited"})
+		return
+	}
+	if !s.importTokenValid(r.Header.Get("Authorization")) {
+		s.logger.WarnContext(ctx, "import token refused")
+		s.writeJSON(w, r, http.StatusUnauthorized, pushRefused{Error: "unauthorized"})
+		return
+	}
+	kind := imports.Kind(r.PathValue("type"))
+	if _, known := exportNames[kind]; !known {
+		s.writeJSON(w, r, http.StatusNotFound, pushRefused{Error: "unknown_type"})
+		return
+	}
+	var report failureReport
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxFieldBytes))
+	if err != nil || json.Unmarshal(body, &report) != nil || !reportedCode.MatchString(report.Code) {
+		s.writeJSON(w, r, http.StatusBadRequest, pushRefused{Error: "invalid_failure"})
+		return
+	}
+	detail := strings.TrimSpace(report.Detail)
+	if runes := []rune(detail); len(runes) > imports.MaxDetail {
+		detail = string(runes[:imports.MaxDetail-1]) + "…"
+	}
+	if !s.recordRun(ctx, imports.Run{Kind: kind, By: imports.ScriptAuthor, Result: imports.Failed, Code: report.Code, Detail: detail}) {
+		s.writeJSON(w, r, http.StatusInternalServerError, pushRefused{Error: codeInternal})
+		return
+	}
+	s.logger.InfoContext(ctx, "import failure reported", "kind", string(kind), "code", report.Code)
+	s.writeJSON(w, r, http.StatusOK, map[string]string{"result": "recorded"})
+}
+
+// recordRun journals r at now, outside any transaction; a failure is logged
+// and reported false.
+func (s *Server) recordRun(ctx context.Context, r imports.Run) bool {
+	r.At = s.now()
+	if err := imports.Record(ctx, s.db, r); err != nil {
+		s.logger.ErrorContext(ctx, "journal import run", "error", err)
+		return false
+	}
+	return true
 }
 
 // tooFewMessage explains a pushed file under half of the data in place. The
@@ -184,10 +265,15 @@ func (s *Server) refusePushed(w http.ResponseWriter, r *http.Request, kind impor
 	text := fmt.Sprintf("Le script d'import a déposé un fichier que l'outil a refusé : %s.\n\nRaison : %s\n\n"+
 		"Les données en place n'ont pas changé. %s", exportNames[kind], answer.Message, next)
 	if err := store.Tx(ctx, s.db, "import.refused", func(ctx context.Context, tx *sql.Tx) error {
+		if err := imports.Record(ctx, tx, imports.Run{Kind: kind, At: s.now(), By: imports.ScriptAuthor,
+			Result: imports.Refused, Code: answer.Error, Detail: answer.Message}); err != nil {
+			return err
+		}
 		return s.queueImportsMail(ctx, tx, mail.EventImportRefused, "Import automatique refusé : "+exportNames[kind], text)
 	}); err != nil {
 		s.logger.ErrorContext(ctx, "queue refusal mail", "error", err)
 	} else {
+		answer.Recorded = true
 		s.outbox.Wake()
 	}
 	s.writeJSON(w, r, status, answer)

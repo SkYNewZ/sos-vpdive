@@ -48,8 +48,9 @@ type importsData struct {
 	Members  membersSection
 	Payments paymentsSection
 	Mollie   mollieSection
-	Calendar *imports.Info // latest calendar pushed by the script (lot 8)
-	Carnets  *imports.Info // latest cards pushed by the script (design 2026-10-09)
+	Calendar *imports.Info      // latest calendar pushed by the script (lot 8)
+	Carnets  *imports.Info      // latest cards pushed by the script (design 2026-10-09)
+	Journals map[string]journal // the runs of each kind over 30 days (design 2026-10-09)
 }
 
 // importErrors are shown beside the upload and the confirmation of a section.
@@ -159,8 +160,19 @@ func (s *Server) importsView(ctx context.Context, d *importsData) error {
 	if d.Carnets, err = s.lastImport(ctx, imports.Carnets); err != nil {
 		return err
 	}
-	d.Mollie.ToCheck, d.Payments.ToCheck, err = s.checks.Count(ctx)
-	return err
+	if d.Mollie.ToCheck, d.Payments.ToCheck, err = s.checks.Count(ctx); err != nil {
+		return err
+	}
+	d.Journals = make(map[string]journal, len(runUnits))
+	since := midnight(s.now(), s.paris).AddDate(0, 0, 1-journalDays)
+	for kind := range runUnits {
+		runs, err := imports.Runs(ctx, s.db, kind, since)
+		if err != nil {
+			return err
+		}
+		d.Journals[string(kind)] = buildJournal(kind, runs, s.now(), s.paris)
+	}
+	return nil
 }
 
 // lastImport is the latest import of kind, nil when none.

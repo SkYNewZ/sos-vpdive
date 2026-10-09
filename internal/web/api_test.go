@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/SkYNewZ/sos-vpdive/internal/imports"
 	"github.com/SkYNewZ/sos-vpdive/internal/mail"
 	"github.com/SkYNewZ/sos-vpdive/internal/store"
 	"github.com/SkYNewZ/sos-vpdive/internal/xlsx/xlsxtest"
@@ -280,4 +281,102 @@ func TestPushedMembersListMarksHomonymLines(t *testing.T) {
 		require.NoError(t, e.db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM "+table+" WHERE ambiguous = 1").Scan(&marked))
 		assert.Equal(t, 2, marked, table)
 	}
+}
+
+// reportFailure posts a run failure as the script does.
+func (e *testEnv) reportFailure(t *testing.T, kind, body, token string) *httptest.ResponseRecorder {
+	t.Helper()
+	return e.do(t, http.MethodPost, adminHost, "/api/imports/"+kind+"/failure", strings.NewReader(body), func(r *http.Request) {
+		r.Header.Del("Origin")
+		r.Header.Set("Content-Type", "application/json")
+		if token != "" {
+			r.Header.Set("Authorization", "Bearer "+token)
+		}
+	})
+}
+
+// Design 2026-10-09: every run goes to the journal, the script's failures
+// included, and the imports page lists them with the chart of the month.
+func TestImportRunsAreJournaled(t *testing.T) {
+	e := newTestEnv(t, withImportToken)
+	cookie := e.login(t)
+	csrf := e.csrf(t, cookie, "/imports")
+	done := e.confirm(t, cookie, csrf, previewID(t, e.upload(t, cookie, csrf, fixtureBytes(t, "members_valid.xlsx"))), false)
+	require.Equal(t, http.StatusSeeOther, done.Code, done.Body.String())
+
+	e.clock.advance(time.Hour)
+	same := e.push(t, "members", fixtureBytes(t, "members_valid.xlsx"), importToken)
+	require.Equal(t, http.StatusOK, same.Code, same.Body.String())
+	assert.Equal(t, "unchanged", answer(t, same).Result)
+
+	e.clock.advance(time.Hour)
+	half := e.push(t, "members", fixtureBytes(t, "members_minimal.xlsx"), importToken)
+	assert.Equal(t, http.StatusUnprocessableEntity, half.Code)
+	assert.Contains(t, half.Body.String(), `"recorded":true`, "the script learns the refusal is journaled")
+
+	e.clock.advance(time.Hour)
+	reported := e.reportFailure(t, "members", `{"code":"vpdive_failed","detail":"bridge: HTTP 403"}`, importToken)
+	require.Equal(t, http.StatusOK, reported.Code, reported.Body.String())
+	assert.JSONEq(t, `{"result":"recorded"}`, reported.Body.String())
+	long := e.reportFailure(t, "payments", `{"code":"push_failed","detail":"`+strings.Repeat("é", 300)+`"}`, importToken)
+	require.Equal(t, http.StatusOK, long.Code, long.Body.String())
+
+	runs, err := imports.Runs(context.Background(), e.db, imports.Members, time.Time{})
+	require.NoError(t, err)
+	require.Len(t, runs, 4)
+	assert.Equal(t, []imports.Result{imports.Failed, imports.Refused, imports.Unchanged, imports.Imported},
+		[]imports.Result{runs[0].Result, runs[1].Result, runs[2].Result, runs[3].Result}, "the latest first")
+	assert.Equal(t, imports.Run{Kind: imports.Members, At: e.clock.now(), By: "script", Result: imports.Failed, Code: "vpdive_failed", Detail: "bridge: HTTP 403"}, runs[0])
+	assert.Equal(t, "too_few", runs[1].Code)
+	assert.Contains(t, runs[1].Detail, "moins de la moitié")
+	assert.Equal(t, 6, runs[2].Rows, "an unchanged push keeps the count read")
+	assert.Equal(t, imports.Run{Kind: imports.Members, At: e.clock.now().Add(-3 * time.Hour), By: "alice", Result: imports.Imported, Rows: 6, Skipped: 1}, runs[3])
+	payments, err := imports.Runs(context.Background(), e.db, imports.Payments, time.Time{})
+	require.NoError(t, err)
+	require.Len(t, payments, 1)
+	assert.Len(t, []rune(payments[0].Detail), imports.MaxDetail, "the detail is cut")
+	assert.True(t, strings.HasSuffix(payments[0].Detail, "…"))
+
+	page := e.do(t, http.MethodGet, adminHost, "/imports", nil, withCookie(cookie)).Body.String()
+	assert.Contains(t, page, "Derniers passages")
+	for _, want := range []string{
+		"Échec : lecture de VPDive en échec (bridge: HTTP 403)", "Refusé : Ce fichier contient moins de la moitié",
+		"Fichier identique au précédent", "Importé : 6 comptes", "Alice (Présidente)",
+		"4 passages ces 30 derniers jours, dont 2 échecs", "Comptes du dernier passage réussi du jour", `class="fill-error"`,
+		"status-success", "status-neutral", "status-error",
+		"Aucun passage ces 30 derniers jours.", // the calendar and the cards
+	} {
+		assert.Contains(t, page, want)
+	}
+	assert.Equal(t, 1, strings.Count(page, "Échec : envoi à l&#39;outil en échec"), "the payments section has its own journal")
+
+	e.clock.advance(imports.RunsRetention + time.Hour)
+	require.NoError(t, e.srv.Purge(context.Background()))
+	runs, err = imports.Runs(context.Background(), e.db, imports.Members, time.Time{})
+	require.NoError(t, err)
+	assert.Empty(t, runs, "runs are purged after 90 days")
+	assert.Contains(t, e.logs.String(), `"code":"vpdive_failed"`)
+	assert.NotContains(t, e.logs.String(), "HTTP 403", "the script's detail stays out of the logs")
+}
+
+func TestImportFailureReportIsGuarded(t *testing.T) {
+	e := newTestEnv(t, withImportToken)
+	assert.Equal(t, http.StatusUnauthorized, e.reportFailure(t, "members", `{"code":"push_failed"}`, "wrong").Code)
+	assert.Equal(t, http.StatusNotFound, e.reportFailure(t, "cartes", `{"code":"push_failed"}`, importToken).Code)
+	for _, body := range []string{``, `{"code":""}`, `{"code":"Push Failed"}`, `{"code":"` + strings.Repeat("a", 65) + `"}`, `[]`} {
+		rec := e.reportFailure(t, "members", body, importToken)
+		assert.Equal(t, http.StatusBadRequest, rec.Code, body)
+		assert.Equal(t, "invalid_failure", answer(t, rec).Error)
+	}
+	runs, err := imports.Runs(context.Background(), e.db, imports.Members, time.Time{})
+	require.NoError(t, err)
+	assert.Empty(t, runs)
+	assert.Empty(t, e.clubMails(t), "a reported failure mails nobody")
+
+	for range apiImportLimit - 7 {
+		require.Equal(t, http.StatusOK, e.reportFailure(t, "members", `{"code":"push_failed"}`, importToken).Code)
+	}
+	limited := e.reportFailure(t, "members", `{"code":"push_failed"}`, importToken)
+	assert.Equal(t, http.StatusTooManyRequests, limited.Code)
+	assert.Equal(t, http.StatusOK, e.push(t, "members", fixtureBytes(t, "members_valid.xlsx"), importToken).Code, "its own counter")
 }

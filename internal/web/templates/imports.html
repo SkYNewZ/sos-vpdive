@@ -16,6 +16,7 @@
 {{else}}
 <p class="mt-4">Aucune liste importée pour l'instant.</p>
 {{end}}
+{{template "journal" (index $.Data.Journals "members")}}
 
 {{with .Data.Members.Preview}}
 <div class="panel mt-6 border-primary p-4">
@@ -88,6 +89,7 @@
 {{else}}
 <p class="mt-4">Aucun export des paiements importé pour l'instant.</p>
 {{end}}
+{{template "journal" (index $.Data.Journals "payments")}}
 
 {{with .Data.Payments.Preview}}
 <div class="panel mt-6 border-primary p-4">
@@ -171,6 +173,7 @@
 {{else}}
 <p class="mt-4">Aucun export VPayDive importé pour l'instant.</p>
 {{end}}
+{{template "journal" (index $.Data.Journals "vpaydive")}}
 
 {{with .Data.Mollie.Preview}}
 <div class="panel mt-6 border-primary p-4">
@@ -231,6 +234,7 @@
 {{else}}
 <p class="mt-4">Aucun calendrier reçu pour l'instant.</p>
 {{end}}
+{{template "journal" (index $.Data.Journals "calendar")}}
 </section>
 
 <section class="mt-10" aria-labelledby="cartes-titre">
@@ -246,6 +250,7 @@
 {{else}}
 <p class="mt-4">Aucune carte reçue pour l'instant.</p>
 {{end}}
+{{template "journal" (index $.Data.Journals "carnets")}}
 </section>
 {{end}}
 
@@ -254,3 +259,42 @@
 {{define "dates"}}{{with formatDate .PeriodFrom}}du {{.}} au {{formatDate $.PeriodTo}}{{else}}inconnue{{end}}{{end}}
 
 {{define "lineCount"}}{{.Lines}} ligne{{if gt .Lines 1}}s{{end}}, {{.Payers}} payeur{{if gt .Payers 1}}s{{end}}{{end}}
+
+{{/* journal lists the latest runs of an export (design 2026-10-09): a manual import, a push, a refusal or a failure the script reported, then the chart of the last 30 days. */}}
+{{define "journal"}}{{if .Runs}}
+<h3 class="mt-5 text-lg font-semibold">Derniers passages</h3>
+<ul class="mt-2 flex flex-col gap-1">
+{{range .Recent}}<li class="flex items-start gap-2"><span class="status mt-1.5 shrink-0 {{if eq .Result "imported"}}status-success{{else if eq .Result "unchanged"}}status-neutral{{else}}status-error{{end}}" aria-hidden="true"></span><span><span class="whitespace-nowrap">{{formatTime .At}}</span> · {{author .By}} · {{.Outcome}}</span></li>
+{{end}}</ul>
+<p class="mt-2 text-sm">{{plural .Runs "passage" "passages"}} ces 30 derniers jours{{if .Failures}}, dont {{plural .Failures "échec" "échecs"}}{{end}}.</p>
+{{template "runsChart" .Chart}}
+{{else}}<p class="mt-4 text-sm">Aucun passage ces 30 derniers jours.</p>{{end}}{{end}}
+
+{{/* runsChart draws a column per day, the rows of its last successful run, with a mark at the foot of the days a run failed or was refused: an SVG stretched to its box, the labels in HTML around it. The table holds every value, for phones and screen readers. */}}
+{{define "runsChart"}}
+<ul class="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-sm">
+<li class="flex items-center gap-2"><span class="size-3 rounded-sm bg-primary" aria-hidden="true"></span>{{.Heading}} du dernier passage réussi du jour</li>
+<li class="flex items-center gap-2"><span class="size-3 rounded-sm bg-error" aria-hidden="true"></span>Échec ou refus ce jour-là</li>
+</ul>
+<div class="mt-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 text-xs text-base-content/70" aria-hidden="true">
+<div class="relative h-32 min-w-10 whitespace-nowrap text-right tabular-nums">
+<span class="absolute right-0 top-0 -translate-y-1/2">{{.Top}}</span>
+<span class="absolute right-0 bottom-0 translate-y-1/2">0</span>
+</div>
+<svg class="usage-chart h-32 w-full" viewBox="0 0 {{.Width}} 100" preserveAspectRatio="none">
+<line class="stroke-base-300" x1="0" y1="0.5" x2="{{.Width}}" y2="0.5" vector-effect="non-scaling-stroke"/>
+<line class="stroke-base-300" x1="0" y1="50" x2="{{.Width}}" y2="50" vector-effect="non-scaling-stroke"/>
+{{$c := .}}{{range .Columns}}<g><title>{{.Label}}&nbsp;: {{if .Runs}}{{plural .Runs "passage" "passages"}}{{if .Rows}}, {{plural .Rows $c.One $c.Many}}{{end}}{{if .Failures}}, {{plural .Failures "échec" "échecs"}}{{end}}{{else}}aucun passage{{end}}</title>
+<rect class="hit" x="{{.X}}" y="0" width="10" height="100" fill="transparent"/>{{with .Bar}}<path class="fill-primary" d="{{.}}"/>{{end}}{{if .Failures}}<rect class="fill-error" x="{{.MarkX}}" y="97" width="6" height="3"/>{{end}}</g>
+{{end}}<line class="stroke-base-content/40" x1="0" y1="99.5" x2="{{.Width}}" y2="99.5" vector-effect="non-scaling-stroke"/>
+</svg>
+<div></div>
+<div class="mt-1 flex">{{range .Columns}}<span class="flex min-w-0 flex-1 justify-center whitespace-nowrap">{{.Tick}}</span>{{end}}</div>
+</div>
+<details class="mt-3">
+<summary class="flex min-h-11 cursor-pointer items-center text-sm">Voir les chiffres</summary>
+<div class="overflow-x-auto"><table class="table table-sm">
+<thead><tr><th>Jour</th><th>Passages</th><th>{{.Heading}}</th><th>Échecs</th></tr></thead>
+<tbody>{{range .Columns}}{{if .Runs}}<tr><td class="whitespace-nowrap">{{.Label}}</td><td>{{.Runs}}</td><td class="tabular-nums">{{.Rows}}</td><td>{{.Failures}}</td></tr>{{end}}{{end}}</tbody></table></div>
+</details>
+{{end}}
