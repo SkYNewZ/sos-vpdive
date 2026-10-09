@@ -1,0 +1,15 @@
+{
+  "theme": "base",
+  "htmlLabels": false,
+  "markdownAutoWrap": false,
+  "flowchart": { "htmlLabels": false, "wrappingWidth": 400 },
+  "themeVariables": {
+    "fontFamily": "system-ui, -apple-system, Segoe UI, sans-serif",
+    "fontSize": "16px",
+    "primaryColor": "#ffffff",
+    "primaryTextColor": "#0b2e4a",
+    "primaryBorderColor": "#0b2e4a",
+    "lineColor": "#0b2e4a",
+    "edgeLabelBackground": "#ffffff"
+  }
+}

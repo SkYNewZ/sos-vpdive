@@ -1,4 +1,4 @@
-.PHONY: test lint fmt css fixtures build run account
+.PHONY: test lint fmt css fixtures diagrams build run account
 
 # Build version, shown in logs and Sentry events.
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
@@ -18,6 +18,10 @@ css:
 # Regenerate the synthetic workbooks in testdata/fixtures/.
 fixtures:
 	go test ./internal/members ./internal/payments -run TestFixturesAreUpToDate -update
+
+# Redraw kb/<id>.svg from each fiche's ```mermaid block (needs Node; the SVGs are committed).
+diagrams:
+	./scripts/kb-diagrams.sh
 
 build: css
 	CGO_ENABLED=0 go build -trimpath -ldflags "-X main.version=$(VERSION)" -o bin/sos-vpdive ./cmd/sos-vpdive
