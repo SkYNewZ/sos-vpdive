@@ -164,7 +164,8 @@ stored.
 | VPayDive | VPayDive page, « Exporter (Excel) », over the « Du » and « Au » dates | « Encaissements Mollie » on each request, « À vérifier » |
 
 The service reads only the columns it needs. It hashes the names on payment
-lines and never reads addresses, comments or civility.
+lines, keeps their comments sealed with the rest of the line, and never reads
+addresses or civility.
 `MEMBERS_MAX_AGE`, `PAYMENTS_MAX_AGE`, `VPAYDIVE_MAX_AGE` and
 `CALENDAR_MAX_AGE` set when the committee is reminded to import again.
 Payment and Mollie lines are deleted after 90 days without a new import, the

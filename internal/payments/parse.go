@@ -17,7 +17,7 @@ import (
 )
 
 // Columns named more than once below. findColumns lists every column read:
-// Commentaire, Civilité, Adresse, Code postal, Ville and the others never are.
+// Civilité, Adresse, Code postal, Ville and the others never are.
 const (
 	columnProduct = "Produit/Événement"
 	columnCreated = "Créé le"
@@ -62,8 +62,9 @@ type Line struct {
 	Method      string    `json:"method,omitzero"`
 	ProductType string    `json:"product_type,omitzero"`
 	Product     string    `json:"product,omitzero"`
-	Starts      time.Time `json:"starts,omitzero"`  // « Du »: the outing's start
-	PaidAt      time.Time `json:"paid_at,omitzero"` // « Date paiement »
+	Comment     string    `json:"comment,omitempty"` // « Commentaire »: what the committee typed in VPDive
+	Starts      time.Time `json:"starts,omitzero"`   // « Du »: the outing's start
+	PaidAt      time.Time `json:"paid_at,omitzero"`  // « Date paiement »
 	Created     time.Time `json:"created"`
 }
 
@@ -135,7 +136,7 @@ func (e *ParseError) Error() string {
 // absent, which reads as an empty cell, and its name is in missing.
 type columns struct {
 	last, first, unitPrice, quantity, paid, discount, state, product, created int
-	method, productType, starts, paidAt, rental                               int
+	method, productType, starts, paidAt, rental, comment                      int
 	missing                                                                   []string
 }
 
@@ -227,6 +228,8 @@ func findColumns(h xlsx.Header) (columns, error) {
 	c.method, c.productType = optional("Methode de paiement", 0), optional("Type de produit", 0)
 	c.starts, c.paidAt = optional("Du", 0), optional("Date paiement", 0)
 	c.rental = optional("Materiel", 1) // the second « Materiel » is the rental amount; the first lists equipment
+	// Optional and never listed as missing: without it, only the comments lack.
+	c.comment = optionalCol(h, "Commentaire", 0)
 	return c, nil
 }
 
@@ -250,6 +253,7 @@ func readLine(row xlsx.Row, c columns, loc *time.Location) (l Line, numbersOK, c
 		Product:     row.Text(c.product),
 		Method:      row.Text(c.method),
 		ProductType: row.Text(c.productType),
+		Comment:     row.Text(c.comment),
 	}
 	numbersOK = true
 	for _, n := range []struct {

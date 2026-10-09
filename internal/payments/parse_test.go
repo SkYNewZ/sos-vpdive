@@ -1,6 +1,7 @@
 package payments
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -69,6 +70,7 @@ func TestParseValidExport(t *testing.T) {
 	}, lineOfRow(t, exp, 2), "native date with a time of day, read in Paris time")
 	assert.Equal(t, Amount(-18000), lineOfRow(t, exp, 3).UnitPrice)
 	assert.Equal(t, at(10, 5, 9, 0), lineOfRow(t, exp, 6).Starts, "text date with a time")
+	assert.Equal(t, fixtureComment, lineOfRow(t, exp, 6).Comment, "« Commentaire » is read")
 	assert.Equal(t, at(8, 5, 20, 0), lineOfRow(t, exp, 7).Starts, "native date, 20:00")
 	assert.Equal(t, Amount(1050), lineOfRow(t, exp, 9).Discount)
 	assert.Equal(t, Amount(-3500), lineOfRow(t, exp, 10).Paid)
@@ -217,4 +219,15 @@ func TestAmountFormatting(t *testing.T) {
 	assert.Equal(t, "1", Amount(100).Number())
 	assert.Equal(t, "1,5", Amount(150).Number())
 	assert.Equal(t, "-1,25", Amount(-125).Number())
+}
+
+// A line stored before « Commentaire » was read decodes without one, and an
+// empty comment adds nothing to the stored JSON (design 2026-10-09 §5).
+func TestCommentIsOptionalInStoredLines(t *testing.T) {
+	var old Line
+	require.NoError(t, json.Unmarshal([]byte(`{"unit_price":3000,"quantity":100,"paid":3000,"discount":0,"state":"Payé","created":"2026-01-05T10:12:00+01:00"}`), &old))
+	assert.Empty(t, old.Comment)
+	data, err := json.Marshal(Line{State: StatePaid})
+	require.NoError(t, err)
+	assert.NotContains(t, string(data), "comment")
 }

@@ -225,7 +225,7 @@ func TestDatabaseHoldsNoPlaintext(t *testing.T) {
 	}
 	for _, s := range []string{
 		"Bernard", "Hugo", "Durand", "Inconnu", "Porquerolles", carnetTitle, MethodPrepaid, // "vpaydive" is in the schema since lot 7
-		witnessComment, witnessAddress, witnessPostCode, witnessCity, witnessEquipment,
+		fixtureComment, witnessAddress, witnessPostCode, witnessCity, witnessEquipment,
 	} {
 		assert.NotContains(t, string(raw), s)
 	}
