@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -30,6 +31,7 @@ const (
 	apiVersion     = "2023-06-01"
 	errorBodyLimit = 4 << 10
 	lineLimit      = 1 << 20 // one stream line: a delta never comes near
+	legacyBudget   = 2048    // thinking tokens of a Claude model before 4.6
 
 	// Content block types.
 	blockText     = "text"
@@ -40,6 +42,10 @@ const (
 	stopMaxTokens = "max_tokens" // a reply cut by the length limit
 	stopRefusal   = "refusal"    // Claude declined, maybe after some text
 )
+
+// legacyThinking matches the Claude models before 4.6: they refuse adaptive
+// thinking and take a token budget.
+var legacyThinking = regexp.MustCompile(`^claude-(3|[a-z]+-4-[0-5])`)
 
 // idleTimeout ends a stream that sends nothing for that long; tests shorten it.
 var idleTimeout = 30 * time.Second
@@ -187,8 +193,9 @@ type request struct {
 // omits the text by default and then sends nothing while it thinks, longer
 // than idleTimeout. DeepSeek takes the same shape.
 type thinkingConfig struct {
-	Type    string `json:"type"`
-	Display string `json:"display,omitempty"`
+	Type         string `json:"type"`
+	Display      string `json:"display,omitempty"`
+	BudgetTokens int    `json:"budget_tokens,omitempty"`
 }
 
 type outputConfig struct {
@@ -213,7 +220,10 @@ func (c *Client) request(k call) request {
 		System: []systemBlock{{Type: blockText, Text: k.system, CacheControl: typeOnly{Type: "ephemeral"}}},
 		Tools:  k.tools, Messages: k.messages,
 	}
-	if c.Thinking {
+	switch {
+	case c.Thinking && legacyThinking.MatchString(c.Model):
+		r.Thinking = thinkingConfig{Type: "enabled", BudgetTokens: legacyBudget}
+	case c.Thinking:
 		r.Thinking = thinkingConfig{Type: "adaptive", Display: "summarized"}
 	}
 	if c.effort != "" {

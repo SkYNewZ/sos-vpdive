@@ -285,3 +285,12 @@ func TestUsageCostMicro(t *testing.T) {
 	assert.Equal(t, int64(22_600), u.CostMicro(sonnet),
 		"2 000 + 10 000 + 600 + 10 000 micro-dollars: a cache write costs 1.25 times the input")
 }
+
+// Claude models before 4.6 refuse adaptive thinking: they keep a budget.
+func TestStreamThinkingOnOlderClaude(t *testing.T) {
+	s := &scripted{replies: []string{textStream("Oui.")}}
+	c := newClientOf(t, s, config.Assistant{Model: "claude-haiku-4-5-20251001", Thinking: true, MaxTokens: 9000})
+	_, err := c.stream(context.Background(), call{system: "S", messages: userMessages(t, "Q")})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]any{"type": "enabled", "budget_tokens": float64(2048)}, s.body(t, 0)["thinking"])
+}

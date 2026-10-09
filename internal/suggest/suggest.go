@@ -120,18 +120,16 @@ func (c *Client) Choose(ctx context.Context, req Request, fiches []Fiche) (res R
 		return Result{}, err
 	}
 	text, used, err := c.post(ctx, body)
-	if err != nil {
-		return Result{}, err
+	if err == nil {
+		known := make([]string, len(fiches))
+		for i, f := range fiches {
+			known[i] = f.ID
+		}
+		res, err = parse(text, known)
 	}
-	known := make([]string, len(fiches))
-	for i, f := range fiches {
-		known[i] = f.ID
-	}
-	if res, err = parse(text, known); err != nil {
-		return Result{}, err
-	}
+	// A refused answer was billed all the same: its tokens stay.
 	res.InputTokens, res.OutputTokens = used.Input, used.Output
-	return res, nil
+	return res, err
 }
 
 // Code returns the stable code of a Choose error.
@@ -233,14 +231,14 @@ func (c *Client) post(ctx context.Context, body []byte) (text string, used usage
 		return "", usage{}, fmt.Errorf("%w: %w", ErrInvalid, err)
 	}
 	if out.StopReason == "max_tokens" {
-		return "", usage{}, fmt.Errorf("%w: answer cut at max_tokens", ErrInvalid)
+		return "", out.Usage, fmt.Errorf("%w: answer cut at max_tokens", ErrInvalid)
 	}
 	for _, b := range out.Content {
 		if b.Type == "text" {
 			return b.Text, out.Usage, nil
 		}
 	}
-	return "", usage{}, fmt.Errorf("%w: no text block, stop_reason %s", ErrInvalid, cmp.Or(out.StopReason, "missing"))
+	return "", out.Usage, fmt.Errorf("%w: no text block, stop_reason %s", ErrInvalid, cmp.Or(out.StopReason, "missing"))
 }
 
 func transportError(ctx context.Context, err error) error {

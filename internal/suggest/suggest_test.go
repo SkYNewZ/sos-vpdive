@@ -364,3 +364,15 @@ func TestChooseReportsItsTokens(t *testing.T) {
 	assert.Equal(t, 3100, res.InputTokens)
 	assert.Equal(t, 40, res.OutputTokens)
 }
+
+// A refused answer was still billed: its tokens stay for suggest-bench.
+func TestChooseKeepsTheTokensOfARefusedAnswer(t *testing.T) {
+	for reply, why := range map[string]string{
+		`{"content":[{"type":"text","text":"pas du JSON"}],"usage":{"input_tokens":3100,"output_tokens":40}}`:                               "unreadable",
+		`{"content":[{"type":"text","text":"{\"fiches\": ["}],"stop_reason":"max_tokens","usage":{"input_tokens":3100,"output_tokens":40}}`: "cut",
+	} {
+		res, err := newClient(t, &stub{status: http.StatusOK, reply: reply}, "").Choose(context.Background(), request, fiches)
+		require.ErrorIs(t, err, ErrInvalid, why)
+		assert.Equal(t, Result{InputTokens: 3100, OutputTokens: 40}, res, why)
+	}
+}
