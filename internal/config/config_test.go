@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"maps"
 	"net/netip"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -227,7 +228,7 @@ func TestLoadLLM(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, c.LLM)
 	assert.Equal(t, "https://api.anthropic.com", c.LLM.BaseURL.String())
-	assert.Equal(t, "claude-haiku-4-5-20251001", c.LLM.Model)
+	assert.Equal(t, "claude-haiku-5-5", c.LLM.Model, "the suggestion bench of 2026-10-09")
 	assert.Equal(t, 8*time.Second, c.LLM.Timeout)
 	assert.Equal(t, 200, c.LLM.DailyLimit)
 
@@ -499,34 +500,45 @@ func TestOwnerUsername(t *testing.T) {
 func TestLoadAssistant(t *testing.T) {
 	m := validEnv()
 	m["ASSISTANT_ENABLED"] = "true"
+	m["LLM_API_KEY"] = "sk-llm"
 	c, err := Load(getenv(m))
 	require.NoError(t, err)
-	assert.Nil(t, c.Assistant, "no LLM_API_KEY: off")
+	assert.Nil(t, c.Assistant, "no ASSISTANT_API_KEY: off, whatever LLM_API_KEY")
 	require.Len(t, c.Warnings, 1)
-	assert.Contains(t, c.Warnings[0].Error(), "ASSISTANT_ENABLED")
+	assert.Contains(t, c.Warnings[0].Error(), "ASSISTANT_API_KEY")
 
-	m["LLM_API_KEY"] = "sk-test"
+	delete(m, "LLM_API_KEY")
+	m["ASSISTANT_API_KEY"] = "sk-test"
 	m["LLM_MODEL"] = "deepseek-flash"
 	c, err = Load(getenv(m))
 	require.NoError(t, err)
-	assert.Equal(t, &Assistant{Model: "deepseek-flash", Thinking: true, MaxTokens: 32000, DailyQuestions: 50}, c.Assistant,
-		"LLM_MODEL by default, reasoning on (owner's choice after the benchmark)")
+	assert.Nil(t, c.LLM, "suggestions stay off")
+	anthropic, err := url.Parse("https://api.anthropic.com")
+	require.NoError(t, err)
+	assert.Equal(t, &Assistant{
+		BaseURL: anthropic, APIKey: "sk-test", Model: "claude-sonnet-5-5", Thinking: true, MaxTokens: 32000, DailyQuestions: 50,
+	}, c.Assistant, "its own provider, Claude Sonnet 5.5 with reasoning by default: LLM_* is the suggestions'")
 
 	m["ASSISTANT_THINKING"] = "false"
 	c, err = Load(getenv(m))
 	require.NoError(t, err)
-	assert.Equal(t, &Assistant{Model: "deepseek-flash", MaxTokens: 8000, DailyQuestions: 50}, c.Assistant, "reasoning turned off")
+	assert.Equal(t, &Assistant{BaseURL: anthropic, APIKey: "sk-test", Model: "claude-sonnet-5-5", MaxTokens: 8000, DailyQuestions: 50},
+		c.Assistant, "reasoning turned off")
 
+	m["ASSISTANT_BASE_URL"] = "https://api.deepseek.com/anthropic"
 	m["ASSISTANT_MODEL"] = "deepseek-v4-pro"
 	m["ASSISTANT_THINKING"] = "true"
+	m["ASSISTANT_EFFORT"] = "high"
 	m["ASSISTANT_DAILY_QUESTIONS"] = "20"
 	m["ASSISTANT_PRICE_INPUT"] = "0.3"
 	m["ASSISTANT_PRICE_OUTPUT"] = "1,2"
 	c, err = Load(getenv(m))
 	require.NoError(t, err)
+	deepseek, err := url.Parse("https://api.deepseek.com/anthropic")
+	require.NoError(t, err)
 	assert.Equal(t, &Assistant{
-		Model: "deepseek-v4-pro", Thinking: true, MaxTokens: 32000, DailyQuestions: 20,
-		Priced: true, PriceInput: 300_000, PriceOutput: 1_200_000, PriceCached: 300_000,
+		BaseURL: deepseek, APIKey: "sk-test", Model: "deepseek-v4-pro", Thinking: true, Effort: EffortHigh,
+		MaxTokens: 32000, DailyQuestions: 20, Priced: true, PriceInput: 300_000, PriceOutput: 1_200_000, PriceCached: 300_000,
 	}, c.Assistant, "a cached price defaults to the input price; reasoning gets a larger budget")
 
 	m["ASSISTANT_MAX_TOKENS"] = "12000"
@@ -535,9 +547,35 @@ func TestLoadAssistant(t *testing.T) {
 	assert.Equal(t, 12000, c.Assistant.MaxTokens, "the owner tunes it from usage")
 }
 
+func TestLoadAssistantBaseURL(t *testing.T) {
+	for _, raw := range []string{"api.anthropic.com", "http://api.anthropic.com"} {
+		m := validEnv()
+		m["ASSISTANT_ENABLED"], m["ASSISTANT_API_KEY"], m["ASSISTANT_BASE_URL"] = "true", "sk-test", raw
+		_, err := Load(getenv(m))
+		require.ErrorContains(t, err, "ASSISTANT_BASE_URL", "the key must not leave in the clear: %s", raw)
+	}
+}
+
+func TestLoadAssistantDropsAnEffortThatNeedsThinking(t *testing.T) {
+	m := validEnv()
+	m["ASSISTANT_ENABLED"], m["ASSISTANT_API_KEY"], m["ASSISTANT_THINKING"], m["ASSISTANT_EFFORT"] = "true", "sk-test", "false", "xhigh"
+	c, err := Load(getenv(m))
+	require.NoError(t, err)
+	assert.Empty(t, c.Assistant.Effort, "Sonnet 5.5 answers 400 to xhigh and max without thinking")
+	require.Len(t, c.Warnings, 1)
+	assert.Contains(t, c.Warnings[0].Error(), "ASSISTANT_EFFORT")
+}
+
+func TestThinkingOff(t *testing.T) {
+	assert.Equal(t, "between_tools", ThinkingOff("claude-sonnet-5-5"), "Sonnet 5.5 refuses disabled")
+	for _, model := range []string{"claude-haiku-5-5", "claude-haiku-4-5-20251001", "deepseek-flash", "deepseek-v4-pro"} {
+		assert.Equal(t, "disabled", ThinkingOff(model), "DeepSeek refuses between_tools: %s", model)
+	}
+}
+
 func TestLoadAssistantOffByDefault(t *testing.T) {
 	m := validEnv()
-	m["LLM_API_KEY"] = "sk-test"
+	m["ASSISTANT_API_KEY"] = "sk-test"
 	c, err := Load(getenv(m))
 	require.NoError(t, err)
 	assert.Nil(t, c.Assistant)
@@ -551,10 +589,11 @@ func TestLoadAssistantInvalidValuesWarn(t *testing.T) {
 		"ASSISTANT_MAX_TOKENS":      "500000",
 		"ASSISTANT_PRICE_INPUT":     "cher",
 		"ASSISTANT_PRICE_CACHED":    "-1",
+		"ASSISTANT_EFFORT":          "fort",
 	} {
 		t.Run(name, func(t *testing.T) {
 			m := validEnv()
-			m["LLM_API_KEY"], m["ASSISTANT_ENABLED"] = "sk-test", "true"
+			m["ASSISTANT_API_KEY"], m["ASSISTANT_ENABLED"] = "sk-test", "true"
 			m[name] = value
 			c, err := Load(getenv(m))
 			require.NoError(t, err, "an optional value never stops the start")
@@ -563,10 +602,11 @@ func TestLoadAssistantInvalidValuesWarn(t *testing.T) {
 			assert.Contains(t, c.Warnings[0].Error(), name)
 			assert.True(t, c.Assistant.Thinking, "the default is kept")
 			assert.Equal(t, 32000, c.Assistant.MaxTokens, "the default is kept")
+			assert.Empty(t, c.Assistant.Effort, "the default is kept")
 		})
 	}
 	m := validEnv()
-	m["LLM_API_KEY"], m["ASSISTANT_ENABLED"] = "sk-test", "peut-être"
+	m["ASSISTANT_API_KEY"], m["ASSISTANT_ENABLED"] = "sk-test", "peut-être"
 	c, err := Load(getenv(m))
 	require.NoError(t, err)
 	assert.Nil(t, c.Assistant)

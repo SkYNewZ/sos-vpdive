@@ -10,14 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/assistant"
-	"github.com/SkYNewZ/sos-vpdive/internal/config"
 )
-
-func TestCostMicro(t *testing.T) {
-	a := &config.Assistant{Priced: true, PriceInput: 300_000, PriceOutput: 1_200_000, PriceCached: 30_000}
-	assert.Equal(t, int64(1590), costMicro(assistant.Usage{Input: 1000, Output: 1000, CacheRead: 3000}, a),
-		"300 + 1200 + 90 micro-dollars")
-}
 
 func TestUsageJournal(t *testing.T) {
 	stub := &streamStub{}

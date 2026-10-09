@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/assistant"
-	"github.com/SkYNewZ/sos-vpdive/internal/config"
 	"github.com/SkYNewZ/sos-vpdive/internal/store"
 )
 
@@ -28,11 +27,6 @@ type usageEntry struct {
 	Outcome  string
 }
 
-// costMicro is what usage cost, in micro-dollars: prices are per million tokens.
-func costMicro(u assistant.Usage, a *config.Assistant) int64 {
-	return (int64(u.Input+u.CacheWrite)*a.PriceInput + int64(u.CacheRead)*a.PriceCached + int64(u.Output)*a.PriceOutput) / 1_000_000
-}
-
 // recordUsage writes u, even after the resolver left; a failure is logged.
 func (s *Server) recordUsage(ctx context.Context, u usageEntry) {
 	ctx = context.WithoutCancel(ctx)
@@ -47,7 +41,7 @@ func (s *Server) recordUsage(ctx context.Context, u usageEntry) {
 	}
 	var cost, first sql.NullInt64
 	if a := s.cfg.Assistant; a != nil && a.Priced {
-		cost = sql.NullInt64{Int64: costMicro(u.Result.Usage, a), Valid: true}
+		cost = sql.NullInt64{Int64: u.Result.Usage.CostMicro(a), Valid: true}
 	}
 	if u.Result.FirstText > 0 {
 		first = sql.NullInt64{Int64: u.Result.FirstText.Milliseconds(), Valid: true}

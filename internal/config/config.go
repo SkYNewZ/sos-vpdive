@@ -15,6 +15,7 @@ import (
 	"net/netip"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -93,31 +94,57 @@ type LLM struct {
 }
 
 // Assistant holds the committee assistant settings (design 2026-10-08);
-// Config.Assistant is nil when it is off.
+// Config.Assistant is nil when it is off. Its provider is its own: LLM is
+// the suggestions'.
 type Assistant struct {
-	Model          string // LLM_MODEL when ASSISTANT_MODEL is empty
+	BaseURL        *url.URL // the API root; the client appends /v1/messages
+	APIKey         string
+	Model          string
 	Thinking       bool
-	MaxTokens      int // per model call, reasoning included
-	DailyQuestions int // per committee account and Paris day
+	Effort         Effort // "" leaves the provider's default
+	MaxTokens      int    // per model call, reasoning included
+	DailyQuestions int    // per committee account and Paris day
 	// Priced is false unless both input and output prices are set; prices
 	// are in micro-dollars per million tokens, for the usage journal.
 	Priced                               bool
 	PriceInput, PriceOutput, PriceCached int64
 }
 
+// Effort is the Messages API output_config.effort: how much the model
+// reasons and writes. DeepSeek takes the same values.
+type Effort string
+
+// Effort levels, from the cheapest.
+const (
+	EffortLow    Effort = "low"
+	EffortMedium Effort = "medium"
+	EffortHigh   Effort = "high"
+	EffortXHigh  Effort = "xhigh"
+	EffortMax    Effort = "max"
+)
+
 // defaultDailyQuestions is ASSISTANT_DAILY_QUESTIONS when unset.
 const defaultDailyQuestions = 50
 
-// ASSISTANT_MAX_TOKENS: its defaults, without and with reasoning (DeepSeek
-// ignores budget_tokens: its reasoning takes from max_tokens), and its
-// bounds. The upper one is DeepSeek's largest output; the lower one leaves
-// room for the 2 048-token reasoning budget Anthropic checks.
+// ASSISTANT_MAX_TOKENS: its defaults, without and with reasoning (reasoning
+// takes from max_tokens), and its bounds. The upper one is DeepSeek's largest
+// output; the lower one leaves room for some reasoning and an answer.
 const (
 	defaultMaxTokens      = 8000
 	defaultMaxTokensThink = 32000
 	minMaxTokens          = 4000
 	maxMaxTokens          = 384000
 )
+
+// ThinkingOff is the thinking type that turns reasoning off for model:
+// Claude Sonnet 5.5 refuses "disabled" and wants "between_tools", which
+// DeepSeek refuses.
+func ThinkingOff(model string) string {
+	if strings.HasPrefix(model, "claude-sonnet-5-5") {
+		return "between_tools"
+	}
+	return "disabled"
+}
 
 // VAPID identifies the server to the push services (RFC 8292).
 type VAPID struct {
@@ -168,7 +195,7 @@ type Config struct {
 	RetentionDays      int           // days a closed request is kept
 	FormRateLimit      int           // form submissions per hour and IP address
 	LLM                *LLM          // nil without LLM_API_KEY: no suggestions, no screen 2
-	Assistant          *Assistant    // nil unless ASSISTANT_ENABLED with LLM_API_KEY
+	Assistant          *Assistant    // nil unless ASSISTANT_ENABLED with ASSISTANT_API_KEY
 	PushoverToken      string        // "" turns Pushover off; each resolver sets a user key on « Notifications »
 	VAPID              *VAPID        // nil turns Web Push off
 	PushAllowedHosts   []string      // push services a subscription may point at
@@ -229,7 +256,7 @@ func Load(getenv func(string) string) (*Config, error) {
 	p.turnstile(c)
 	c.S3 = p.s3(c.Env)
 	c.LLM = p.llm(c.Env)
-	c.Assistant = p.assistant(c.LLM)
+	c.Assistant = p.assistant(c.Env)
 	c.PushoverToken = p.pushoverToken()
 	c.VAPID = p.vapid()
 	c.PushAllowedHosts = p.hosts("PUSH_ALLOWED_HOSTS", defaultPushHosts)
@@ -477,17 +504,14 @@ func (p *parser) turnstile(c *Config) {
 // typo shows before the key is added; without a key suggestions are off.
 func (p *parser) llm(env Env) *LLM {
 	l := &LLM{
-		BaseURL:    p.endpoint("LLM_BASE_URL", p.optional("LLM_BASE_URL", "https://api.anthropic.com")),
+		BaseURL:    p.baseURL("LLM_BASE_URL", env),
 		APIKey:     p.value("LLM_API_KEY"),
-		Model:      p.optional("LLM_MODEL", "claude-haiku-4-5-20251001"),
+		Model:      p.optional("LLM_MODEL", "claude-haiku-5-5"),
 		Timeout:    p.duration("LLM_TIMEOUT", "8s"),
 		DailyLimit: p.int("LLM_DAILY_LIMIT", "200", 1, 100000),
 	}
 	if l.Timeout > time.Minute {
 		p.fail("LLM_TIMEOUT", errors.New("must be 60s at most"))
-	}
-	if env == EnvProduction {
-		p.requireHTTPS("LLM_BASE_URL", l.BaseURL)
 	}
 	if l.APIKey == "" {
 		return nil
@@ -496,18 +520,24 @@ func (p *parser) llm(env Env) *LLM {
 }
 
 // assistant reads the committee assistant variables. It is off by default.
-// An invalid value warns and keeps its default; an assistant without
-// LLM_API_KEY warns and stays off, like the other optional tools.
-func (p *parser) assistant(llm *LLM) *Assistant {
+// An invalid value warns and keeps its default, but an invalid
+// ASSISTANT_BASE_URL stops the start, as LLM_BASE_URL does; an assistant
+// without ASSISTANT_API_KEY warns and stays off, like the other optional tools.
+func (p *parser) assistant(env Env) *Assistant {
 	if !p.flag("ASSISTANT_ENABLED", false) {
 		return nil
 	}
-	if llm == nil {
-		p.warn("ASSISTANT_ENABLED", errors.New("needs LLM_API_KEY: the assistant is off"))
+	a := &Assistant{
+		BaseURL: p.baseURL("ASSISTANT_BASE_URL", env),
+		APIKey:  p.value("ASSISTANT_API_KEY"),
+		Model:   p.optional("ASSISTANT_MODEL", "claude-sonnet-5-5"),
+	}
+	if a.APIKey == "" {
+		p.warn("ASSISTANT_ENABLED", errors.New("needs ASSISTANT_API_KEY: the assistant is off"))
 		return nil
 	}
-	a := &Assistant{Model: p.optional("ASSISTANT_MODEL", llm.Model)}
 	a.Thinking = p.flag("ASSISTANT_THINKING", true) // the benchmark's best answers
+	a.Effort = p.effort("ASSISTANT_EFFORT", a.Thinking)
 	maxTokens := defaultMaxTokens
 	if a.Thinking {
 		maxTokens = defaultMaxTokensThink
@@ -522,6 +552,34 @@ func (p *parser) assistant(llm *LLM) *Assistant {
 	}
 	a.Priced, a.PriceInput, a.PriceOutput, a.PriceCached = inputSet && outputSet, input, output, cached
 	return a
+}
+
+// baseURL reads the API root of a model provider, Anthropic's by default;
+// the key goes there, so production wants https.
+func (p *parser) baseURL(name string, env Env) *url.URL {
+	u := p.endpoint(name, p.optional(name, "https://api.anthropic.com"))
+	if env == EnvProduction {
+		p.requireHTTPS(name, u)
+	}
+	return u
+}
+
+// effort reads an optional effort level: "" when unset, and when invalid
+// with a warning. Without thinking, xhigh and max are dropped with a
+// warning too: Claude Sonnet 5.5 refuses them then.
+func (p *parser) effort(name string, thinking bool) Effort {
+	levels := []Effort{EffortLow, EffortMedium, EffortHigh, EffortXHigh, EffortMax}
+	switch e := Effort(p.value(name)); {
+	case e == "":
+		return ""
+	case !slices.Contains(levels, e):
+		p.warn(name, fmt.Errorf("must be one of %v: ignored", levels))
+	case !thinking && (e == EffortXHigh || e == EffortMax):
+		p.warn(name, errors.New("xhigh and max need ASSISTANT_THINKING=true: ignored"))
+	default:
+		return e
+	}
+	return ""
 }
 
 // flag reads an optional boolean: def when unset, and when invalid with a

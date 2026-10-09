@@ -164,10 +164,13 @@ func (c *Client) Answer(ctx context.Context, system string, history []Message, t
 // lastTurn is the answer a last turn gives. It fails with ErrInvalid on a
 // turn without text, or with a call left without its result: either, kept,
 // would have the provider refuse every later question. It fails too on a
-// tool call written as text, which the resolver must not read. A turn cut
-// at max_tokens keeps its text, with cutNote.
+// tool call written as text, which the resolver must not read, and on a
+// refusal, whose text is no answer. A turn cut at max_tokens keeps its
+// text, with cutNote.
 func lastTurn(rep reply) (string, error) {
 	switch {
+	case rep.StopReason == stopRefusal:
+		return "", fmt.Errorf("%w: refused", ErrInvalid)
 	case len(rep.ToolUses) > 0:
 		return "", fmt.Errorf("%w: tool call without a tool_use stop", ErrInvalid)
 	case strings.TrimSpace(rep.Text) == "":

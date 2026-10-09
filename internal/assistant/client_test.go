@@ -145,11 +145,18 @@ func (s *scripted) fail(status int) {
 
 func newTestClient(t *testing.T, s http.Handler, thinking bool) *Client {
 	t.Helper()
+	return newClientOf(t, s, config.Assistant{Model: "test-model", Thinking: thinking, MaxTokens: 9000})
+}
+
+// newClientOf is a client of a's settings that calls s.
+func newClientOf(t *testing.T, s http.Handler, a config.Assistant) *Client {
+	t.Helper()
 	srv := httptest.NewServer(s)
 	t.Cleanup(srv.Close)
 	u, err := url.Parse(srv.URL)
 	require.NoError(t, err)
-	return NewClient(&config.LLM{BaseURL: u, APIKey: "sk-test"}, &config.Assistant{Model: "test-model", Thinking: thinking, MaxTokens: 9000})
+	a.BaseURL, a.APIKey = u, "sk-test"
+	return NewClient(&a)
 }
 
 func userMessages(t *testing.T, text string) []Message {
@@ -179,14 +186,27 @@ func TestStreamText(t *testing.T) {
 	assert.InDelta(t, 9000, body["max_tokens"], 0, "ASSISTANT_MAX_TOKENS")
 	assert.Equal(t, map[string]any{"type": "disabled"}, body["thinking"])
 	assert.Equal(t, []any{map[string]any{"type": "text", "text": "Consignes", "cache_control": map[string]any{"type": "ephemeral"}}}, body["system"])
+	assert.Equal(t, map[string]any{"type": "ephemeral"}, body["cache_control"],
+		"automatic caching: the next call of the tool loop reads the conversation instead of paying it again")
 	assert.NotContains(t, body, "tool_choice")
+	assert.NotContains(t, body, "output_config", "no ASSISTANT_EFFORT: the provider's default")
+}
+
+func TestStreamThinkingOffOnSonnet(t *testing.T) {
+	s := &scripted{replies: []string{textStream("Oui.")}}
+	c := newClientOf(t, s, config.Assistant{Model: "claude-sonnet-5-5", MaxTokens: 9000, Effort: config.EffortLow})
+	_, err := c.stream(context.Background(), call{system: "S", messages: userMessages(t, "Q")})
+	require.NoError(t, err)
+	body := s.body(t, 0)
+	assert.Equal(t, map[string]any{"type": "between_tools"}, body["thinking"], "Sonnet 5.5 answers 400 to disabled")
+	assert.Equal(t, map[string]any{"effort": "low"}, body["output_config"])
 }
 
 func TestStreamToolsAndThinking(t *testing.T) {
 	s := &scripted{replies: []string{toolStream(true,
 		[3]string{"call_1", "find_member", `{"query":"Léa Martin"}`},
 		[3]string{"call_2", "read_fiche", `{"id":"carnet-solde-negatif"}`})}}
-	c := newTestClient(t, s, true)
+	c := newClientOf(t, s, config.Assistant{Model: "test-model", Thinking: true, MaxTokens: 9000, Effort: config.EffortHigh})
 	thought := 0
 	rep, err := c.stream(context.Background(), call{system: "S", messages: userMessages(t, "Q"), noTools: true,
 		onThink: func() { thought++ }})
@@ -202,8 +222,10 @@ func TestStreamToolsAndThinking(t *testing.T) {
 
 	body := s.body(t, 0)
 	assert.InDelta(t, 9000, body["max_tokens"], 0)
-	assert.Equal(t, map[string]any{"type": "enabled", "budget_tokens": float64(2048)}, body["thinking"])
-	assert.Equal(t, map[string]any{"type": "none"}, body["tool_choice"])
+	assert.Equal(t, map[string]any{"type": "adaptive", "display": "summarized"}, body["thinking"],
+		"a summary streams while the model thinks: omitted, the stream stays silent past idleTimeout")
+	assert.Equal(t, map[string]any{"effort": "high"}, body["output_config"])
+	assert.Equal(t, map[string]any{"type": "none"}, body["tool_choice"], "the forced turn: Claude 5.5 refuses any and tool, not none")
 }
 
 func TestStreamFailures(t *testing.T) {
@@ -257,4 +279,20 @@ func TestStreamIdleAndCancel(t *testing.T) {
 	assert.Equal(t, "canceled", Code(err))
 	assert.Equal(t, 80, rep.Usage.CacheRead)
 	assert.Equal(t, "internal", Code(errors.New("disk full")))
+}
+
+func TestUsageCostMicro(t *testing.T) {
+	sonnet := &config.Assistant{Priced: true, PriceInput: 2_000_000, PriceOutput: 10_000_000, PriceCached: 200_000}
+	u := Usage{Input: 1000, Output: 1000, CacheRead: 3000, CacheWrite: 4000}
+	assert.Equal(t, int64(22_600), u.CostMicro(sonnet),
+		"2 000 + 10 000 + 600 + 10 000 micro-dollars: a cache write costs 1.25 times the input")
+}
+
+// Claude models before 4.6 refuse adaptive thinking: they keep a budget.
+func TestStreamThinkingOnOlderClaude(t *testing.T) {
+	s := &scripted{replies: []string{textStream("Oui.")}}
+	c := newClientOf(t, s, config.Assistant{Model: "claude-haiku-4-5-20251001", Thinking: true, MaxTokens: 9000})
+	_, err := c.stream(context.Background(), call{system: "S", messages: userMessages(t, "Q")})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]any{"type": "enabled", "budget_tokens": float64(2048)}, s.body(t, 0)["thinking"])
 }

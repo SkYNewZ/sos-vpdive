@@ -146,7 +146,7 @@ func New(d Deps) (*Server, error) {
 		s.fiches = append(s.fiches, suggest.Fiche{ID: f.ID, Title: f.Title, Answer: f.AnswerText})
 	}
 	if a := d.Config.Assistant; a != nil {
-		s.assistant = assistant.NewClient(d.Config.LLM, a)
+		s.assistant = assistant.NewClient(a)
 		s.convs = assistant.NewStore(d.Now)
 		s.assistantPrompt = assistantSystem(d.KB)
 	}
