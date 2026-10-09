@@ -20,6 +20,7 @@ import (
 	"github.com/SkYNewZ/sos-vpdive/internal/admins"
 	"github.com/SkYNewZ/sos-vpdive/internal/assistant"
 	"github.com/SkYNewZ/sos-vpdive/internal/calendar"
+	"github.com/SkYNewZ/sos-vpdive/internal/carnets"
 	"github.com/SkYNewZ/sos-vpdive/internal/config"
 	"github.com/SkYNewZ/sos-vpdive/internal/kb"
 	"github.com/SkYNewZ/sos-vpdive/internal/mail"
@@ -40,6 +41,7 @@ type Deps struct {
 	Payments *payments.Store
 	Mollie   *payments.MollieStore
 	Calendar *calendar.Store // the pushed activity calendar (lot 8)
+	Carnets  *carnets.Store  // the carnet cards pushed by the script (design 2026-10-09)
 	Admins   *admins.Registry
 	Tickets  *tickets.Store
 	Outbox   *mail.Outbox
@@ -63,6 +65,7 @@ type Server struct {
 	payments  *payments.Store
 	mollie    *payments.MollieStore
 	calendar  *calendar.Store
+	carnets   *carnets.Store
 	checks    *payments.CheckStore
 	admins    *admins.Registry
 	tickets   *tickets.Store
@@ -124,7 +127,7 @@ func New(d Deps) (*Server, error) {
 		return nil, fmt.Errorf("time zone: %w", err)
 	}
 	s := &Server{
-		cfg: d.Config, db: d.DB, keys: d.Keys, members: d.Members, payments: d.Payments, mollie: d.Mollie, calendar: d.Calendar,
+		cfg: d.Config, db: d.DB, keys: d.Keys, members: d.Members, payments: d.Payments, mollie: d.Mollie, calendar: d.Calendar, carnets: d.Carnets,
 		checks: payments.NewCheckStore(d.DB, d.Keys, d.Members, d.Now), admins: d.Admins,
 		tickets: d.Tickets, outbox: d.Outbox, push: d.Push, pushTest: d.PushTest, broker: d.Broker, kb: d.KB, suggest: suggest.New(d.Config.LLM),
 		keepAlive: keepAliveInterval,

@@ -22,6 +22,7 @@ import (
 	"github.com/SkYNewZ/sos-vpdive/internal/admins"
 	"github.com/SkYNewZ/sos-vpdive/internal/blobs"
 	"github.com/SkYNewZ/sos-vpdive/internal/calendar"
+	"github.com/SkYNewZ/sos-vpdive/internal/carnets"
 	"github.com/SkYNewZ/sos-vpdive/internal/config"
 	"github.com/SkYNewZ/sos-vpdive/internal/mail"
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
@@ -108,6 +109,7 @@ func setup(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*app, 
 	paymentStore := payments.NewStore(db, keys, time.Now)
 	mollieStore := payments.NewMollieStore(db, keys, time.Now)
 	calendarStore := calendar.NewStore(db, keys, time.Now)
+	carnetStore := carnets.NewStore(db, keys, time.Now)
 	outbox := mail.NewOutbox(db, keys, time.Now)
 	pushStore := push.NewStore(db, keys, time.Now)
 	var (
@@ -139,7 +141,7 @@ func setup(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*app, 
 		turnstile = web.NewTurnstile(cfg.TurnstileSiteKey, cfg.TurnstileSecretKey, "")
 	}
 	a.web, err = web.New(web.Deps{
-		Config: cfg, DB: db, Keys: keys, Members: memberStore, Payments: paymentStore, Mollie: mollieStore, Calendar: calendarStore, Admins: registry,
+		Config: cfg, DB: db, Keys: keys, Members: memberStore, Payments: paymentStore, Mollie: mollieStore, Calendar: calendarStore, Carnets: carnetStore, Admins: registry,
 		Content: sosvpdive.Content, Logger: logger, Now: time.Now, Turnstile: turnstile,
 		Tickets: ticketStore, Outbox: outbox, Push: pushStore, PushTest: pushTest, Broker: broker, KB: base,
 	})
