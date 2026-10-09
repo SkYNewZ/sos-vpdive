@@ -42,9 +42,9 @@ const (
 	Diagram   BlockKind = "diagram"
 )
 
-// DiagramMark ends the SVG of a fiche's diagram: the SHA-256 of the Mermaid
+// diagramMark ends the SVG of a fiche's diagram: the SHA-256 of the Mermaid
 // text it was drawn from (make diagrams). Load refuses a stale drawing.
-const DiagramMark = "<!-- mermaid sha256:%x -->"
+const diagramMark = "<!-- mermaid sha256:%x -->"
 
 // Block is a paragraph (one item, its lines joined), a list (one item per
 // entry), a table (Rows, the header first) or a Mermaid diagram (Source, its
@@ -306,7 +306,7 @@ func (f Fiche) drawing(content fs.FS) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("diagram: %w (make diagrams)", err)
 	}
-	if !bytes.Contains(svg, fmt.Appendf(nil, DiagramMark, sha256.Sum256([]byte(source)))) {
+	if !bytes.Contains(svg, fmt.Appendf(nil, diagramMark, sha256.Sum256([]byte(source)))) {
 		return nil, fmt.Errorf("%s is stale: run make diagrams", name)
 	}
 	return svg, nil

@@ -127,7 +127,7 @@ func ficheWith(answer string) string {
 }
 
 func svgFor(source string) string {
-	return "<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>\n" + fmt.Sprintf(DiagramMark, sha256.Sum256([]byte(source))) + "\n"
+	return "<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>\n" + fmt.Sprintf(diagramMark, sha256.Sum256([]byte(source))) + "\n"
 }
 
 func TestLoadTableAndDiagram(t *testing.T) {
