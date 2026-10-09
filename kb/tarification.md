@@ -55,7 +55,7 @@ Les membres actifs sont les adhérents du groupe « Membres actifs » de VPDive,
 | « Si membre actif, carnet à prix réduit » | Carte 10 plongées niveau 3 et + | 220 € pour un achat avant le 01/01/2027 ; la carte crédite quand même 250 € |
 | « Plongée avec carnet membre actif », une fois cette carte achetée | Plongée unitaire N1 et N2, Plongée unitaire N3 et + | 0 € |
 
-Un membre actif paie donc 0 € chacune de ses propres plongées, quel qu'en soit le type, et le reste attendu sur sa carte est son crédit de 250 €, sans débit. Une demande qui le concerne porte le plus souvent sur ses autres produits : ses invités, les baptêmes qu'il encadre, un supplément distance.
+Une fois sa carte achetée, un membre actif paie donc 0 € chacune de ses propres plongées, quel qu'en soit le type. Le reste attendu sur sa carte est son crédit de 250 €, moins les autres produits réglés avec, comme les plongées de ses invités. Une demande qui le concerne porte le plus souvent sur ses autres produits : ses invités, les baptêmes qu'il encadre, un supplément distance.
 
 Un résolveur ou un administrateur VPDive met lui-même dans le panier du membre actif les produits de ses invités :
 
@@ -69,7 +69,7 @@ Quand la liste des membres n'a pas de colonne « Organisation », les données n
 Anomalies à repérer :
 
 - un montant débité hors de la grille, par exemple 2 €, ou 50 € sur une carte ;
-- une plongée d'un membre actif, pour lui-même, débitée à plus de 0 € ;
+- une plongée d'un membre actif, pour lui-même, débitée à plus de 0 € alors qu'il a acheté sa Carte 10 niveau 3 et plus ;
 - un invité de membre actif facturé hors de son prix, par exemple un baptême à 30 € au lieu de 40 € ;
 - une Carte 10 niveau 3 et plus payée 220 € par un adhérent qui n'est pas dans « Membres actifs » ;
 - le plan « Plongée sans carnet » débite 35 € en niveau 1 et 2 alors que la page Tarifs annonce 37 € : écart connu, à corriger dans VPDive ;
