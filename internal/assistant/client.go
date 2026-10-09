@@ -183,6 +183,7 @@ type request struct {
 	Stream       bool           `json:"stream"`
 	Thinking     thinkingConfig `json:"thinking"`
 	OutputConfig *outputConfig  `json:"output_config,omitempty"`
+	CacheControl typeOnly       `json:"cache_control"` // automatic: Anthropic caches up to the last block
 	System       []systemBlock  `json:"system"`
 	Tools        []Tool         `json:"tools,omitempty"`
 	ToolChoice   *typeOnly      `json:"tool_choice,omitempty"`
@@ -203,7 +204,9 @@ type outputConfig struct {
 }
 
 // systemBlock carries cache_control: Anthropic caches tools and system
-// from it; DeepSeek ignores it and caches every prefix by itself.
+// from it, a read point whatever the conversation; the request's own
+// cache_control caches the conversation, which the next call of the tool
+// loop resends. DeepSeek ignores both and caches every prefix by itself.
 type systemBlock struct {
 	Type         string   `json:"type"`
 	Text         string   `json:"text"`
@@ -215,10 +218,11 @@ type typeOnly struct {
 }
 
 func (c *Client) request(k call) request {
+	ephemeral := typeOnly{Type: "ephemeral"}
 	r := request{
 		Model: c.Model, MaxTokens: c.maxTokens, Stream: true, Thinking: thinkingConfig{Type: config.ThinkingOff(c.Model)},
-		System: []systemBlock{{Type: blockText, Text: k.system, CacheControl: typeOnly{Type: "ephemeral"}}},
-		Tools:  k.tools, Messages: k.messages,
+		CacheControl: ephemeral, System: []systemBlock{{Type: blockText, Text: k.system, CacheControl: ephemeral}},
+		Tools: k.tools, Messages: k.messages,
 	}
 	switch {
 	case c.Thinking && legacyThinking.MatchString(c.Model):

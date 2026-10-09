@@ -186,6 +186,8 @@ func TestStreamText(t *testing.T) {
 	assert.InDelta(t, 9000, body["max_tokens"], 0, "ASSISTANT_MAX_TOKENS")
 	assert.Equal(t, map[string]any{"type": "disabled"}, body["thinking"])
 	assert.Equal(t, []any{map[string]any{"type": "text", "text": "Consignes", "cache_control": map[string]any{"type": "ephemeral"}}}, body["system"])
+	assert.Equal(t, map[string]any{"type": "ephemeral"}, body["cache_control"],
+		"automatic caching: the next call of the tool loop reads the conversation instead of paying it again")
 	assert.NotContains(t, body, "tool_choice")
 	assert.NotContains(t, body, "output_config", "no ASSISTANT_EFFORT: the provider's default")
 }
