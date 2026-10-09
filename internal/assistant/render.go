@@ -3,6 +3,7 @@ package assistant
 import (
 	"bytes"
 	"html/template"
+	"regexp"
 	"strings"
 
 	"github.com/yuin/goldmark"
@@ -26,12 +27,17 @@ var markdown = goldmark.New(
 	goldmark.WithRendererOptions(html.WithHardWraps(), renderer.WithNodeRenderers(util.Prioritized(safeNodes{}, 100))),
 )
 
+// unitSpace is the space between a number and its € or %: Render makes it
+// non-breaking, so a narrow table cell never leaves the unit on a line alone.
+var unitSpace = regexp.MustCompile(`(\d) ([€%])`)
+
 // Render turns the model's Markdown into the HTML a resolver reads. Links
 // and autolinks show their text, images their alt text: a planted message
 // cannot hand the resolver a link. A ```brouillon fence is the draft reply,
 // labelled and copyable.
 func Render(md string) template.HTML {
 	var buf bytes.Buffer
+	md = unitSpace.ReplaceAllString(md, "$1\u00a0$2")
 	if err := markdown.Convert([]byte(md), &buf); err != nil {
 		return template.HTML("<p>" + template.HTMLEscapeString(md) + "</p>") //nolint:gosec // escaped above
 	}
