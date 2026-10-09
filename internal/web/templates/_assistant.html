@@ -36,7 +36,10 @@
 <label class="sr-only" for="assistant-text-{{.TicketID}}">Ta question, ou le message d'un adhérent</label>
 <textarea class="textarea max-h-[40dvh] w-full resize-none" id="assistant-text-{{.TicketID}}" name="text" rows="2" maxlength="8000" placeholder="Colle le message d'un adhérent ou pose ta question"></textarea>
 <div class="flex items-center justify-between gap-3">
+<div class="flex min-w-0 flex-col gap-1">
 <p class="text-sm text-base-content/80" data-assistant-remaining>{{.Remaining}}</p>
+<p class="hidden text-sm text-base-content/80 pointer-fine:block"><kbd class="kbd kbd-sm">Entrée</kbd> pour envoyer, <kbd class="kbd kbd-sm">Maj</kbd> + <kbd class="kbd kbd-sm">Entrée</kbd> pour aller à la ligne</p>
+</div>
 <button class="btn btn-primary min-h-11" type="submit" data-assistant-send><span data-label-send>Envoyer</span><span data-label-stop hidden>Arrêter</span></button>
 </div>
 </form>{{end}}
