@@ -240,7 +240,9 @@ ever read fiches, never model output. The model receives the category, the
 extra fields and the description as typed, unmasked. The requester's name and
 email address and the screenshots are not sent. Without a key, or when the
 model fails or takes longer than `LLM_TIMEOUT` (8 s), the request leaves at
-once. `LLM_DAILY_LIMIT` (200 by default) caps the calls per day.
+once. `LLM_DAILY_LIMIT` (200 by default) caps the calls per day. The usage
+journal records each call (when, which model, tokens, and a cost once
+`LLM_PRICE_INPUT` and `LLM_PRICE_OUTPUT` are set) but not the request.
 
 Any provider that speaks Anthropic's Messages API works:
 
@@ -279,8 +281,11 @@ question, 2 hours at most. Logout drops the conversations of that session. An
 erasure or a deletion (of a request, a message or a capture) drops every
 conversation, and so does a restart. Each account gets
 `ASSISTANT_DAILY_QUESTIONS` questions a day (50 by default). The owner sees a
-usage journal at `/assistant/journal`: who asked, when, tokens and an estimated
-cost (`ASSISTANT_PRICE_*`), never the questions.
+usage journal at `/assistant/journal`: what the assistant and the suggestions
+cost per day over 30 days, per month over 12 and per account this month, then
+the last 100 questions with their tokens but not their text. Costs are
+estimates from `ASSISTANT_PRICE_*` and `LLM_PRICE_*`; a chart counts calls
+instead unless every call it shows has a price.
 The assistant has its own provider, apart from the suggestions':
 `ASSISTANT_BASE_URL` (Anthropic by default), `ASSISTANT_API_KEY` and
 `ASSISTANT_MODEL`. Claude Sonnet 5.5 at effort `high` gave the best answers in

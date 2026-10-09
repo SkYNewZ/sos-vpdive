@@ -231,6 +231,21 @@ func TestLoadLLM(t *testing.T) {
 	assert.Equal(t, "claude-haiku-5-5", c.LLM.Model, "the suggestion bench of 2026-10-09")
 	assert.Equal(t, 8*time.Second, c.LLM.Timeout)
 	assert.Equal(t, 200, c.LLM.DailyLimit)
+	assert.Equal(t, Prices{}, c.LLM.Prices, "no price: no cost on the dashboard")
+
+	m["LLM_PRICE_INPUT"], m["LLM_PRICE_OUTPUT"] = "1", "5"
+	c, err = Load(getenv(m))
+	require.NoError(t, err)
+	assert.Equal(t, Prices{Set: true, Input: 1_000_000, Output: 5_000_000, Cached: 1_000_000}, c.LLM.Prices)
+
+	m["LLM_PRICE_OUTPUT"] = "cher"
+	c, err = Load(getenv(m))
+	require.NoError(t, err, "an optional price never stops the start")
+	assert.False(t, c.LLM.Prices.Set, "both prices or no cost")
+	require.Len(t, c.Warnings, 1)
+	assert.Contains(t, c.Warnings[0].Error(), "LLM_PRICE_OUTPUT")
+	delete(m, "LLM_PRICE_INPUT")
+	delete(m, "LLM_PRICE_OUTPUT")
 
 	m["LLM_BASE_URL"] = "https://api.deepseek.com/anthropic"
 	c, err = Load(getenv(m))
@@ -538,7 +553,7 @@ func TestLoadAssistant(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, &Assistant{
 		BaseURL: deepseek, APIKey: "sk-test", Model: "deepseek-v4-pro", Thinking: true, Effort: EffortHigh,
-		MaxTokens: 32000, DailyQuestions: 20, Priced: true, PriceInput: 300_000, PriceOutput: 1_200_000, PriceCached: 300_000,
+		MaxTokens: 32000, DailyQuestions: 20, Prices: Prices{Set: true, Input: 300_000, Output: 1_200_000, Cached: 300_000},
 	}, c.Assistant, "a cached price defaults to the input price; reasoning gets a larger budget")
 
 	m["ASSISTANT_MAX_TOKENS"] = "12000"

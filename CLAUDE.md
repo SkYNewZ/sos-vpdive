@@ -137,6 +137,12 @@ is ambiguous, ask.
   empty). The fiche `tarification` ends the system prompt: the assistant poses the
   expected balance of a card beside VPDive's, cited as is, and flags amounts
   outside the grid.
+- Usage dashboard (2026-10-09): `/assistant/journal` charts cost per Paris
+  day (30), per month (12) and per account this month, assistant beside
+  suggestions. Each suggestion call goes to `suggest_usage` (no text), priced
+  with `LLM_PRICE_*`; charts are server SVG, series colours `--color-assistant`
+  and `--color-suggest` in `@theme`. A sum or a chart shows dollars only when
+  every call in it had a price; otherwise it counts calls.
 - Fiches may hold Markdown tables and one ```mermaid diagram (2026-10-09), served as `/kb/<id>.svg` on both hosts with its own CSP. The fiche `tarification` is the only source of the club's prices: the public Tarifs page wins over VPDive's price plans, whose gaps it lists for the resolver.
 
 ## Private material: `.local/` is gitignored

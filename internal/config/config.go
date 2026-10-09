@@ -91,6 +91,14 @@ type LLM struct {
 	Model      string
 	Timeout    time.Duration // the request leaves without suggestions past it
 	DailyLimit int           // model calls per day, Europe/Paris
+	Prices     Prices
+}
+
+// Prices are a model's prices in micro-dollars per million tokens, for the
+// usage journal. Set is false unless both input and output prices are.
+type Prices struct {
+	Set                   bool
+	Input, Output, Cached int64
 }
 
 // Assistant holds the committee assistant settings (design 2026-10-08);
@@ -104,10 +112,7 @@ type Assistant struct {
 	Effort         Effort // "" leaves the provider's default
 	MaxTokens      int    // per model call, reasoning included
 	DailyQuestions int    // per committee account and Paris day
-	// Priced is false unless both input and output prices are set; prices
-	// are in micro-dollars per million tokens, for the usage journal.
-	Priced                               bool
-	PriceInput, PriceOutput, PriceCached int64
+	Prices         Prices
 }
 
 // Effort is the Messages API output_config.effort: how much the model
@@ -509,6 +514,7 @@ func (p *parser) llm(env Env) *LLM {
 		Model:      p.optional("LLM_MODEL", "claude-haiku-5-5"),
 		Timeout:    p.duration("LLM_TIMEOUT", "8s"),
 		DailyLimit: p.int("LLM_DAILY_LIMIT", "200", 1, 100000),
+		Prices:     p.prices("LLM"),
 	}
 	if l.Timeout > time.Minute {
 		p.fail("LLM_TIMEOUT", errors.New("must be 60s at most"))
@@ -544,13 +550,10 @@ func (p *parser) assistant(env Env) *Assistant {
 	}
 	a.MaxTokens = p.optionalInt("ASSISTANT_MAX_TOKENS", maxTokens, minMaxTokens, maxMaxTokens)
 	a.DailyQuestions = p.optionalInt("ASSISTANT_DAILY_QUESTIONS", defaultDailyQuestions, 1, 10000)
-	input, inputSet := p.price("ASSISTANT_PRICE_INPUT")
-	output, outputSet := p.price("ASSISTANT_PRICE_OUTPUT")
-	cached, cachedSet := p.price("ASSISTANT_PRICE_CACHED")
-	if !cachedSet {
-		cached = input
+	a.Prices = p.prices("ASSISTANT")
+	if cached, set := p.price("ASSISTANT_PRICE_CACHED"); set {
+		a.Prices.Cached = cached
 	}
-	a.Priced, a.PriceInput, a.PriceOutput, a.PriceCached = inputSet && outputSet, input, output, cached
 	return a
 }
 
@@ -610,6 +613,14 @@ func (p *parser) optionalInt(name string, def, minimum, maximum int) int {
 		return def
 	}
 	return n
+}
+
+// prices reads prefix_PRICE_INPUT and prefix_PRICE_OUTPUT; a cache read
+// costs the input price.
+func (p *parser) prices(prefix string) Prices {
+	input, inputSet := p.price(prefix + "_PRICE_INPUT")
+	output, outputSet := p.price(prefix + "_PRICE_OUTPUT")
+	return Prices{Set: inputSet && outputSet, Input: input, Output: output, Cached: input}
 }
 
 // price reads an optional price in dollars per million tokens, a comma

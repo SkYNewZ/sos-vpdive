@@ -62,6 +62,10 @@
 
 @theme {
   --font-sans: "Atkinson Hyperlegible Next", ui-sans-serif, system-ui, sans-serif;
+  /* Usage dashboard series (2026-10-09): told apart under colour blindness,
+     3:1 at least on white. */
+  --color-assistant: #1d5c8c;
+  --color-suggest: #b5863a;
 }
 
 
@@ -88,6 +92,9 @@
   .cal-tint-3 { border-inline-start: 4px solid #5b7a2e; }
   .cal-tint-4 { border-inline-start: 4px solid #8c6a1f; }
   .cal-tint-5 { border-inline-start: 4px solid #9a4a6e; }
+
+  /* Usage charts: the hovered column gets a sand slot behind its bar. */
+  .usage-chart g:hover .hit { fill: var(--color-base-200); }
 
   /* Assistant answers: Markdown rendered by internal/assistant, no classes. */
   .answer { line-height: 1.6; overflow-wrap: anywhere; }

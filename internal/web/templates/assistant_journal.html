@@ -1,24 +1,73 @@
 {{define "main"}}{{$d := .Data}}
 <h1 class="text-2xl font-bold text-primary">Journal de l'assistant</h1>
-<p class="mt-2">Qui a posé des questions, quand, et ce qu'elles ont coûté. Le journal ne garde ni les questions ni les réponses, et s'efface après 12 mois.</p>
-<section class="panel mt-6 p-4 lg:p-5" aria-labelledby="totaux">
-<h2 id="totaux" class="text-xl font-semibold">Totaux</h2>
-<div class="mt-3 overflow-x-auto"><table class="table">
-<thead><tr><th>Période</th><th>Compte</th><th>Questions</th><th>Jetons (entrée · sortie · cache)</th><th>Coût estimé</th></tr></thead>
-<tbody>
-{{range $d.Today}}<tr><td>Aujourd'hui</td><td>{{author .Account}}</td><td>{{plural .Questions "question" "questions"}}</td><td>{{.Input}} · {{.Output}} · {{.CacheRead}}</td><td>{{dollars .Cost}}</td></tr>{{end}}
-{{range $d.Month}}<tr><td>Ce mois-ci</td><td>{{author .Account}}</td><td>{{plural .Questions "question" "questions"}}</td><td>{{.Input}} · {{.Output}} · {{.CacheRead}}</td><td>{{dollars .Cost}}</td></tr>{{end}}
-{{if not $d.Month}}<tr><td colspan="5">Aucune question ce mois-ci.</td></tr>{{end}}
-</tbody></table></div>
+<p class="mt-2 max-w-3xl">Ce que coûtent l'assistant et les suggestions du formulaire, et qui a posé des questions. Le journal ne garde ni les questions, ni les réponses, ni les demandes, et s'efface après 12 mois.</p>
+<p class="mt-4 max-w-3xl text-lg">Ce mois-ci{{template "usageSplit" $d.Month}}.</p>
+<p class="mt-1 max-w-3xl">Aujourd'hui{{template "usageSplit" $d.Today}}.</p>
+<section class="panel mt-6 p-4 lg:p-5" aria-labelledby="jours">
+<h2 id="jours" class="text-xl font-semibold">{{if $d.Days.Cost}}Coût{{else}}Appels{{end}} par jour, 30 derniers jours</h2>
+{{template "usageChart" $d.Days}}
 </section>
+<div class="mt-6 grid gap-6 lg:grid-cols-2">
+<section class="panel p-4 lg:p-5" aria-labelledby="mois">
+<h2 id="mois" class="text-xl font-semibold">{{if $d.Months.Cost}}Coût{{else}}Appels{{end}} par mois, 12 derniers mois</h2>
+{{template "usageChart" $d.Months}}
+</section>
+<section class="panel p-4 lg:p-5" aria-labelledby="comptes">
+<h2 id="comptes" class="text-xl font-semibold">Par compte, ce mois-ci</h2>
+{{if $d.Accounts}}<ul class="mt-4 space-y-4">{{range $d.Accounts}}
+<li class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1">
+<span class="truncate font-semibold">{{if .Account}}{{author .Account}}{{else}}Formulaire{{end}}</span>
+<span class="text-right tabular-nums">{{if .Account}}{{plural .Calls "question" "questions"}}{{else}}{{plural .Calls "suggestion" "suggestions"}}{{end}}{{if .Cost.Valid}}, {{dollars .Cost}}{{end}}</span>
+<progress class="progress col-span-2 h-3 {{if .Account}}text-assistant{{else}}text-suggest{{end}}" value="{{.Share}}" max="100" aria-hidden="true"></progress>
+</li>{{end}}</ul>
+{{else}}<p class="mt-3">Personne n'a utilisé l'assistant ni les suggestions ce mois-ci.</p>{{end}}
+</section>
+</div>
 <section class="panel mt-6 p-4 lg:p-5" aria-labelledby="questions">
-<h2 id="questions" class="text-xl font-semibold">100 dernières questions</h2>
+<h2 id="questions" class="text-xl font-semibold">100 dernières questions à l'assistant</h2>
 <div class="mt-3 overflow-x-auto"><table class="table table-sm">
 <thead><tr><th>Quand</th><th>Compte</th><th>Origine</th><th>Modèle</th><th>Appels</th><th>Outils</th><th>Jetons</th><th>Premier mot · durée</th><th>Coût</th><th>Issue</th></tr></thead>
 <tbody>{{range $d.Rows}}<tr>
 <td class="whitespace-nowrap">{{formatTime .At}}</td><td>{{author .Account}}</td><td>{{if eq .Origin "demande"}}Demande{{else}}Page{{end}}</td>
 <td>{{.Model}}{{if .Thinking}} · réflexion{{end}}</td><td>{{.Calls}}</td><td>{{.Tools}}</td><td>{{.Input}} · {{.Output}} · {{.CacheRead}}</td>
 <td>{{if .FirstMS.Valid}}{{.FirstMS.Int64}} ms · {{end}}{{.DurationMS}} ms</td><td>{{dollars .Cost}}</td><td>{{.Outcome}}</td>
-</tr>{{end}}</tbody></table></div>
+</tr>{{else}}<tr><td colspan="10">Aucune question pour l'instant.</td></tr>{{end}}</tbody></table></div>
 </section>
+{{end}}
+
+{{/* usageSplit ends a sentence on a period's split: « , 2,41 $ : 31 questions à l'assistant (2,30 $) et 84 suggestions du formulaire (0,11 $) ». */}}
+{{define "usageSplit"}}{{if .Cost.Valid}}, <strong>{{dollars .Cost}}</strong>{{end}}&nbsp;: {{plural .Assistant.Calls "question" "questions"}} à l'assistant{{if .Assistant.Cost.Valid}} ({{dollars .Assistant.Cost}}){{end}} et {{plural .Suggest.Calls "suggestion" "suggestions"}} du formulaire{{if .Suggest.Cost.Valid}} ({{dollars .Suggest.Cost}}){{end}}{{end}}
+
+{{/* usageChart draws a chart: stacked columns in an SVG stretched to its box, the labels in HTML around it so they keep their size. The table holds every value, for phones and screen readers. */}}
+{{define "usageChart"}}
+<ul class="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-sm">
+<li class="flex items-center gap-2"><span class="size-3 rounded-sm bg-assistant" aria-hidden="true"></span>Assistant</li>
+<li class="flex items-center gap-2"><span class="size-3 rounded-sm bg-suggest" aria-hidden="true"></span>Suggestions du formulaire</li>
+</ul>
+<div class="mt-4 grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 text-xs text-base-content/70" aria-hidden="true">
+<div class="relative h-48 min-w-10 whitespace-nowrap text-right tabular-nums">
+<span class="absolute right-0 top-0 -translate-y-1/2">{{.Top}}</span>
+<span class="absolute right-0 bottom-0 translate-y-1/2">0</span>
+</div>
+<svg class="usage-chart h-48 w-full" viewBox="0 0 {{.Width}} 100" preserveAspectRatio="none">
+<line class="stroke-base-300" x1="0" y1="0.5" x2="{{.Width}}" y2="0.5" vector-effect="non-scaling-stroke"/>
+<line class="stroke-base-300" x1="0" y1="50" x2="{{.Width}}" y2="50" vector-effect="non-scaling-stroke"/>
+{{range .Columns}}<g><title>{{.Label}}&nbsp;: {{plural .Assistant.Calls "question" "questions"}}{{if .Assistant.Cost.Valid}} ({{dollars .Assistant.Cost}}){{end}}, {{plural .Suggest.Calls "suggestion" "suggestions"}}{{if .Suggest.Cost.Valid}} ({{dollars .Suggest.Cost}}){{end}}</title>
+<rect class="hit" x="{{.X}}" y="0" width="10" height="100" fill="transparent"/>{{with .A}}<path class="fill-assistant" d="{{.}}"/>{{end}}{{with .S}}<path class="fill-suggest" d="{{.}}"/>{{end}}</g>
+{{end}}<line class="stroke-base-content/40" x1="0" y1="99.5" x2="{{.Width}}" y2="99.5" vector-effect="non-scaling-stroke"/>
+</svg>
+<div></div>
+<div class="mt-1 flex">{{range .Columns}}<span class="flex min-w-0 flex-1 justify-center whitespace-nowrap">{{.Tick}}</span>{{end}}</div>
+</div>
+<details class="mt-4">
+<summary class="flex min-h-11 cursor-pointer items-center text-sm">Voir les chiffres</summary>
+<div class="overflow-x-auto"><table class="table table-sm">
+<thead><tr><th>Période</th><th>Assistant</th><th>Suggestions</th><th>Total</th></tr></thead>
+<tbody>{{range .Columns}}<tr>
+<td class="whitespace-nowrap">{{.Label}}</td>
+<td>{{plural .Assistant.Calls "question" "questions"}}{{if .Assistant.Cost.Valid}}, {{dollars .Assistant.Cost}}{{end}}</td>
+<td>{{plural .Suggest.Calls "suggestion" "suggestions"}}{{if .Suggest.Cost.Valid}}, {{dollars .Suggest.Cost}}{{end}}</td>
+<td class="tabular-nums">{{dollars .Cost}}</td>
+</tr>{{end}}</tbody></table></div>
+</details>
 {{end}}

@@ -1,6 +1,8 @@
 package web
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
 	"html"
 	"io"
@@ -21,25 +23,33 @@ import (
 
 	"github.com/SkYNewZ/sos-vpdive/internal/config"
 	"github.com/SkYNewZ/sos-vpdive/internal/mail"
+	"github.com/SkYNewZ/sos-vpdive/internal/store"
 )
 
 var draftTokenField = regexp.MustCompile(`name="brouillon" value="([A-Za-z0-9_-]{43})"`)
 
 // modelStub stands for the model provider: it answers every call with
-// answer, after delay, and keeps the bodies it received.
+// answer and the tokens of usage, after delay, and keeps the bodies it
+// received.
 type modelStub struct {
 	mu     sync.Mutex
 	answer string
 	status int
 	delay  time.Duration
+	usage  modelUsage
 	bodies []string
+}
+
+type modelUsage struct {
+	Input  int `json:"input_tokens"`
+	Output int `json:"output_tokens"`
 }
 
 func (m *modelStub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	body, _ := io.ReadAll(r.Body)
 	m.mu.Lock()
 	m.bodies = append(m.bodies, string(body))
-	answer, status, delay := m.answer, m.status, m.delay
+	answer, status, delay, used := m.answer, m.status, m.delay, m.usage
 	m.mu.Unlock()
 	if delay > 0 {
 		select {
@@ -56,8 +66,9 @@ func (m *modelStub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Text string `json:"text"`
 	}
 	reply, err := json.Marshal(struct {
-		Content []block `json:"content"`
-	}{[]block{{Type: "text", Text: answer}}})
+		Content []block    `json:"content"`
+		Usage   modelUsage `json:"usage"`
+	}{[]block{{Type: "text", Text: answer}}, used})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -70,6 +81,12 @@ func (m *modelStub) set(answer string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.answer = answer
+}
+
+func (m *modelStub) fail(status int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.status = status
 }
 
 func (m *modelStub) calls() []string {
@@ -208,6 +225,41 @@ func TestDailyCapStopsModelCalls(t *testing.T) {
 	e.clock.advance(12*time.Hour + time.Minute)
 	e.screen2(t, validRequest(e.formKey(t)))
 	assert.Len(t, m.calls(), 2, "the count starts again at midnight in Paris")
+}
+
+func TestSuggestionCallsAreJournaled(t *testing.T) {
+	m := &modelStub{answer: choice, usage: modelUsage{Input: 1200, Output: 80}}
+	e := newTestEnv(t, withModel(t, m, 2), func(d *Deps) {
+		d.Config.LLM.Prices = config.Prices{Set: true, Input: 1_000_000, Output: 5_000_000, Cached: 1_000_000}
+	})
+	e.importMembers(t, "members_valid.xlsx")
+	e.screen2(t, validRequest(e.formKey(t)))
+	m.fail(http.StatusInternalServerError)
+	e.sendRequest(t, validRequest(e.formKey(t)))
+	e.sendRequest(t, validRequest(e.formKey(t)))
+	require.Len(t, m.calls(), 2, "the third request is past the cap")
+
+	type row struct {
+		Model         string
+		Input, Output int
+		Cost          sql.NullInt64
+		Outcome       string
+	}
+	rows, err := e.db.QueryContext(context.Background(),
+		`SELECT model, input_tokens, output_tokens, cost_micro_usd, outcome FROM suggest_usage ORDER BY id`)
+	got, err := store.Collect(rows, err, func(rows *sql.Rows) (r row, err error) {
+		return r, rows.Scan(&r.Model, &r.Input, &r.Output, &r.Cost, &r.Outcome)
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []row{
+		// 1 200 input × 1 $ + 80 output × 5 $ per million tokens = 1 600 µ$.
+		{Model: "test-model", Input: 1200, Output: 80, Cost: sql.NullInt64{Int64: 1600, Valid: true}, Outcome: "ok"},
+		{Model: "test-model", Cost: sql.NullInt64{Valid: true}, Outcome: "http_error"},
+	}, got, "every call the model was asked, never one past the cap")
+
+	e.clock.advance(13 * 30 * 24 * time.Hour)
+	require.NoError(t, e.srv.Purge(context.Background()))
+	assert.Equal(t, 0, e.count(t, "suggest_usage"), "12 months")
 }
 
 func TestAdversarialModelOutputStaysPlain(t *testing.T) {
