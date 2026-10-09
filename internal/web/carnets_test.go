@@ -132,3 +132,60 @@ func TestCarnetsAges(t *testing.T) {
 	assert.Equal(t, "Import ancien : cartes VPDive", mails[0].Subject)
 	assert.Contains(t, mails[0].Text, "Dernières cartes reçues")
 }
+
+// Design 2026-10-09 §6: the « Cartes VPDive » block of a request page,
+// between the payments and Mollie blocks, in each of its states, never on
+// the member's tracking page.
+func TestRequestPageCarnetsBlock(t *testing.T) {
+	e := newTestEnv(t)
+	e.importMembers(t, "members_valid.xlsx")
+	cookie := e.login(t)
+	hugo := e.submitTicket(t, "hugo.bernard@example.org")
+	chloe := e.submitTicket(t, "chloe.petit@example.org")
+	lea := e.submitTicket(t, "lea.martin@example.org")
+	noe := e.submitTicket(t, "noe.durand@example.org")
+	block := func(id int64) string {
+		t.Helper()
+		page := e.openTicket(t, cookie, id).body
+		start, end := strings.Index(page, `id="cartes"`), strings.Index(page, `id="encaissements"`)
+		require.True(t, strings.Index(page, `id="paiements"`) < start && start < end, "between the payments and Mollie blocks")
+		return page[start:end]
+	}
+	assert.Contains(t, block(hugo.ID), "Aucune carte reçue pour l'instant")
+
+	e.importCarnets(t)
+	got := block(hugo.ID)
+	for _, want := range []string{
+		"Cartes reçues le 02/09/2026 à 12:00 : vérifie dans VPDive avant d'agir.",
+		"Carte 10 plongées niveau 1 et 2", "avoir restant 120,00\u00a0€", "4 débits, net 42,00\u00a0€", "montant inhabituel",
+		"Sortie Épave (N2) · 29/08/2026", "répartie sur deux cartes, 25,00\u00a0€ en tout",
+		"Prix : -300,00\u00a0€ → -270,00\u00a0€", "Commentaire : Débit de la plongée de nuit à revoir avec le trésorier",
+		"+30,00\u00a0€", "Ajout au panier", "Léa MARTIN",
+		`<tr class="bg-warning/10"><td class="whitespace-nowrap">01/07/2026 à 19:00</td>`,
+	} {
+		assert.Contains(t, got, want)
+	}
+	assert.Less(t, strings.Index(got, "Carte 5 plongées"), strings.Index(got, "Carte 10 plongées"), "newest card first")
+	assert.Equal(t, 1, strings.Count(got, "bg-warning/10"), "the split dive is not unusual")
+
+	partial := block(chloe.ID)
+	assert.Contains(t, partial, "totaux partiels, 2 lignes non lues")
+	assert.Contains(t, partial, "non lue</span>")
+	assert.NotContains(t, partial, "débits, net")
+	assert.Contains(t, block(lea.ID), "Plusieurs membres portent ce nom : aucune carte n'est affichée.")
+	assert.Contains(t, block(noe.ID), "Aucune carte pour ce membre sur les 24 derniers mois.")
+
+	e.clock.advance(49 * time.Hour)
+	assert.Contains(t, block(hugo.ID), ">périmé</span>")
+
+	e.importMembers(t, "members_minimal.xlsx")
+	assert.Contains(t, block(noe.ID), "Le demandeur n'est pas dans la liste des membres : ses cartes ne peuvent pas être rattachées.")
+
+	e.clock.advance(91 * 24 * time.Hour)
+	require.NoError(t, e.deps.Carnets.Purge(context.Background()))
+	cookie = e.login(t) // logins expire after 30 days of test clock
+	assert.Contains(t, block(hugo.ID), "Plus de 90 jours sans envoi du script : les cartes ont été effacées.")
+
+	_, tracking := e.tracking(t, hugo.Token)
+	assert.NotContains(t, tracking, "Cartes VPDive")
+}

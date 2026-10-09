@@ -104,3 +104,20 @@ func TestRequestPageNamesAnEmptySettledCell(t *testing.T) {
 	assert.Contains(t, page, "« Payé » est vide dans l'export.")
 	assert.NotContains(t, page, "« Payé » vaut")
 }
+
+// Design 2026-10-09 §5-6: the export's « Commentaire » shows under its line,
+// in the payments block and on the outing the line attaches to.
+func TestRequestPageShowsPaymentComments(t *testing.T) {
+	e := newTestEnv(t)
+	e.importMembers(t, "members_valid.xlsx")
+	cookie := e.login(t)
+	hugo := e.submitTicket(t, "hugo.bernard@example.org")
+	e.importCalendar(t, "calendar_view.json")
+	e.importPayments(t)
+	page := e.openTicket(t, cookie, hugo.ID).body
+	const comment = "Commentaire : Plongée offerte par le club, accord du bureau"
+	sorties, paiements, cartes := strings.Index(page, `id="sorties"`), strings.Index(page, `id="paiements"`), strings.Index(page, `id="cartes"`)
+	require.True(t, sorties < paiements && paiements < cartes)
+	assert.Contains(t, page[sorties:paiements], comment, "under the line attached to the outing")
+	assert.Contains(t, page[paiements:cartes], comment, "under the line in the payments block")
+}
