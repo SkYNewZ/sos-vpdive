@@ -48,17 +48,19 @@ type suggestMetrics struct {
 }
 
 // bench is what both benches share: the app against the configured
-// database, the message files and the output directory. Only regular files
-// named message* are read: the directory may hold a grading grid that must
-// never reach the model.
+// database, the message files, the output directory and its JSON lines file.
+// Only regular files named message* are read: the directory may hold a
+// grading grid that must never reach the model.
 type bench struct {
 	app      *app
 	messages *os.Root
 	names    []string
 	out      *os.Root
+	results  *os.File
+	enc      *json.Encoder
 }
 
-func openBench(ctx context.Context, cfg *config.Config, dir, out string) (b *bench, err error) {
+func openBench(ctx context.Context, cfg *config.Config, dir, out, results string) (b *bench, err error) {
 	b = &bench{}
 	defer func() {
 		if err != nil {
@@ -83,12 +85,21 @@ func openBench(ctx context.Context, cfg *config.Config, dir, out string) (b *ben
 	if err := os.MkdirAll(out, 0o700); err != nil {
 		return b, err
 	}
-	b.out, err = os.OpenRoot(out)
-	return b, err
+	if b.out, err = os.OpenRoot(out); err != nil {
+		return b, err
+	}
+	if b.results, err = b.out.OpenFile(results, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600); err != nil {
+		return b, err
+	}
+	b.enc = json.NewEncoder(b.results)
+	return b, nil
 }
 
 func (b *bench) close() error {
 	var errs []error
+	if b.results != nil {
+		errs = append(errs, b.results.Close())
+	}
 	for _, r := range []*os.Root{b.messages, b.out} {
 		if r != nil {
 			errs = append(errs, r.Close())
@@ -119,17 +130,11 @@ func assistantBench(ctx context.Context, getenv func(string) string, args []stri
 	if cfg.Assistant == nil {
 		return errors.New("assistant-bench needs ASSISTANT_ENABLED=true and ASSISTANT_API_KEY")
 	}
-	b, err := openBench(ctx, cfg, *dir, *out)
+	b, err := openBench(ctx, cfg, *dir, *out, "metrics.jsonl")
 	if err != nil {
 		return err
 	}
 	defer func() { err = errors.Join(err, b.close()) }()
-	metrics, err := b.out.OpenFile("metrics.jsonl", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
-	if err != nil {
-		return err
-	}
-	defer func() { err = errors.Join(err, metrics.Close()) }()
-	enc := json.NewEncoder(metrics)
 	for _, name := range b.names {
 		if err := ctx.Err(); err != nil {
 			return err // interrupted: the remaining messages would all read « canceled »
@@ -160,7 +165,7 @@ func assistantBench(ctx context.Context, getenv func(string) string, args []stri
 			cost := u.CostMicro(a)
 			m.CostMicro = &cost
 		}
-		if err := enc.Encode(m); err != nil {
+		if err := b.enc.Encode(m); err != nil {
 			return err
 		}
 		if _, err := fmt.Fprintf(stdout, "%s: %s, %d calls, %.1f s\n", name, r.Outcome, r.Result.Calls, r.Duration.Seconds()); err != nil {
@@ -190,17 +195,11 @@ func suggestBench(ctx context.Context, getenv func(string) string, args []string
 	if cfg.LLM == nil {
 		return errors.New("suggest-bench needs LLM_API_KEY")
 	}
-	b, err := openBench(ctx, cfg, *dir, *out)
+	b, err := openBench(ctx, cfg, *dir, *out, "suggestions.jsonl")
 	if err != nil {
 		return err
 	}
 	defer func() { err = errors.Join(err, b.close()) }()
-	results, err := b.out.OpenFile("suggestions.jsonl", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
-	if err != nil {
-		return err
-	}
-	defer func() { err = errors.Join(err, results.Close()) }()
-	enc := json.NewEncoder(results)
 	for _, name := range b.names {
 		data, err := b.messages.ReadFile(name)
 		if err != nil {
@@ -222,7 +221,7 @@ func suggestBench(ctx context.Context, getenv func(string) string, args []string
 			if err != nil {
 				return err
 			}
-			if err := enc.Encode(suggestMetrics{Message: name, Run: run, Model: cfg.LLM.Model, Outcome: r.Outcome,
+			if err := b.enc.Encode(suggestMetrics{Message: name, Run: run, Model: cfg.LLM.Model, Outcome: r.Outcome,
 				Fiches: r.IDs, Summary: r.Summary, Input: r.InputTokens, Output: r.OutputTokens,
 				DurationMS: r.Duration.Milliseconds()}); err != nil {
 				return err

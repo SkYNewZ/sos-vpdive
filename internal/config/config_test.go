@@ -554,6 +554,16 @@ func TestLoadAssistantBaseURL(t *testing.T) {
 	}
 }
 
+func TestLoadAssistantDropsAnEffortThatNeedsThinking(t *testing.T) {
+	m := validEnv()
+	m["ASSISTANT_ENABLED"], m["ASSISTANT_API_KEY"], m["ASSISTANT_THINKING"], m["ASSISTANT_EFFORT"] = "true", "sk-test", "false", "xhigh"
+	c, err := Load(getenv(m))
+	require.NoError(t, err)
+	assert.Empty(t, c.Assistant.Effort, "Sonnet 5.5 answers 400 to xhigh and max without thinking")
+	require.Len(t, c.Warnings, 1)
+	assert.Contains(t, c.Warnings[0].Error(), "ASSISTANT_EFFORT")
+}
+
 func TestThinkingOff(t *testing.T) {
 	assert.Equal(t, "between_tools", ThinkingOff("claude-sonnet-5-5"), "Sonnet 5.5 refuses disabled")
 	for _, model := range []string{"claude-haiku-5-5", "claude-haiku-4-5-20251001", "deepseek-flash", "deepseek-v4-pro"} {

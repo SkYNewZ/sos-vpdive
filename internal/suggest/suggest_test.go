@@ -342,12 +342,9 @@ func TestChooseUnreachableProvider(t *testing.T) {
 
 func TestChooseTurnsReasoningOffOnSonnet(t *testing.T) {
 	s := &stub{status: http.StatusOK, text: `{"fiches": [], "resume": "x"}`}
-	srv := httptest.NewServer(s)
-	t.Cleanup(srv.Close)
-	base, err := url.Parse(srv.URL)
-	require.NoError(t, err)
-	c := New(&config.LLM{BaseURL: base, APIKey: "k", Model: "claude-sonnet-5-5", Timeout: time.Second})
-	_, err = c.Choose(context.Background(), request, fiches)
+	c := newClient(t, s, "")
+	c.model = "claude-sonnet-5-5"
+	_, err := c.Choose(context.Background(), request, fiches)
 	require.NoError(t, err)
 	s.mu.Lock()
 	defer s.mu.Unlock()

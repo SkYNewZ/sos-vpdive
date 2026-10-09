@@ -15,6 +15,7 @@ import (
 	"net/netip"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -501,7 +502,7 @@ func (p *parser) turnstile(c *Config) {
 // typo shows before the key is added; without a key suggestions are off.
 func (p *parser) llm(env Env) *LLM {
 	l := &LLM{
-		BaseURL:    p.endpoint("LLM_BASE_URL", p.optional("LLM_BASE_URL", "https://api.anthropic.com")),
+		BaseURL:    p.baseURL("LLM_BASE_URL", env),
 		APIKey:     p.value("LLM_API_KEY"),
 		Model:      p.optional("LLM_MODEL", "claude-haiku-5-5"),
 		Timeout:    p.duration("LLM_TIMEOUT", "8s"),
@@ -509,9 +510,6 @@ func (p *parser) llm(env Env) *LLM {
 	}
 	if l.Timeout > time.Minute {
 		p.fail("LLM_TIMEOUT", errors.New("must be 60s at most"))
-	}
-	if env == EnvProduction {
-		p.requireHTTPS("LLM_BASE_URL", l.BaseURL)
 	}
 	if l.APIKey == "" {
 		return nil
@@ -528,19 +526,16 @@ func (p *parser) assistant(env Env) *Assistant {
 		return nil
 	}
 	a := &Assistant{
-		BaseURL: p.endpoint("ASSISTANT_BASE_URL", p.optional("ASSISTANT_BASE_URL", "https://api.anthropic.com")),
+		BaseURL: p.baseURL("ASSISTANT_BASE_URL", env),
 		APIKey:  p.value("ASSISTANT_API_KEY"),
 		Model:   p.optional("ASSISTANT_MODEL", "claude-sonnet-5-5"),
-	}
-	if env == EnvProduction {
-		p.requireHTTPS("ASSISTANT_BASE_URL", a.BaseURL)
 	}
 	if a.APIKey == "" {
 		p.warn("ASSISTANT_ENABLED", errors.New("needs ASSISTANT_API_KEY: the assistant is off"))
 		return nil
 	}
 	a.Thinking = p.flag("ASSISTANT_THINKING", true) // the benchmark's best answers
-	a.Effort = p.effort("ASSISTANT_EFFORT")
+	a.Effort = p.effort("ASSISTANT_EFFORT", a.Thinking)
 	maxTokens := defaultMaxTokens
 	if a.Thinking {
 		maxTokens = defaultMaxTokensThink
@@ -557,15 +552,31 @@ func (p *parser) assistant(env Env) *Assistant {
 	return a
 }
 
+// baseURL reads the API root of a model provider, Anthropic's by default;
+// the key goes there, so production wants https.
+func (p *parser) baseURL(name string, env Env) *url.URL {
+	u := p.endpoint(name, p.optional(name, "https://api.anthropic.com"))
+	if env == EnvProduction {
+		p.requireHTTPS(name, u)
+	}
+	return u
+}
+
 // effort reads an optional effort level: "" when unset, and when invalid
-// with a warning.
-func (p *parser) effort(name string) Effort {
-	e := Effort(p.value(name))
-	switch e {
-	case "", EffortLow, EffortMedium, EffortHigh, EffortXHigh, EffortMax:
+// with a warning. Without thinking, xhigh and max are dropped with a
+// warning too: Claude Sonnet 5.5 refuses them then.
+func (p *parser) effort(name string, thinking bool) Effort {
+	levels := []Effort{EffortLow, EffortMedium, EffortHigh, EffortXHigh, EffortMax}
+	switch e := Effort(p.value(name)); {
+	case e == "":
+		return ""
+	case !slices.Contains(levels, e):
+		p.warn(name, fmt.Errorf("must be one of %v: ignored", levels))
+	case !thinking && (e == EffortXHigh || e == EffortMax):
+		p.warn(name, errors.New("xhigh and max need ASSISTANT_THINKING=true: ignored"))
+	default:
 		return e
 	}
-	p.warn(name, fmt.Errorf("must be %s, %s, %s, %s or %s: ignored", EffortLow, EffortMedium, EffortHigh, EffortXHigh, EffortMax))
 	return ""
 }
 
