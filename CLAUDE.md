@@ -143,6 +143,9 @@ is ambiguous, ask.
   with `LLM_PRICE_*`; charts are server SVG, series colours `--color-assistant`
   and `--color-suggest` in `@theme`. A sum or a chart shows dollars only when
   every call in it had a price; otherwise it counts calls.
+- The members import also keeps « Organisation » (VPDive groups, sealed; 2026-10-09):
+  `find_member` gives it to the assistant, and the fiche `tarification` prices
+  « Membres actifs » (Carte 10 N3+ at 220 €, own dives at 0 €, guest products).
 - Fiches may hold Markdown tables and one ```mermaid diagram (2026-10-09), served as `/kb/<id>.svg` on both hosts with its own CSP. The fiche `tarification` is the only source of the club's prices: the public Tarifs page wins over VPDive's price plans, whose gaps it lists for the resolver.
 
 ## Private material: `.local/` is gitignored

@@ -53,12 +53,14 @@ func TestToolFindMember(t *testing.T) {
 	cands := got["candidats"].([]any)
 	require.Len(t, cands, 2)
 	assert.Equal(t, true, cands[0].(map[string]any)["homonyme"])
+	assert.Equal(t, "aucune", cands[0].(map[string]any)["organisation"], "in no VPDive group")
 	assert.Equal(t, "Recherche « Léa Martin » : 2 candidats", step)
 
 	got, _ = tb.call(t, "find_member", `{"query":"hugo"}`)
 	hugo := got["candidats"].([]any)[0].(map[string]any)
 	assert.Equal(t, "m3", hugo["ref"])
 	assert.Equal(t, "Hugo Bernard", hugo["nom"])
+	assert.Equal(t, "Moniteurs actifs, Membres actifs", hugo["organisation"], "the groups active members' prices depend on")
 
 	tb.c.Emails = []string{"hugo.bernard@example.org"}
 	got, _ = tb.call(t, "find_member", `{"query":"[email 1]"}`)
