@@ -31,7 +31,13 @@ type Account struct {
 	PasswordHash       string
 	MustChangePassword bool // a temporary password is in place
 	PushoverUserKey    string
-	Avatar             template.URL
+	Avatar             template.URL // the photo, else drawn from Username
+	avatarFile         string       // the photo's file name, "" without one
+}
+
+// HasPhoto reports whether the resolver chose a photo.
+func (a Account) HasPhoto() bool {
+	return a.avatarFile != ""
 }
 
 // CredentialHash fingerprints the password hash. A session stores it and

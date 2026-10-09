@@ -39,6 +39,7 @@ const (
 	accountsPollInterval = 10 * time.Second
 	purgeInterval        = 24 * time.Hour
 	shutdownTimeout      = 30 * time.Second
+	avatarsDir           = "avatars" // account photos, under DATA_DIR
 )
 
 // app is what serve runs. setup builds it without listening, so that tests
@@ -79,7 +80,7 @@ func setup(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*app, 
 	if err := store.CheckKey(ctx, db, keys); err != nil {
 		return fail(fmt.Errorf("refusing to start: %w", err))
 	}
-	registry, err := admins.Open(ctx, db, keys, logger, time.Now)
+	registry, err := admins.Open(ctx, db, keys, filepath.Join(cfg.DataDir, avatarsDir), logger, time.Now)
 	if err != nil {
 		return fail(err)
 	}

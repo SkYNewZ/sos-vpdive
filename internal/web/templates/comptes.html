@@ -32,5 +32,5 @@
 </section>
 {{end}}
 
-{{define "accountRow"}}<img src="{{.Avatar}}" alt="" width="32" height="32" class="size-8">
+{{define "accountRow"}}<img src="{{.Avatar}}" alt="" width="32" height="32" class="size-8 rounded-full">
 <span class="min-w-0 flex-1"><span class="block font-semibold">{{.Name}}</span><span class="block text-sm">{{.Role}}</span><span class="block text-sm">Identifiant : {{.Username}}</span><span class="mt-1 block">{{if .MustChangePassword}}<span class="badge badge-soft badge-warning whitespace-nowrap">Mot de passe temporaire</span>{{else}}<span class="badge badge-soft whitespace-nowrap">Actif</span>{{end}}</span></span>{{end}}

@@ -51,7 +51,7 @@
 <ul class="flex flex-col gap-1 [&_svg]:size-5">{{range $.Nav}}{{if not .PhoneOnly}}<li><a class="flex min-h-11 items-center gap-3 rounded-field border-l-4 px-3 {{if eq .Section $.Section}}border-primary bg-base-100 font-bold text-primary{{else}}border-transparent hover:bg-base-100{{end}}" href="{{.Path}}"{{if eq .Section $.Section}} aria-current="page"{{end}}>{{template "icon" .Icon}}<span>{{.Label}}</span></a></li>{{end}}{{end}}</ul>
 </nav>
 <div class="mt-auto border-t border-base-300 px-3 pt-4">
-<a class="flex min-h-11 items-center gap-3 rounded-field hover:bg-base-100" href="/compte"{{if eq $.Section "compte"}} aria-current="page"{{end}}><img src="{{.Account.Avatar}}" alt="" width="32" height="32" class="size-8"><span class="min-w-0 text-sm"><span class="block truncate font-semibold">{{.Account.Name}}</span><span class="block truncate">{{.Account.Role}}</span></span></a>
+<a class="flex min-h-11 items-center gap-3 rounded-field hover:bg-base-100" href="/compte"{{if eq $.Section "compte"}} aria-current="page"{{end}}><img src="{{.Account.Avatar}}" alt="" width="32" height="32" class="size-8 rounded-full"><span class="min-w-0 text-sm"><span class="block truncate font-semibold">{{.Account.Name}}</span><span class="block truncate">{{.Account.Role}}</span></span></a>
 <form method="post" action="/deconnexion" class="mt-2">
 <input type="hidden" name="csrf" value="{{.CSRF}}">
 <button class="btn btn-ghost btn-sm min-h-11 px-0" type="submit">Se déconnecter</button>
@@ -62,7 +62,7 @@
 <header class="bg-primary text-primary-content lg:hidden">
 <div class="flex min-h-14 items-center justify-between gap-3 px-4">
 <p class="truncate text-xl font-bold" aria-hidden="true">{{.Title}}</p>
-<a class="inline-flex size-11 flex-none items-center justify-center" href="/plus"><img src="{{.Account.Avatar}}" alt="Ton compte" width="32" height="32" class="size-8"></a>
+<a class="inline-flex size-11 flex-none items-center justify-center" href="/plus"><img src="{{.Account.Avatar}}" alt="Ton compte" width="32" height="32" class="size-8 rounded-full"></a>
 </div>
 </header>
 <main class="mx-auto w-full max-w-360 px-4 pt-6 pb-24 lg:px-8 lg:pb-12">
@@ -77,7 +77,7 @@
 <div data-toasts aria-live="polite" class="fixed right-6 bottom-6 z-20 hidden w-96 flex-col gap-2 lg:flex"></div>{{end}}
 
 {{/* The avatar, name, role and identifier of an account, in a panel of the caller. */}}
-{{define "identity"}}<img src="{{.Avatar}}" alt="" width="40" height="40" class="size-10">
+{{define "identity"}}<img src="{{.Avatar}}" alt="" width="40" height="40" class="size-10 rounded-full">
 <p><span class="block font-semibold">{{.Name}}</span><span class="block text-sm">{{.Role}}</span><span class="block text-sm">Identifiant : {{.Username}}</span></p>{{end}}
 
 {{define "icon"}}<svg class="size-6 flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-{{.}}"></use></svg>{{end}}
@@ -119,7 +119,7 @@
 
 {{define "noPayments"}}<p class="mt-3">{{if .}}{{template "purgedPayments"}}{{else}}Aucun paiement importé.{{end}} <a class="link link-primary inline-flex min-h-11 items-center" href="/imports">Importer l'export des paiements</a></p>{{end}}
 
-{{define "assignee"}}{{with accountOf .}}<span class="inline-flex items-center gap-2"><img src="{{.Avatar}}" alt="" width="24" height="24" class="size-6"><span>{{.Name}}</span></span>{{else}}{{.}}{{end}}{{end}}
+{{define "assignee"}}{{with accountOf .}}<span class="inline-flex items-center gap-2"><img src="{{.Avatar}}" alt="" width="24" height="24" class="size-6 rounded-full"><span>{{.Name}}</span></span>{{else}}{{.}}{{end}}{{end}}
 
 {{define "assigneeName"}}{{with accountOf .}}{{.Name}}{{else}}{{.}}{{end}}{{end}}
 

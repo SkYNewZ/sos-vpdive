@@ -24,7 +24,8 @@ const tracerName = "github.com/SkYNewZ/sos-vpdive/internal/web"
 
 // contentSecurityPolicy returns spec §11.5, identical on both domains. A
 // configured Umami adds its origin for its script and its page views,
-// nowhere else.
+// nowhere else. blob: images are the photo app.js shrinks on « Mon compte »:
+// only our own scripts can make one.
 func contentSecurityPolicy(umami *config.Umami) string {
 	analytics := ""
 	if umami != nil {
@@ -33,7 +34,7 @@ func contentSecurityPolicy(umami *config.Umami) string {
 	return "default-src 'self'; " +
 		"script-src 'self' https://challenges.cloudflare.com" + analytics + "; " +
 		"frame-src https://challenges.cloudflare.com; " +
-		"connect-src 'self'" + analytics + "; img-src 'self' data:; style-src 'self'; " +
+		"connect-src 'self'" + analytics + "; img-src 'self' data: blob:; style-src 'self'; " +
 		"worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; " +
 		"base-uri 'self'; form-action 'self'"
 }

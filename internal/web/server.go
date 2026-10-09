@@ -247,6 +247,7 @@ func (s *Server) adminRoutes() *http.ServeMux {
 	s.handle(mux, "GET /plus", s.signedIn(s.plusPage))
 	s.handle(mux, "GET "+accountPath, s.signedIn(s.accountPage))
 	s.handle(mux, "POST "+accountPath, s.signedIn(s.changePassword))
+	s.handle(mux, "POST "+accountPath+"/photo", s.signedIn(s.setPhoto))
 	s.handle(mux, "GET "+accountsPath, s.ownerOnly(s.accountsPage))
 	s.handle(mux, "POST "+accountsPath, s.ownerOnly(s.createAccount))
 	s.handle(mux, "GET "+accountsPath+"/{identifiant}", s.ownerOnly(s.managedAccountPage))
