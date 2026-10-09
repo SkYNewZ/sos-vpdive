@@ -557,11 +557,17 @@ const assistantBox = (box) => {
     field.style.height = "";
     ask(question);
   });
+  // Enter sends and Shift+Enter breaks the line, as in chat apps; on a touch
+  // screen Enter breaks the line and the button sends. Cmd/Ctrl+Enter sends
+  // everywhere. An IME's Enter (keyCode 229 in Safari) only ends the
+  // composition. While an answer runs, only the button stops it.
+  const touch = window.matchMedia("(pointer: coarse)");
   field.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-      event.preventDefault();
-      if (!running) form.requestSubmit(); // while an answer runs, only the button stops it
-    }
+    if (event.key !== "Enter" || event.isComposing || event.keyCode === 229) return;
+    const sends = event.metaKey || event.ctrlKey || (!event.shiftKey && !event.altKey && !touch.matches);
+    if (!sends) return;
+    event.preventDefault();
+    if (!running) form.requestSubmit();
   });
   // Grows with its text: CSSOM, allowed by the style-src CSP.
   field.addEventListener("input", () => {

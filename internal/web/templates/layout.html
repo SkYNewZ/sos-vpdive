@@ -107,6 +107,8 @@
 
 {{define "blocks"}}{{range .}}{{if eq .Kind "bullets"}}<ul class="list-disc pl-6">{{range .Items}}<li>{{.}}</li>{{end}}</ul>
 {{else if eq .Kind "numbers"}}<ol class="list-decimal pl-6">{{range .Items}}<li>{{.}}</li>{{end}}</ol>
+{{else if eq .Kind "table"}}<div class="overflow-x-auto"><table class="table table-sm"><thead><tr>{{range index .Rows 0}}<th>{{.}}</th>{{end}}</tr></thead><tbody>{{range slice .Rows 1}}<tr>{{range .}}<td>{{.}}</td>{{end}}</tr>{{end}}</tbody></table></div>
+{{else if eq .Kind "diagram"}}<img src="{{.Image}}" alt="{{index .Items 0}}" class="w-full max-w-xl" loading="lazy">
 {{else}}<p>{{index .Items 0}}</p>
 {{end}}{{end}}{{end}}
 

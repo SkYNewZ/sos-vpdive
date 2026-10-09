@@ -16,7 +16,6 @@ import (
 	"github.com/SkYNewZ/sos-vpdive/internal/assistant"
 	"github.com/SkYNewZ/sos-vpdive/internal/calendar"
 	"github.com/SkYNewZ/sos-vpdive/internal/imports"
-	"github.com/SkYNewZ/sos-vpdive/internal/kb"
 	"github.com/SkYNewZ/sos-vpdive/internal/payments"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 	"github.com/SkYNewZ/sos-vpdive/internal/tickets"
@@ -350,15 +349,6 @@ func TestToolImportState(t *testing.T) {
 	st, err = e.srv.importState(context.Background(), imports.Members)
 	require.NoError(t, err)
 	assert.Contains(t, st.describe(), "périmé")
-}
-
-func TestBlocksText(t *testing.T) {
-	text := blocksText([]kb.Block{
-		{Kind: kb.Paragraph, Items: []string{"Vérifie le solde."}},
-		{Kind: kb.Numbers, Items: []string{"Ouvre la fiche.", "Note le montant."}},
-		{Kind: kb.Bullets, Items: []string{"carnet", "formation"}},
-	})
-	assert.Equal(t, "Vérifie le solde.\n\n1. Ouvre la fiche.\n2. Note le montant.\n\n- carnet\n- formation", text)
 }
 
 // Every definition has a valid schema and is served by run.

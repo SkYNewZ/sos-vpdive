@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -10,23 +11,40 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/assistant"
+	"github.com/SkYNewZ/sos-vpdive/internal/kb"
 	"github.com/SkYNewZ/sos-vpdive/internal/tickets"
 )
 
 func TestAssistantSystem(t *testing.T) {
 	e := newTestEnv(t)
-	sys := assistantSystem(e.deps.KB.Fiches)
+	sys := assistantSystem(e.deps.KB)
 	for _, f := range e.deps.KB.Fiches {
 		assert.Contains(t, sys, "- "+f.ID+" : "+f.Title)
 	}
-	for _, rule := range []string{"Ne le recalcule jamais", "<saisie_resolveur>", "```brouillon", "je ne sais pas", "Ne convertis jamais un solde",
-		"ce n'est jamais l'expéditeur", "demande au résolveur qui l'a écrit", "n'additionne ni ne soustrais", "signale l'écart dans « Pistes »",
-		"nom_saisi", "« hors période », pas absente", "periode_lue", "ne suppose jamais qu'il a été écrit aujourd'hui", "deposee_le",
-		"couvre aussi ses invités", "reste dans soldes à 0,00 €"} {
+	for _, rule := range []string{"<saisie_resolveur>", "```brouillon", "je ne sais pas", "ce n'est jamais l'expéditeur",
+		"demande au résolveur qui l'a écrit", "nom_saisi", "« hors période », pas absente", "periode_lue",
+		"ne suppose jamais qu'il a été écrit aujourd'hui", "ne réclame jamais sa date", "deposee_le", "couvre aussi ses invités",
+		"reste dans soldes à 0,00 €", "Cite le solde VPDive exactement", "pose le reste attendu", "lance find_outings sur ce jour",
+		"Sans homonyme, n'en parle pas", "action manuelle d'un membre du comité", "déplie le panier de la carte",
+		"### Constat", "### Écart et cause probable", "### À faire dans VPDive", "omets ce titre", "jamais la date du message", "double débit", "celle du conjoint", "tarif carnet gardé sur une carte vide"} {
 		assert.Contains(t, sys, rule)
 	}
+	for _, gone := range []string{"Ne convertis jamais un solde", "n'additionne ni ne soustrais", "range la date du message",
+		"L'export ne dit pas sur quel carnet", "### Pistes", "Ne donne jamais un tarif"} {
+		assert.NotContains(t, sys, gone)
+	}
 	assert.NotContains(t, sys, "'''", "the fence placeholder is replaced")
-	assert.Equal(t, sys, assistantSystem(e.deps.KB.Fiches), "fixed for a build: the prefix is cached")
+	assert.Equal(t, sys, assistantSystem(e.deps.KB), "fixed for a build: the prefix is cached")
+
+	pricing, ok := e.deps.KB.Get(pricingFiche)
+	require.True(t, ok)
+	assert.Contains(t, sys, "## Fiche tarification : "+pricing.Title)
+	assert.Contains(t, sys, pricing.AnswerText)
+	assert.Contains(t, sys, "| 5 plongées, niveau 3 et plus | 135 € | 125 € | 27 € |")
+	assert.Contains(t, sys, "trou de configuration", "the procedure comes too")
+	assert.NotContains(t, sys, "```mermaid", "the drawing says nothing the tables do not")
+	others := slices.DeleteFunc(slices.Clone(e.deps.KB.Fiches), func(f kb.Fiche) bool { return f.ID == pricingFiche })
+	assert.NotContains(t, assistantSystem(&kb.Base{Fiches: others}), "## Fiche tarification", "another club without the fiche")
 }
 
 func TestQuestionText(t *testing.T) {
@@ -76,7 +94,8 @@ func TestQuestionTextFromARequest(t *testing.T) {
 	assert.Contains(t, text, `"deposee_le":"02/09/2026 à 12:00"`, "the date its « demain » or « hier » are read from")
 	assert.Contains(t, text, `"adherent":{"ref":"m1","nom":"Hugo Bernard","saisons":"`, "the requester as find_member describes a member")
 	assert.Contains(t, text, `"licence":"`)
-	assert.Contains(t, text, `"homonyme":false,"identification":"par l'adresse de la demande"}`)
+	assert.Contains(t, text, `,"identification":"par l'adresse de la demande"}`)
+	assert.NotContains(t, text, `"homonyme":false`, "a field the model would repeat as « pas d'homonyme »")
 	assert.Contains(t, text, "[email 1]")
 	assert.NotContains(t, text, "@")
 	assert.True(t, strings.HasSuffix(text, "Analyse cette demande."))

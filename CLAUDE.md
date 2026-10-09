@@ -126,6 +126,12 @@ is ambiguous, ask.
   and §12.4's bans no longer hold for it. Reasoning is on by default
   (`ASSISTANT_THINKING`) and `.env.example` recommends `deepseek-flash`: the
   owner's choice after the benchmark (2026-10-09).
+  Answers (2026-10-09): Adhérent · Constat (one table per person) · Écart et cause
+  probable · À faire dans VPDive · Ce qui manque (only what blocks, omitted when
+  empty). The fiche `tarification` ends the system prompt: the assistant poses the
+  expected balance of a card beside VPDive's, cited as is, and flags amounts
+  outside the grid.
+- Fiches may hold Markdown tables and one ```mermaid diagram (2026-10-09), served as `/kb/<id>.svg` on both hosts with its own CSP. The fiche `tarification` is the only source of the club's prices: the public Tarifs page wins over VPDive's price plans, whose gaps it lists for the resolver.
 
 ## Private material: `.local/` is gitignored
 
@@ -203,6 +209,7 @@ No i18n framework.
 - `make test` / `make lint` (golangci-lint v2, `default: all`) / `make css` /
   `make build` / `make fixtures` (regenerates `testdata/fixtures/*.xlsx`).
 - One test: `go test ./internal/web -run TestName` (`make test` adds `-race`).
+- `make diagrams` redraws `kb/<id>.svg` from a fiche's ```mermaid block (`npx`, Node as a local convenience); the SVG is committed and stamped with its source's SHA-256, and `kb.Load` refuses a stale one.
 - CI (`.github/workflows/ci.yml`): `check` runs `gofmt -l`, `go vet`,
   `go test -race`, `validate-kb` and the forbidden-files guard; `image` builds
   the Dockerfile and pushes it (develop → `:latest`, tag `vX.Y.Z` → `:X.Y.Z`).

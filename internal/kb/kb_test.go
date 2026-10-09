@@ -1,6 +1,8 @@
 package kb
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -70,11 +72,13 @@ func TestLoadValidFiche(t *testing.T) {
 }
 
 func TestBlocksListAfterParagraph(t *testing.T) {
+	got, err := blocks("Trois cas :\n- un ;\n- deux.\nEnsuite, écris-nous.", "x")
+	require.NoError(t, err)
 	assert.Equal(t, []Block{
 		{Kind: Paragraph, Items: []string{"Trois cas :"}},
 		{Kind: Bullets, Items: []string{"un ;", "deux."}},
 		{Kind: Paragraph, Items: []string{"Ensuite, écris-nous."}},
-	}, blocks("Trois cas :\n- un ;\n- deux.\nEnsuite, écris-nous."))
+	}, got)
 }
 
 func TestLoadRefusesMalformedFiches(t *testing.T) {
@@ -113,4 +117,62 @@ func TestLoadRefusesDuplicateIDs(t *testing.T) {
 	_, err := load(map[string]string{"a.md": validFiche, "b.md": validFiche})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `kb/b.md: duplicate id "carnet-test"`)
+}
+
+const diagramSource = "flowchart TD\n  accTitle: Prix\n  accDescr: Le prix dépend de la carte.\n  A --> B\n"
+
+func ficheWith(answer string) string {
+	return "---\nid: tarif-test\ntitre: Tarifs\ncategories: [carnet]\nliens_vpdive: [paiements]\n---\n\n## Réponse adhérent\n\n" +
+		answer + "\n\n## Procédure résolveur\n\n1. Vérifier.\n"
+}
+
+func svgFor(source string) string {
+	return "<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>\n" + fmt.Sprintf(diagramMark, sha256.Sum256([]byte(source))) + "\n"
+}
+
+func TestLoadTableAndDiagram(t *testing.T) {
+	answer := "Prix :\n\n| Cas | Prix |\n|---|---:|\n| Sans carte | 37 € |\n| Avec carte | 30 € |\n\n```mermaid\n" + diagramSource + "```  \n\nFin."
+	for name, text := range map[string]string{"lf": ficheWith(answer), "crlf": strings.ReplaceAll(ficheWith(answer), "\n", "\r\n")} {
+		b, err := load(map[string]string{"tarif-test.md": text, "tarif-test.svg": svgFor(diagramSource)})
+		require.NoError(t, err, name)
+		f, ok := b.Get("tarif-test")
+		require.True(t, ok, name)
+		assert.Equal(t, []Block{
+			{Kind: Paragraph, Items: []string{"Prix :"}},
+			{Kind: Table, Rows: [][]string{{"Cas", "Prix"}, {"Sans carte", "37 €"}, {"Avec carte", "30 €"}}},
+			{Kind: Diagram, Items: []string{"Le prix dépend de la carte."}, Source: diagramSource, Image: "/kb/tarif-test.svg"},
+			{Kind: Paragraph, Items: []string{"Fin."}},
+		}, f.Answer, name)
+		assert.Equal(t, svgFor(diagramSource), string(f.Diagram), name)
+		assert.NotContains(t, f.AnswerText, "mermaid", name+": the model reads the tables, not the drawing")
+		assert.Contains(t, f.AnswerText, "| Avec carte | 30 € |", name)
+		assert.Equal(t, "1. Vérifier.", f.ProcedureText, name)
+	}
+}
+
+func TestLoadRefusesBadTablesAndDiagrams(t *testing.T) {
+	fence := "```mermaid\n" + diagramSource + "```"
+	for _, tc := range []struct{ name, answer, svg, want string }{
+		{"uneven row", "| a | b |\n|---|---|\n| 1 |", "", "1 cells, the header has 2"},
+		{"other fence", "```go\nx\n```", "", "only ```mermaid"},
+		{"unclosed fence", "```mermaid\nflowchart TD", "", "not closed"},
+		{"no accDescr", "```mermaid\nflowchart TD\n  A --> B\n```", "", "no accDescr"},
+		{"two diagrams", fence + "\n\n" + fence, svgFor(diagramSource), "one diagram at most"},
+		{"svg missing", fence, "", "make diagrams"},
+		{"svg stale", fence, svgFor("flowchart LR\n"), "is stale"},
+		{"diagram in the procedure", "PROCEDURE", svgFor(diagramSource), "« Réponse adhérent » only"},
+	} {
+		text := ficheWith(tc.answer)
+		if tc.answer == "PROCEDURE" { // /kb/ serves drawings to anyone: none for the committee's procedure
+			text = ficheWith("Prix.") + "\n" + fence + "\n"
+		}
+		files := map[string]string{"tarif-test.md": text}
+		if tc.svg != "" {
+			files["tarif-test.svg"] = tc.svg
+		}
+		_, err := load(files)
+		require.Error(t, err, tc.name)
+		assert.Contains(t, err.Error(), tc.want, tc.name)
+		assert.Contains(t, err.Error(), "kb/tarif-test.md", tc.name)
+	}
 }

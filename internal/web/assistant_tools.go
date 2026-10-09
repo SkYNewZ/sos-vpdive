@@ -17,7 +17,6 @@ import (
 	"github.com/SkYNewZ/sos-vpdive/internal/assistant"
 	"github.com/SkYNewZ/sos-vpdive/internal/calendar"
 	"github.com/SkYNewZ/sos-vpdive/internal/imports"
-	"github.com/SkYNewZ/sos-vpdive/internal/kb"
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
 	"github.com/SkYNewZ/sos-vpdive/internal/payments"
 	"github.com/SkYNewZ/sos-vpdive/internal/telemetry"
@@ -284,7 +283,7 @@ type candidate struct {
 	Nom      string `json:"nom"`
 	Saisons  string `json:"saisons"`
 	Licence  string `json:"licence"`
-	Homonyme bool   `json:"homonyme"`
+	Homonyme bool   `json:"homonyme,omitzero"` // absent when false: the model would say « pas d'homonyme »
 }
 
 type findMemberResult struct {
@@ -858,7 +857,7 @@ func (t *toolbox) readFiche(input json.RawMessage) (any, string) {
 	if !ok || !found {
 		return toolProblem{"fiche inconnue : choisis un identifiant de la liste"}, "Fiche inconnue"
 	}
-	out := ficheResult{ID: f.ID, Titre: f.Title, ReponseAdherent: f.AnswerText, Procedure: blocksText(f.Procedure), Liens: []linkJSON{}}
+	out := ficheResult{ID: f.ID, Titre: f.Title, ReponseAdherent: f.AnswerText, Procedure: f.ProcedureText, Liens: []linkJSON{}}
 	for _, key := range f.Links {
 		if l, ok := t.s.vpdive[key]; ok {
 			out.Liens = append(out.Liens, linkJSON{Libelle: l.Label, URL: l.URL})
@@ -866,24 +865,4 @@ func (t *toolbox) readFiche(input json.RawMessage) (any, string) {
 	}
 	t.addSource(assistant.Source{Label: "Fiche « " + f.Title + " »", Link: "/fiches#" + f.ID})
 	return out, "Fiche « " + f.Title + " » lue"
-}
-
-// blocksText writes blocks back as plain text, lists numbered or dashed.
-func blocksText(bs []kb.Block) string {
-	var b strings.Builder
-	for _, bl := range bs {
-		for i, item := range bl.Items {
-			switch bl.Kind {
-			case kb.Paragraph:
-				// no prefix
-			case kb.Numbers:
-				b.WriteString(strconv.Itoa(i+1) + ". ")
-			case kb.Bullets:
-				b.WriteString("- ")
-			}
-			b.WriteString(item + "\n")
-		}
-		b.WriteString("\n")
-	}
-	return strings.TrimSpace(b.String())
 }
