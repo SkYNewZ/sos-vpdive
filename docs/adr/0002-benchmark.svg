@@ -1,0 +1,113 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="624" viewBox="0 0 960 624" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" role="img">
+<title>Model benchmark of 2026-10-09: Sonnet 5.5 at effort high leads the assistant, Haiku 5.5 the suggestions</title>
+<rect width="960" height="624" rx="12" fill="#fcfcfb" stroke="#e1e0d9"/>
+<text x="24" y="34" fill="#52514e" font-size="15" font-weight="400" text-anchor="start">Committee assistant: 6 real member messages, score out of 6</text>
+<text x="24" y="64" fill="#898781" font-size="13" font-weight="400" text-anchor="start">Configuration</text>
+<text x="210" y="64" fill="#898781" font-size="13" font-weight="400" text-anchor="start">Score</text>
+<text x="740" y="64" fill="#898781" font-size="13" font-weight="400" text-anchor="end">Mean</text>
+<text x="830" y="64" fill="#898781" font-size="13" font-weight="400" text-anchor="end">Max</text>
+<text x="936" y="64" fill="#898781" font-size="13" font-weight="400" text-anchor="end">Cost / answer</text>
+<line x1="24" y1="73" x2="936" y2="73" stroke="#c3c2b7"/>
+<rect x="16" y="76" width="928" height="30" rx="6" fill="#dcebfb"/>
+<text x="24" y="96.0" fill="#0b0b0b" font-size="14" font-weight="600" text-anchor="start">Sonnet 5.5 high</text>
+<rect x="210" y="84.0" width="301" height="14" rx="3" fill="#2a78d6"/>
+<text x="518.8333333333333" y="96.0" fill="#0b0b0b" font-size="14" font-weight="400" text-anchor="start">4.75</text>
+<text x="740" y="96.0" fill="#52514e" font-size="14" font-weight="400" text-anchor="end">37 s</text>
+<text x="830" y="96.0" fill="#52514e" font-size="14" font-weight="400" text-anchor="end">70 s</text>
+<text x="936" y="96.0" fill="#52514e" font-size="14" font-weight="400" text-anchor="end">$0.075</text>
+<line x1="24" y1="108" x2="936" y2="108" stroke="#e1e0d9"/>
+<text x="24" y="130.0" fill="#0b0b0b" font-size="14" font-weight="400" text-anchor="start">Sonnet 5.5 low</text>
+<rect x="210" y="118.0" width="253" height="14" rx="3" fill="#b4b2a9"/>
+<text x="471.33333333333337" y="130.0" fill="#0b0b0b" font-size="14" font-weight="400" text-anchor="start">4</text>
+<text x="740" y="130.0" fill="#52514e" font-size="14" font-weight="400" text-anchor="end">17 s</text>
+<text x="830" y="130.0" fill="#52514e" font-size="14" font-weight="400" text-anchor="end">26 s</text>
+<text x="936" y="130.0" fill="#52514e" font-size="14" font-weight="400" text-anchor="end">$0.038</text>
+<line x1="24" y1="142" x2="936" y2="142" stroke="#e1e0d9"/>
+<text x="24" y="164.0" fill="#0b0b0b" font-size="14" font-weight="400" text-anchor="start">Sonnet 5.5 medium</text>
+<rect x="210" y="152.0" width="253" height="14" rx="3" fill="#b4b2a9"/>
+<text x="471.33333333333337" y="164.0" fill="#0b0b0b" font-size="14" font-weight="400" text-anchor="start">4</text>
+<text x="740" y="164.0" fill="#52514e" font-size="14" font-weight="400" text-anchor="end">19 s</text>
+<text x="830" y="164.0" fill="#52514e" font-size="14" font-weight="400" text-anchor="end">35 s</text>
+<text x="936" y="164.0" fill="#52514e" font-size="14" font-weight="400" text-anchor="end">$0.048</text>
+<line x1="24" y1="176" x2="936" y2="176" stroke="#e1e0d9"/>
+<text x="24" y="198.0" fill="#0b0b0b" font-size="14" font-weight="400" text-anchor="start">Sonnet 5.5 xhigh</text>
+<rect x="210" y="186.0" width="253" height="14" rx="3" fill="#b4b2a9"/>
+<text x="471.33333333333337" y="198.0" fill="#0b0b0b" font-size="14" font-weight="400" text-anchor="start">4</text>
+<text x="740" y="198.0" fill="#52514e" font-size="14" font-weight="400" text-anchor="end">71 s</text>
+<text x="830" y="198.0" fill="#52514e" font-size="14" font-weight="400" text-anchor="end">114 s</text>
+<text x="936" y="198.0" fill="#52514e" font-size="14" font-weight="400" text-anchor="end">$0.142</text>
+<line x1="24" y1="210" x2="936" y2="210" stroke="#e1e0d9"/>
+<text x="24" y="232.0" fill="#0b0b0b" font-size="14" font-weight="400" text-anchor="start">Haiku 5.5 high</text>
+<rect x="210" y="220.0" width="253" height="14" rx="3" fill="#b4b2a9"/>
+<text x="471.33333333333337" y="232.0" fill="#0b0b0b" font-size="14" font-weight="400" text-anchor="start">4</text>
+<text x="740" y="232.0" fill="#52514e" font-size="14" font-weight="400" text-anchor="end">67 s</text>
+<text x="830" y="232.0" fill="#52514e" font-size="14" font-weight="400" text-anchor="end">142 s</text>
+<text x="936" y="232.0" fill="#52514e" font-size="14" font-weight="400" text-anchor="end">$0.009</text>
+<line x1="24" y1="244" x2="936" y2="244" stroke="#e1e0d9"/>
+<text x="24" y="266.0" fill="#0b0b0b" font-size="14" font-weight="400" text-anchor="start">Haiku 5.5 medium</text>
+<rect x="210" y="254.0" width="222" height="14" rx="3" fill="#b4b2a9"/>
+<text x="439.66666666666663" y="266.0" fill="#0b0b0b" font-size="14" font-weight="400" text-anchor="start">3.5</text>
+<text x="740" y="266.0" fill="#52514e" font-size="14" font-weight="400" text-anchor="end">38 s</text>
+<text x="830" y="266.0" fill="#52514e" font-size="14" font-weight="400" text-anchor="end">74 s</text>
+<text x="936" y="266.0" fill="#52514e" font-size="14" font-weight="400" text-anchor="end">$0.005</text>
+<line x1="24" y1="278" x2="936" y2="278" stroke="#e1e0d9"/>
+<text x="24" y="300.0" fill="#0b0b0b" font-size="14" font-weight="400" text-anchor="start">deepseek-flash</text>
+<rect x="210" y="288.0" width="222" height="14" rx="3" fill="#b4b2a9"/>
+<text x="439.66666666666663" y="300.0" fill="#0b0b0b" font-size="14" font-weight="400" text-anchor="start">3.5</text>
+<text x="474.66666666666663" y="300.0" fill="#a32d2d" font-size="12" font-weight="400" text-anchor="start">1 timeout</text>
+<text x="740" y="300.0" fill="#52514e" font-size="14" font-weight="400" text-anchor="end">92 s</text>
+<text x="830" y="300.0" fill="#52514e" font-size="14" font-weight="400" text-anchor="end">150 s</text>
+<text x="936" y="300.0" fill="#52514e" font-size="14" font-weight="400" text-anchor="end">$0.026</text>
+<line x1="24" y1="312" x2="936" y2="312" stroke="#e1e0d9"/>
+<text x="24" y="334.0" fill="#0b0b0b" font-size="14" font-weight="400" text-anchor="start">Haiku 5.5 low</text>
+<rect x="210" y="322.0" width="158" height="14" rx="3" fill="#b4b2a9"/>
+<text x="376.33333333333337" y="334.0" fill="#0b0b0b" font-size="14" font-weight="400" text-anchor="start">2.5</text>
+<text x="740" y="334.0" fill="#52514e" font-size="14" font-weight="400" text-anchor="end">22 s</text>
+<text x="830" y="334.0" fill="#52514e" font-size="14" font-weight="400" text-anchor="end">39 s</text>
+<text x="936" y="334.0" fill="#52514e" font-size="14" font-weight="400" text-anchor="end">$0.003</text>
+<line x1="24" y1="346" x2="936" y2="346" stroke="#e1e0d9"/>
+<text x="24" y="368.0" fill="#0b0b0b" font-size="14" font-weight="400" text-anchor="start">deepseek-v4-pro</text>
+<rect x="210" y="356.0" width="63" height="14" rx="3" fill="#b4b2a9"/>
+<text x="281.3333333333333" y="368.0" fill="#0b0b0b" font-size="14" font-weight="400" text-anchor="start">1</text>
+<text x="298.3333333333333" y="368.0" fill="#a32d2d" font-size="12" font-weight="400" text-anchor="start">4 timeouts</text>
+<text x="740" y="368.0" fill="#52514e" font-size="14" font-weight="400" text-anchor="end">122 s</text>
+<text x="830" y="368.0" fill="#52514e" font-size="14" font-weight="400" text-anchor="end">150 s</text>
+<text x="936" y="368.0" fill="#52514e" font-size="14" font-weight="400" text-anchor="end">$0.044</text>
+<line x1="24" y1="380" x2="936" y2="380" stroke="#e1e0d9"/>
+<text x="24" y="424" fill="#52514e" font-size="15" font-weight="400" text-anchor="start">Fiche suggestions: 15 requests × 3 runs, score out of 15, all under the 8 s limit</text>
+<text x="24" y="454" fill="#898781" font-size="13" font-weight="400" text-anchor="start">Model</text>
+<text x="210" y="454" fill="#898781" font-size="13" font-weight="400" text-anchor="start">Score</text>
+<text x="740" y="454" fill="#898781" font-size="13" font-weight="400" text-anchor="end">Mean</text>
+<text x="830" y="454" fill="#898781" font-size="13" font-weight="400" text-anchor="end">Off-topic</text>
+<text x="936" y="454" fill="#898781" font-size="13" font-weight="400" text-anchor="end">Cost / call</text>
+<line x1="24" y1="463" x2="936" y2="463" stroke="#c3c2b7"/>
+<rect x="16" y="466" width="928" height="30" rx="6" fill="#dcebfb"/>
+<text x="24" y="486.0" fill="#0b0b0b" font-size="14" font-weight="600" text-anchor="start">Haiku 5.5</text>
+<rect x="210" y="474.0" width="367" height="14" rx="3" fill="#2a78d6"/>
+<text x="585.3333333333333" y="486.0" fill="#0b0b0b" font-size="14" font-weight="400" text-anchor="start">14.5</text>
+<text x="740" y="486.0" fill="#52514e" font-size="14" font-weight="400" text-anchor="end">1.4 s</text>
+<text x="830" y="486.0" fill="#52514e" font-size="14" font-weight="400" text-anchor="end">9/45</text>
+<text x="936" y="486.0" fill="#52514e" font-size="14" font-weight="400" text-anchor="end">$0.0004</text>
+<line x1="24" y1="498" x2="936" y2="498" stroke="#e1e0d9"/>
+<text x="24" y="520.0" fill="#0b0b0b" font-size="14" font-weight="400" text-anchor="start">deepseek-v4-pro</text>
+<rect x="210" y="508.0" width="367" height="14" rx="3" fill="#b4b2a9"/>
+<text x="585.3333333333333" y="520.0" fill="#0b0b0b" font-size="14" font-weight="400" text-anchor="start">14.5</text>
+<text x="740" y="520.0" fill="#52514e" font-size="14" font-weight="400" text-anchor="end">1.9 s</text>
+<text x="830" y="520.0" fill="#52514e" font-size="14" font-weight="400" text-anchor="end">4/45</text>
+<text x="936" y="520.0" fill="#52514e" font-size="14" font-weight="400" text-anchor="end">$0.0005</text>
+<line x1="24" y1="532" x2="936" y2="532" stroke="#e1e0d9"/>
+<text x="24" y="554.0" fill="#0b0b0b" font-size="14" font-weight="400" text-anchor="start">deepseek-flash</text>
+<rect x="210" y="542.0" width="367" height="14" rx="3" fill="#b4b2a9"/>
+<text x="585.3333333333333" y="554.0" fill="#0b0b0b" font-size="14" font-weight="400" text-anchor="start">14.5</text>
+<text x="740" y="554.0" fill="#52514e" font-size="14" font-weight="400" text-anchor="end">1.1 s</text>
+<text x="830" y="554.0" fill="#52514e" font-size="14" font-weight="400" text-anchor="end">17/45</text>
+<text x="936" y="554.0" fill="#52514e" font-size="14" font-weight="400" text-anchor="end">$0.0002</text>
+<line x1="24" y1="566" x2="936" y2="566" stroke="#e1e0d9"/>
+<text x="24" y="588.0" fill="#0b0b0b" font-size="14" font-weight="400" text-anchor="start">Sonnet 5.5</text>
+<rect x="210" y="576.0" width="329" height="14" rx="3" fill="#b4b2a9"/>
+<text x="547.3333333333333" y="588.0" fill="#0b0b0b" font-size="14" font-weight="400" text-anchor="start">13</text>
+<text x="740" y="588.0" fill="#52514e" font-size="14" font-weight="400" text-anchor="end">1.9 s</text>
+<text x="830" y="588.0" fill="#52514e" font-size="14" font-weight="400" text-anchor="end">4/45</text>
+<text x="936" y="588.0" fill="#52514e" font-size="14" font-weight="400" text-anchor="end">$0.0075</text>
+<line x1="24" y1="600" x2="936" y2="600" stroke="#e1e0d9"/>
+</svg>

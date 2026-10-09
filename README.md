@@ -277,6 +277,9 @@ The assistant has its own provider, apart from the suggestions':
 `ASSISTANT_MODEL`. Claude Sonnet 5.5 at effort `high` gave the best answers in
 our tests
 ([ADR 0002](docs/adr/0002-run-the-assistant-on-sonnet-and-suggestions-on-haiku.md)).
+
+![Model benchmark of 2026-10-09: scores, mean and longest durations, cost per answer or call](docs/adr/0002-benchmark.svg)
+
 Reasoning is on by default and streams its summary while the model thinks;
 `ASSISTANT_THINKING=false` turns it off.
 `ASSISTANT_EFFORT` (`low` to `max`) sets how much the model reasons and

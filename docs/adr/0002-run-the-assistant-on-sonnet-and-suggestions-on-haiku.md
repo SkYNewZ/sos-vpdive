@@ -71,6 +71,8 @@ between model versions.
   from its pricing page of 2026-10-08 at peak hours (flash 0.30 / 1.20,
   v4-pro 1.32 / 3.96).
 
+![Model benchmark of 2026-10-09: scores, mean and longest durations, cost per answer or call](0002-benchmark.svg)
+
 ### Assistant results (score out of 6)
 
 | Configuration | Score | Correct / partial / wrong | Mean | Max | Output tokens | Cost per answer |
