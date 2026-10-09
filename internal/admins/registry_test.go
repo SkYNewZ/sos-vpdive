@@ -10,34 +10,25 @@ import (
 	"log/slog"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/SkYNewZ/sos-vpdive/internal/admins/adminstest"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 	"github.com/SkYNewZ/sos-vpdive/internal/store"
 )
 
-const testPassword = "correct horse battery staple"
-
-// testHash is computed once: argon2id with 64 MiB is slow on purpose.
-var testHash = sync.OnceValue(func() string {
-	h, err := HashPassword(testPassword)
-	if err != nil {
-		return "unreachable"
-	}
-	return h
-})
+const testPassword = adminstest.Password
 
 func alice() Account {
-	return Account{Username: "alice", Name: "Alice", Role: "Présidente", PasswordHash: testHash()}
+	return Account{Username: "alice", Name: "Alice", Role: "Présidente", PasswordHash: adminstest.Hash}
 }
 
 func bob() Account {
-	return Account{Username: "bob", Name: "Bob", Role: "Trésorier", PasswordHash: testHash()}
+	return Account{Username: "bob", Name: "Bob", Role: "Trésorier", PasswordHash: adminstest.Hash}
 }
 
 func testKeys(t *testing.T) *secure.Keys {
@@ -153,7 +144,7 @@ func TestChangePasswordKeepsOneSession(t *testing.T) {
 	require.ErrorIs(t, err, ErrTooShort)
 	_, err = r.ChangePassword(ctx, a, testPassword, []byte("kept"))
 	require.ErrorIs(t, err, ErrSamePassword)
-	_, err = r.ChangePassword(ctx, Account{Username: "carol", PasswordHash: testHash()}, "a brand new password", nil)
+	_, err = r.ChangePassword(ctx, Account{Username: "carol", PasswordHash: adminstest.Hash}, "a brand new password", nil)
 	require.ErrorIs(t, err, ErrPasswordChanged, "no such account")
 
 	hash, err := r.ChangePassword(ctx, a, "a brand new password", []byte("kept"))

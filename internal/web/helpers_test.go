@@ -29,6 +29,7 @@ import (
 
 	sosvpdive "github.com/SkYNewZ/sos-vpdive"
 	"github.com/SkYNewZ/sos-vpdive/internal/admins"
+	"github.com/SkYNewZ/sos-vpdive/internal/admins/adminstest"
 	"github.com/SkYNewZ/sos-vpdive/internal/blobs"
 	"github.com/SkYNewZ/sos-vpdive/internal/calendar"
 	"github.com/SkYNewZ/sos-vpdive/internal/carnets"
@@ -49,17 +50,8 @@ const (
 	publicHost   = "sos.example.org"
 	adminHost    = "comite.example.org"
 	clubEmail    = "club@example.org"
-	testPassword = "correct horse battery staple"
+	testPassword = adminstest.Password
 )
-
-// testHash is computed once: argon2id with 64 MiB is slow on purpose.
-var testHash = sync.OnceValue(func() string {
-	h, err := admins.HashPassword(testPassword)
-	if err != nil {
-		return "unreachable"
-	}
-	return h
-})
 
 type testClock struct {
 	mu sync.Mutex
@@ -134,7 +126,7 @@ func mustURL(t *testing.T, raw string) *url.URL {
 }
 
 func alice() admins.Account {
-	return admins.Account{Username: "alice", Name: "Alice", Role: "Présidente", PasswordHash: testHash()}
+	return admins.Account{Username: "alice", Name: "Alice", Role: "Présidente", PasswordHash: adminstest.Hash}
 }
 
 func newTestEnv(t *testing.T, opts ...func(*Deps)) *testEnv {

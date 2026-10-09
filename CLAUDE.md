@@ -227,9 +227,11 @@ No i18n framework.
   `make build` / `make fixtures` (regenerates `testdata/fixtures/*.xlsx`).
 - One test: `go test ./internal/web -run TestName` (`make test` adds `-race`).
 - `make diagrams` redraws `kb/<id>.svg` from a fiche's ```mermaid block (`npx`, Node as a local convenience); the SVG is committed and stamped with its source's SHA-256, and `kb.Load` refuses a stale one.
-- CI (`.github/workflows/ci.yml`): `check` runs `gofmt -l`, `go vet`,
-  `go test -race`, `validate-kb` and the forbidden-files guard; `image` builds
-  the Dockerfile and pushes it (develop → `:latest`, tag `vX.Y.Z` → `:X.Y.Z`).
+- CI (`.github/workflows/ci.yml`): `lint` (forbidden-files guard, `gofmt -l`,
+  `go vet`, golangci-lint, `validate-kb`) and `test` (`go test -race`) run in
+  parallel; `image` runs on develop and tags only, builds the Dockerfile and
+  pushes it (develop → `:latest`, tag `vX.Y.Z` → `:X.Y.Z`). Actions are pinned
+  by full `vX.Y.Z` tag, never by SHA, and every step has a `name`.
 - `make run` needs `.env` (from `.env.example`, `APP_ENV=development`); sites
   on `http://sos.localhost:8080` and `http://comite.localhost:8080` (browsers
   treat `*.localhost` as secure).
@@ -259,7 +261,9 @@ No i18n framework.
 - Write invisible characters in Go tests as escapes (`\u00a0`, `\u0301`):
   editors and agents normalise raw ones away.
 - html/template outputs `+` as `&#43;` and `'` as `&#39;`.
-- `internal/web` tests take about 90 s (argon2id at 64 MiB per login).
+- `internal/web` tests take about 5 min with `-race` (a migrated SQLite per
+  test). Test accounts use `adminstest.Hash`, argon2id at the lowest cost: a
+  hash from `HashPassword` costs about a second under `-race`.
 - SQLite reuses the highest `INTEGER PRIMARY KEY` after a delete: ids that leave the
   process (URLs, in-flight sends) need `AUTOINCREMENT`.
 - Migrations are tracked by number only: never edit one that has shipped.
@@ -280,7 +284,8 @@ No i18n framework.
 - Backups are switched to a rollback journal: a WAL-flagged copy cannot be opened
   read-only.
 - The Dockerfile's CSS stage downloads Tailwind from GitHub; the CI `image` job
-  is its end-to-end check.
+  is its end-to-end check, and it runs on develop only: a PR touching the
+  Dockerfile needs a local `docker build .`.
 - iOS installed apps: no `viewport-fit=cover`, no `env(safe-area-inset-*)`
   (iOS keeps the status bar and home indicator areas), and form controls at
   16 px or Safari zooms on focus (`--font-size-min` in `css/input.css`).
