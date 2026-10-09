@@ -23,14 +23,15 @@ func TestAssistantSystem(t *testing.T) {
 	}
 	for _, rule := range []string{"<saisie_resolveur>", "```brouillon", "je ne sais pas", "ce n'est jamais l'expéditeur",
 		"demande au résolveur qui l'a écrit", "nom_saisi", "« hors période », pas absente", "periode_lue",
-		"ne suppose jamais qu'il a été écrit aujourd'hui", "ne réclame jamais sa date", "deposee_le", "couvre aussi ses invités",
+		"ne suppose jamais qu'il a été écrit aujourd'hui", "deposee_le", "couvre aussi ses invités",
 		"reste dans soldes à 0,00 €", "Cite le solde VPDive exactement", "pose le reste attendu", "lance find_outings sur ce jour",
-		"Sans homonyme, n'en parle pas", "action manuelle d'un membre du comité", "totaux_partiels", "repartie", "inhabituel", "cartes de plongées",
-		"### Constat", "### Écart et cause probable", "### À faire dans VPDive", "omets ce titre", "jamais la date du message", "double débit", "celle du conjoint", "tarif carnet gardé sur une carte vide"} {
+		"action manuelle d'un membre du comité", "totaux_partiels", "repartie", "inhabituel", "cartes de plongées",
+		"### Constat", "### Écart et cause probable", "### À faire dans VPDive", "omets ce titre", "double débit", "celle du conjoint", "tarif carnet gardé sur une carte vide"} {
 		assert.Contains(t, sys, rule)
 	}
 	for _, gone := range []string{"Ne convertis jamais un solde", "n'additionne ni ne soustrais", "range la date du message",
-		"L'export ne dit pas sur quel carnet", "### Pistes", "Ne donne jamais un tarif", "Nos données ne disent pas sur quelle carte", "déplie le panier"} {
+		"L'export ne dit pas sur quel carnet", "### Pistes", "Ne donne jamais un tarif", "Nos données ne disent pas sur quelle carte", "déplie le panier",
+		"Un message collé n'a pas de date connue", "Sans homonyme, n'en parle pas", "ne réclame jamais sa date", "jamais la date du message"} {
 		assert.NotContains(t, sys, gone)
 	}
 	assert.NotContains(t, sys, "'''", "the fence placeholder is replaced")
@@ -45,6 +46,36 @@ func TestAssistantSystem(t *testing.T) {
 	assert.NotContains(t, sys, "```mermaid", "the drawing says nothing the tables do not")
 	others := slices.DeleteFunc(slices.Clone(e.deps.KB.Fiches), func(f kb.Fiche) bool { return f.ID == pricingFiche })
 	assert.NotContains(t, assistantSystem(&kb.Base{Fiches: others}), "## Fiche tarification", "another club without the fiche")
+}
+
+// The owner's three bans (namesakes when there are none, the member's
+// seasons or licence, the message's date) were broken in passing by every
+// model of the 2026-10-09 benchmark. The prompt says what to do instead,
+// and checks the three where the answer is written.
+func TestAssistantSystemBans(t *testing.T) {
+	sys := assistantSystem(&kb.Base{})
+	for _, instead := range []string{
+		"pas celle du message collé", "se retrouvent dans les données de l'adhérent, sur toute la période lue et pas seulement autour d'aujourd'hui",
+		"Donne la date retrouvée avec la ligne qui la porte",
+		"Le résolveur sait quand il a reçu le message", "sans en déduire le jour où le message a été écrit",
+		"Tant que l'adhérent n'est pas identifié, ces mots restent entre guillemets", "se cherche quand même avec find_outings",
+		"le résolveur agit sur ce que VPDive montre aujourd'hui", "ne range pas cet ordre dans « Ce qui manque »",
+		"Un seul candidat : c'est l'adhérent, sans commentaire", "servent seulement à départager des candidats",
+	} {
+		assert.Contains(t, sys, instead)
+	}
+
+	format := strings.Index(sys, "## Forme de la réponse")
+	draft := strings.Index(sys, "## Brouillon de réponse")
+	require.Positive(t, format)
+	require.Greater(t, draft, format)
+	answer := sys[format:draft]
+	for _, ban := range []string{"Avant d'écrire, vérifie que ta réponse, quelle que soit sa forme", "« pas d'homonyme »", "« seul candidat »",
+		"Les saisons ou la licence de l'adhérent, hors d'une liste de candidats", "qu'il n'est pas daté",
+		"que tu ne sais pas quand il a été écrit", "si ce qu'il raconte précède une ligne", "sans une ligne de l'adhérent qui le porte",
+		"La date du message n'y figure jamais"} {
+		assert.Contains(t, answer, ban, "checked where the answer is written")
+	}
 }
 
 func TestQuestionText(t *testing.T) {
