@@ -40,16 +40,6 @@ func benchDirs(t *testing.T, message string) (dir, out string) {
 	return dir, out
 }
 
-// firstLine reads the first line of a JSON lines file.
-func firstLine(t *testing.T, path string) map[string]any {
-	t.Helper()
-	data, err := os.ReadFile(path)
-	require.NoError(t, err)
-	var line map[string]any
-	require.NoError(t, json.NewDecoder(bytes.NewReader(data)).Decode(&line))
-	return line
-}
-
 func TestAssistantBenchWritesMetrics(t *testing.T) {
 	stream := "event: x\ndata: " + `{"type":"message_start","message":{"usage":{"input_tokens":1000,"cache_creation_input_tokens":4000,"cache_read_input_tokens":3000}}}` +
 		"\n\ndata: " + `{"type":"content_block_start","index":0,"content_block":{"type":"text","text":"Solde juste."}}` +
@@ -62,7 +52,10 @@ func TestAssistantBenchWritesMetrics(t *testing.T) {
 	dir, out := benchDirs(t, "Mon carnet est faux.")
 	require.NoError(t, run(context.Background(), []string{"assistant-bench", "-messages", dir, "-out", out}, getenv(env), io.Discard))
 
-	m := firstLine(t, filepath.Join(out, "metrics.jsonl"))
+	data, err := os.ReadFile(filepath.Join(out, "metrics.jsonl"))
+	require.NoError(t, err)
+	var m map[string]any
+	require.NoError(t, json.Unmarshal(data, &m), "one line for one message")
 	assert.Equal(t, "ok", m["outcome"])
 	assert.Equal(t, "claude-sonnet-5-5", m["model"])
 	assert.Equal(t, "low", m["effort"])

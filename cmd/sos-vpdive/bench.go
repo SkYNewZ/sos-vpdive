@@ -10,8 +10,10 @@ import (
 	"io/fs"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/config"
+	"github.com/SkYNewZ/sos-vpdive/internal/suggest"
 	"github.com/SkYNewZ/sos-vpdive/internal/telemetry"
 	"github.com/SkYNewZ/sos-vpdive/internal/tickets"
 )
@@ -217,16 +219,18 @@ func suggestBench(ctx context.Context, getenv func(string) string, args []string
 			if err := ctx.Err(); err != nil {
 				return err
 			}
+			start := time.Now()
 			r, err := b.app.web.BenchSuggest(ctx, tickets.Submission{Fields: req.Fields, Description: req.Description})
+			took, outcome := time.Since(start), "ok"
 			if err != nil {
-				return err
+				outcome = suggest.Code(err)
 			}
-			if err := b.enc.Encode(suggestMetrics{Message: name, Run: run, Model: cfg.LLM.Model, Outcome: r.Outcome,
+			if err := b.enc.Encode(suggestMetrics{Message: name, Run: run, Model: cfg.LLM.Model, Outcome: outcome,
 				Fiches: r.IDs, Summary: r.Summary, Input: r.InputTokens, Output: r.OutputTokens,
-				DurationMS: r.Duration.Milliseconds()}); err != nil {
+				DurationMS: took.Milliseconds()}); err != nil {
 				return err
 			}
-			if _, err := fmt.Fprintf(stdout, "%s #%d: %s, %.1f s\n", name, run, r.Outcome, r.Duration.Seconds()); err != nil {
+			if _, err := fmt.Fprintf(stdout, "%s #%d: %s, %.1f s\n", name, run, outcome, took.Seconds()); err != nil {
 				return err
 			}
 		}
