@@ -426,7 +426,7 @@ func TestToolMemberPaymentsCards(t *testing.T) {
 	require.Len(t, cards, 2)
 	assert.Equal(t, "Carte 5 plongées niveau 1 et 2", cards[0].Produit, "newest first")
 	ten := cards[1]
-	assert.Equal(t, carteJSON{Produit: "Carte 10 plongées niveau 1 et 2", SoldeVPDive: "-120,00 €", DebiteNet: "42,00 €",
+	assert.Equal(t, carteJSON{Produit: "Carte 10 plongées niveau 1 et 2", Etat: "Reste à payer", SoldeVPDive: "-120,00 €", DebiteNet: "42,00 €",
 		Debits: 4, Recredits: 1, MontantsInhabituels: 1, Historique: ten.Historique}, ten)
 	assert.Equal(t, []entryJSON{
 		{Action: "commentaire", Texte: "Débit de la plongée de nuit à revoir avec le trésorier"},

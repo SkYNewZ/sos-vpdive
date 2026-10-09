@@ -305,6 +305,7 @@
 {{define "carnet"}}<details class="mt-3 rounded-box border border-base-300">
 <summary class="flex min-h-11 cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 p-3">
 <span class="font-semibold break-words">{{.Title}}</span>
+{{if and .Status (ne .Status "Reste à payer")}}<span class="badge badge-soft badge-warning">{{.Status}}</span>{{end}}
 <span class="whitespace-nowrap">{{if gt .Amount 0}}reste à payer {{.Amount.Euros}}{{else}}avoir restant {{.Amount.Abs.Euros}}{{end}}</span>
 <span>{{if .Partial}}totaux partiels, {{plural .Unread "ligne non lue" "lignes non lues"}}{{else}}{{plural .Debits "débit" "débits"}}, net {{.Net.Euros}}{{end}}</span>
 {{if .Unusual}}<span class="badge badge-soft badge-warning">montant inhabituel</span>{{end}}

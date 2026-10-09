@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"encoding/json"
 	"html"
 	"net/http"
 	"strings"
@@ -18,8 +19,14 @@ import (
 // members list must be in place for the holders to resolve.
 func (e *testEnv) importCarnets(t *testing.T) {
 	t.Helper()
+	e.importCarnetsJSON(t, fixtureBytes(t, "carnets_valid.json"))
+}
+
+// importCarnetsJSON stores data as the script would push it.
+func (e *testEnv) importCarnetsJSON(t *testing.T, data []byte) {
+	t.Helper()
 	ctx := context.Background()
-	exp, err := carnets.Parse(fixtureBytes(t, "carnets_valid.json"), e.srv.paris)
+	exp, err := carnets.Parse(data, e.srv.paris)
 	require.NoError(t, err)
 	require.NoError(t, e.deps.Carnets.Resolve(ctx, exp))
 	require.NoError(t, e.deps.Carnets.Import(ctx, exp))
@@ -188,4 +195,39 @@ func TestRequestPageCarnetsBlock(t *testing.T) {
 
 	_, tracking := e.tracking(t, hugo.Token)
 	assert.NotContains(t, tracking, "Cartes VPDive")
+}
+
+// A card VPDive shows cancelled is not read as a live one: its state shows on
+// the request page and reaches the assistant; « Reste à payer » says nothing.
+func TestCarnetsStateShowsWhenNotLive(t *testing.T) {
+	e, tb := toolEnv(t)
+	e.importCarnetsJSON(t, []byte(`{"from":"2025-09-02","to":"2026-09-02","carts":[
+{"member":"BERNARD Hugo","title":"Carte 10 annulée","status":"Annulés / Supprimés (250,00 €)","method":"","amount":"-250",
+ "entries":[{"action":"prépaye","at":"2026-06-01T19:00:00+02:00","by":"Hugo BERNARD","detail":"prépaye Sortie Épave (13/06/2026) -25€"}]},
+{"member":"BERNARD Hugo","title":"Carte 5 en cours","status":"Reste à payer","method":"","amount":"-100",
+ "entries":[{"action":"prépaye","at":"2026-06-02T19:00:00+02:00","by":"Hugo BERNARD","detail":"prépaye Sortie Levant (14/06/2026) -20€"}]}]}`))
+	cookie := e.login(t)
+	hugo := e.submitTicket(t, "hugo.bernard@example.org")
+	_, rest, found := strings.Cut(e.openTicket(t, cookie, hugo.ID).body, `id="cartes"`)
+	require.True(t, found)
+	section, _, _ := strings.Cut(rest, `id="encaissements"`)
+	summary := func(title string) string {
+		t.Helper()
+		_, after, ok := strings.Cut(section, title)
+		require.True(t, ok, title)
+		sum, _, _ := strings.Cut(after, "</summary>")
+		return sum
+	}
+	assert.Contains(t, summary("Carte 10 annulée"), "Annulés / Supprimés (250,00 €)")
+	assert.NotContains(t, summary("Carte 5 en cours"), "Reste à payer", "a live card shows no state")
+	assert.NotContains(t, summary("Carte 5 en cours"), "badge")
+
+	tb.call(t, "find_member", `{"query":"Hugo Bernard"}`)
+	got, _ := tb.call(t, "member_payments", `{"ref":"m1"}`)
+	var cards []carteJSON
+	require.NoError(t, json.Unmarshal([]byte(mustJSON(t, got["cartes"])), &cards))
+	require.Len(t, cards, 2)
+	byTitle := map[string]carteJSON{cards[0].Produit: cards[0], cards[1].Produit: cards[1]}
+	assert.Equal(t, "Annulés / Supprimés (250,00 €)", byTitle["Carte 10 annulée"].Etat)
+	assert.Equal(t, "Reste à payer", byTitle["Carte 5 en cours"].Etat, "sent as received; the model reads it")
 }

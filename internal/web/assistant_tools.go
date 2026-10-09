@@ -555,7 +555,8 @@ mollie:
 // carteJSON is a card as the model reads it (design 2026-10-09 §7).
 type carteJSON struct {
 	Produit             string      `json:"produit"`
-	SoldeVPDive         string      `json:"solde_vpdive"` // as VPDive shows it: negative while credit is left
+	Etat                string      `json:"etat,omitempty"` // VPDive's state of the card, as received
+	SoldeVPDive         string      `json:"solde_vpdive"`   // as VPDive shows it: negative while credit is left
 	DebiteNet           string      `json:"debite_net"`
 	Debits              int         `json:"debits"`
 	Recredits           int         `json:"recredits"`
@@ -585,7 +586,7 @@ var entryAction = map[carnets.Kind]string{
 }
 
 func (s *Server) carteJSON(v carnets.View) carteJSON {
-	c := carteJSON{Produit: v.Title, SoldeVPDive: euros(v.Amount), DebiteNet: euros(v.Net()), Debits: v.Debits,
+	c := carteJSON{Produit: v.Title, Etat: v.Status, SoldeVPDive: euros(v.Amount), DebiteNet: euros(v.Net()), Debits: v.Debits,
 		Recredits: v.Recredits, MontantsInhabituels: v.Unusual, LignesNonLues: v.Unread, TotauxPartiels: v.Partial(),
 		Historique: make([]entryJSON, 0, len(v.Lines))}
 	for _, l := range v.Lines {
