@@ -241,7 +241,7 @@ func TestAssistantKeepsACutAnswer(t *testing.T) {
 	_, ev, _ := e.ask(t, cookie, url.Values{"text": {"Q"}})
 	done := ev.of("done")
 	require.Len(t, done, 1)
-	assert.Contains(t, done[0]["html"], "Le solde est de -48,00 €.")
+	assert.Contains(t, done[0]["html"], "Le solde est de -48,00\u00a0€.", "Render glues the unit")
 	assert.Contains(t, done[0]["html"], "<em>Réponse coupée : limite de longueur atteinte.</em>")
 	var outcome string
 	require.NoError(t, e.db.QueryRowContext(context.Background(), `SELECT outcome FROM assistant_usage`).Scan(&outcome))
