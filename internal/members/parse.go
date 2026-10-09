@@ -24,6 +24,7 @@ const (
 	ColumnFirstName = "Prénom"
 	columnSeasons   = "Année(s)"
 	columnLicence   = "Expire le"
+	columnGroups    = "Organisation" // the member's VPDive groups, comma-separated
 )
 
 const (
@@ -41,6 +42,7 @@ type Member struct {
 	Email          string  // normalized
 	Seasons        *string // nil when the export has no "Année(s)" column
 	LicenceExpires string  // YYYY-MM-DD, or "" when empty or unreadable
+	Organisation   *string // nil when the export has no "Organisation" column
 }
 
 // Export is a parsed members export.
@@ -101,6 +103,7 @@ func Parse(rows []xlsx.Row, loc *time.Location) (*Export, error) {
 	}
 	seasonsCol, hasSeasons := header.Col(columnSeasons, 0)
 	licenceCol, hasLicence := header.Col(columnLicence, 0)
+	groupsCol, hasGroups := header.Col(columnGroups, 0)
 
 	exp := &Export{ExportedAt: exportDate(rows, loc)}
 	firstRow := map[string]int{}
@@ -128,8 +131,12 @@ func Parse(rows []xlsx.Row, loc *time.Location) (*Export, error) {
 			Email:     email,
 		}
 		if hasSeasons {
-			s := seasons(row, seasonsCol)
+			s := list(row, seasonsCol)
 			m.Seasons = &s
+		}
+		if hasGroups {
+			g := list(row, groupsCol)
+			m.Organisation = &g
 		}
 		if hasLicence {
 			m.LicenceExpires = licenceDate(row, licenceCol)
@@ -184,8 +191,9 @@ func exportDate(rows []xlsx.Row, loc *time.Location) time.Time {
 	return time.Time{}
 }
 
-// seasons reads "Année(s)": a number when there is one season, else a list.
-func seasons(row xlsx.Row, col int) string {
+// list reads a comma-separated cell as "a, b". A number is a list of one:
+// "Année(s)" holds one when there is a single season.
+func list(row xlsx.Row, col int) string {
 	c, ok := row.Cell(col)
 	if !ok {
 		return ""

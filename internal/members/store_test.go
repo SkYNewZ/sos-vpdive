@@ -164,7 +164,7 @@ func TestSeasonsKeepAbsentAndEmptyApart(t *testing.T) {
 	f.importFixture(t, "members_minimal.xlsx")
 	var nulls int
 	require.NoError(t, f.db.QueryRowContext(ctx,
-		`SELECT count(*) FROM members WHERE seasons IS NULL AND licence_expires IS NULL`).Scan(&nulls))
+		`SELECT count(*) FROM members WHERE seasons IS NULL AND licence_expires IS NULL AND organisation IS NULL`).Scan(&nulls))
 	assert.Equal(t, 2, nulls, "absent columns are stored as NULL")
 }
 
@@ -319,6 +319,8 @@ func TestFindAndEraseMember(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 	assert.Empty(t, p.LicenceExpires, "empty licence accepted")
+	require.NotNil(t, p.Organisation)
+	assert.Empty(t, *p.Organisation)
 
 	_, ok, err = f.store.Find(ctx, "unknown@example.org")
 	require.NoError(t, err)
@@ -429,6 +431,8 @@ func TestSearch(t *testing.T) {
 	assert.Equal(t, "hugo.bernard@example.org", got[0].Email)
 	assert.Equal(t, "Bernard", got[0].LastName)
 	require.NotNil(t, got[0].Seasons)
+	require.NotNil(t, got[0].Organisation)
+	assert.Equal(t, "Moniteurs actifs, Membres actifs", *got[0].Organisation)
 	assert.Equal(t, 1, got[0].Shared)
 
 	got, err = f.store.Search(ctx, "Paul Bernard", 10)

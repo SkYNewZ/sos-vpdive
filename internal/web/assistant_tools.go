@@ -54,7 +54,7 @@ func schema(required []string, optional ...string) json.RawMessage {
 // are YYYY-MM-DD, Paris.
 var toolDefs = []assistant.Tool{
 	{Name: "find_member", InputSchema: schema([]string{"query"}),
-		Description: "Cherche des adhérents dans la liste des membres par nom, prénom ou les deux (ordre libre, accents et casse ignorés), ou par « [email N] » tel qu'il apparaît dans la saisie. Renvoie au plus 10 candidats, chacun avec une référence m1, m2… à passer aux autres outils."},
+		Description: "Cherche des adhérents dans la liste des membres par nom, prénom ou les deux (ordre libre, accents et casse ignorés), ou par « [email N] » tel qu'il apparaît dans la saisie. Renvoie au plus 10 candidats, chacun avec une référence m1, m2… à passer aux autres outils, et ses groupes VPDive (organisation)."},
 	{Name: "member_payments", InputSchema: schema([]string{refArg}, "du", "au"),
 		Description: "Paiements VPDive et encaissements Mollie d'un adhérent (référence m1…) : soldes de carnet et de formation, achats de carte, puis les lignes de la période, par défaut les 120 derniers jours. Dates du et au : AAAA-MM-JJ. Donne aussi chaque carte de plongées de l'adhérent avec tout son historique : plongées débitées ou recréditées, changements de prix, commentaires."},
 	{Name: "member_outings", InputSchema: schema([]string{refArg}, "du", "au"),
@@ -281,11 +281,12 @@ func euros(a payments.Amount) string { return plainSpaces(a.Euros()) }
 // --- find_member
 
 type candidate struct {
-	Ref      string `json:"ref"`
-	Nom      string `json:"nom"`
-	Saisons  string `json:"saisons"`
-	Licence  string `json:"licence"`
-	Homonyme bool   `json:"homonyme,omitzero"` // absent when false: the model would say « pas d'homonyme »
+	Ref          string `json:"ref"`
+	Nom          string `json:"nom"`
+	Saisons      string `json:"saisons"`
+	Licence      string `json:"licence"`
+	Organisation string `json:"organisation"`      // VPDive groups
+	Homonyme     bool   `json:"homonyme,omitzero"` // absent when false: the model would say « pas d'homonyme »
 }
 
 type findMemberResult struct {
@@ -346,7 +347,11 @@ func candidateOf(c *assistant.Conversation, m members.Match) candidate {
 	name := strings.TrimSpace(m.FirstName + " " + m.LastName)
 	ref := c.AddPerson(assistant.Person{Name: name, Email: m.Email, NameHash: m.NameHash,
 		Seasons: view.Seasons, Licence: view.Licence, Shared: m.Shared})
-	return candidate{Ref: ref, Nom: name, Saisons: view.Seasons, Licence: view.Licence, Homonyme: m.Shared > 1}
+	orgs := "non fournie par l'export"
+	if m.Organisation != nil {
+		orgs = cmp.Or(*m.Organisation, "aucune")
+	}
+	return candidate{Ref: ref, Nom: name, Saisons: view.Seasons, Licence: view.Licence, Organisation: orgs, Homonyme: m.Shared > 1}
 }
 
 // --- shared by the member tools

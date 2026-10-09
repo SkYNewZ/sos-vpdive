@@ -144,6 +144,7 @@ type Profile struct {
 	LastName       string
 	Seasons        *string // nil when the export had no "Année(s)" column
 	LicenceExpires string  // YYYY-MM-DD or ""
+	Organisation   *string // VPDive groups; nil when the export had no "Organisation" column
 	NameHash       []byte  // finds the payment lines (spec §7.3)
 }
 
@@ -166,12 +167,12 @@ func (s *Store) Find(ctx context.Context, email string) (Profile, bool, error) {
 		return Profile{}, false, err
 	}
 	var (
-		p                             Profile
-		first, last, seasons, licence []byte
+		p                                   Profile
+		first, last, seasons, licence, orgs []byte
 	)
 	err = s.db.QueryRowContext(ctx,
-		`SELECT name_hash, first_name, last_name, seasons, licence_expires FROM members WHERE email_hash = ?`,
-		s.keys.Hash(normalized)).Scan(&p.NameHash, &first, &last, &seasons, &licence)
+		`SELECT name_hash, first_name, last_name, seasons, licence_expires, organisation FROM members WHERE email_hash = ?`,
+		s.keys.Hash(normalized)).Scan(&p.NameHash, &first, &last, &seasons, &licence, &orgs)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Profile{}, false, nil
 	}
@@ -181,7 +182,7 @@ func (s *Store) Find(ctx context.Context, email string) (Profile, bool, error) {
 	if p.FirstName, p.LastName, err = s.openNames(first, last); err != nil {
 		return Profile{}, false, err
 	}
-	if err := s.openOptional(&p, seasons, licence); err != nil {
+	if err := s.openOptional(&p, seasons, licence, orgs); err != nil {
 		return Profile{}, false, err
 	}
 	return p, true, nil
@@ -196,10 +197,10 @@ func (s *Store) Search(ctx context.Context, query string, limit int) ([]Match, e
 	if len(want) == 0 {
 		return nil, nil
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT name_hash, first_name, last_name, email, seasons, licence_expires FROM members ORDER BY id`)
+	rows, err := s.db.QueryContext(ctx, `SELECT name_hash, first_name, last_name, email, seasons, licence_expires, organisation FROM members ORDER BY id`)
 	all, err := store.Collect(rows, err, func(rows *sql.Rows) (m Match, err error) {
-		var first, last, email, seasons, licence []byte
-		if err = rows.Scan(&m.NameHash, &first, &last, &email, &seasons, &licence); err != nil {
+		var first, last, email, seasons, licence, orgs []byte
+		if err = rows.Scan(&m.NameHash, &first, &last, &email, &seasons, &licence, &orgs); err != nil {
 			return m, err
 		}
 		if m.FirstName, m.LastName, err = s.openNames(first, last); err != nil {
@@ -217,7 +218,7 @@ func (s *Store) Search(ctx context.Context, query string, limit int) ([]Match, e
 		if m.Email, err = s.keys.OpenString(email); err != nil {
 			return m, fmt.Errorf("decrypt member: %w", err)
 		}
-		return m, s.openOptional(&m.Profile, seasons, licence)
+		return m, s.openOptional(&m.Profile, seasons, licence, orgs)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("search members: %w", err)
@@ -334,14 +335,13 @@ func (s *Store) openNames(first, last []byte) (firstName, lastName string, err e
 	return firstName, lastName, nil
 }
 
-// openOptional decrypts the seasons and licence end into p, as Find does.
-func (s *Store) openOptional(p *Profile, seasons, licence []byte) error {
-	if seasons != nil {
-		v, err := s.keys.OpenString(seasons)
-		if err != nil {
-			return fmt.Errorf("decrypt member: %w", err)
-		}
-		p.Seasons = &v
+// openOptional decrypts the seasons, licence end and groups into p, as Find does.
+func (s *Store) openOptional(p *Profile, seasons, licence, orgs []byte) error {
+	if err := s.openInto(&p.Seasons, seasons); err != nil {
+		return err
+	}
+	if err := s.openInto(&p.Organisation, orgs); err != nil {
+		return err
 	}
 	if licence != nil {
 		v, err := s.keys.OpenString(licence)
@@ -350,6 +350,19 @@ func (s *Store) openOptional(p *Profile, seasons, licence []byte) error {
 		}
 		p.LicenceExpires = v
 	}
+	return nil
+}
+
+// openInto decrypts what sealOptional stored into dst, which stays nil for NULL.
+func (s *Store) openInto(dst **string, sealed []byte) error {
+	if sealed == nil {
+		return nil
+	}
+	v, err := s.keys.OpenString(sealed)
+	if err != nil {
+		return fmt.Errorf("decrypt member: %w", err)
+	}
+	*dst = &v
 	return nil
 }
 
@@ -387,8 +400,8 @@ func (s *Store) current(ctx context.Context) (base int64, current map[string]boo
 
 func (s *Store) insertMembers(ctx context.Context, tx *sql.Tx, ms []Member) (err error) {
 	stmt, err := tx.PrepareContext(ctx,
-		`INSERT INTO members (email_hash, name_hash, first_name, last_name, email, seasons, licence_expires)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`)
+		`INSERT INTO members (email_hash, name_hash, first_name, last_name, email, seasons, licence_expires, organisation)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return fmt.Errorf("prepare member insert: %w", err)
 	}
@@ -402,6 +415,7 @@ func (s *Store) insertMembers(ctx context.Context, tx *sql.Tx, ms []Member) (err
 			s.keys.SealString(m.Email),
 			s.sealOptional(m.Seasons),
 			s.sealNonEmpty(m.LicenceExpires),
+			s.sealOptional(m.Organisation),
 		); err != nil {
 			return fmt.Errorf("insert member of row %d: %w", m.Row, err)
 		}

@@ -30,6 +30,7 @@ var fullHeader = []any{
 	"n°", "Photo", "Licence", "Expire le", "Civilité", "Nom", "Prénom", "Nom de naissance",
 	"Date de naissance", "Email", "Adresse", "CP", "Ville", "CACI", "Téléphone fixe", "Portable",
 	"Nom", "Prénom", "Lien de parenté", "Téléphone fixe", "Portable", "Commentaire", "Année(s)",
+	"Organisation",
 }
 
 // memberRow fills a row of fullHeader. The second "Nom"/"Prénom" pair is the
@@ -41,6 +42,12 @@ func memberRow(n int, expires any, last string, first, email, seasons any) []any
 	row[10], row[11], row[12], row[13] = witnessAddress, "83000", "Villeneuve", witnessCACI
 	row[15], row[16], row[17], row[18] = witnessPhone, witnessContact, "Gaspard", "Conjoint"
 	row[20], row[21], row[22] = witnessPhone, witnessComment, seasons
+	return row
+}
+
+// withOrganisation sets the VPDive groups of a memberRow, its last column.
+func withOrganisation(row []any, groups string) []any {
+	row[len(row)-1] = groups
 	return row
 }
 
@@ -57,7 +64,7 @@ func fixtures() map[string]xlsxtest.Sheet {
 	return map[string]xlsxtest.Sheet{
 		"members_valid.xlsx": exportSheet(
 			memberRow(1, "31/12/2026", "Martin", "Léa", "  Lea.Martin@Example.ORG ", 2026),
-			memberRow(2, 46387.0, "Bernard", "Hugo", "hugo.bernard@example.org", "2024, 2025, 2026"),
+			withOrganisation(memberRow(2, 46387.0, "Bernard", "Hugo", "hugo.bernard@example.org", "2024, 2025, 2026"), "Moniteurs actifs,Membres actifs"),
 			memberRow(3, nil, "Petit", "Chloé", "chloe.petit@example.org", nil),
 			[]any{4}, // a row without email in the middle of the file
 			memberRow(5, "bientôt", "Durand", "Noé", "noe.durand@example.org", " 2025 , 2026 "),

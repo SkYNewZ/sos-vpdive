@@ -31,12 +31,12 @@ func TestParseValidExport(t *testing.T) {
 	assert.Equal(t, time.Date(2026, 9, 1, 8, 15, 0, 0, paris(t)), exp.ExportedAt)
 	assert.Equal(t, 1, exp.Skipped)
 	assert.Equal(t, []Member{
-		{Row: 5, LastName: "Martin", FirstName: "Léa", Email: "lea.martin@example.org", Seasons: new("2026"), LicenceExpires: "2026-12-31"},
-		{Row: 6, LastName: "Bernard", FirstName: "Hugo", Email: "hugo.bernard@example.org", Seasons: new("2024, 2025, 2026"), LicenceExpires: "2026-12-31"},
-		{Row: 7, LastName: "Petit", FirstName: "Chloé", Email: "chloe.petit@example.org", Seasons: new(""), LicenceExpires: ""},
-		{Row: 9, LastName: "Durand", FirstName: "Noé", Email: "noe.durand@example.org", Seasons: new("2025, 2026"), LicenceExpires: ""},
-		{Row: 10, LastName: "MARTIN", FirstName: "Lea", Email: "lea.martin2@example.org", Seasons: new("2025"), LicenceExpires: "2027-03-15"},
-		{Row: 11, LastName: "Leroy", FirstName: "", Email: "ines.leroy@example.org", Seasons: new("2026"), LicenceExpires: "2027-06-30"},
+		{Row: 5, LastName: "Martin", FirstName: "Léa", Email: "lea.martin@example.org", Seasons: new("2026"), LicenceExpires: "2026-12-31", Organisation: new("")},
+		{Row: 6, LastName: "Bernard", FirstName: "Hugo", Email: "hugo.bernard@example.org", Seasons: new("2024, 2025, 2026"), LicenceExpires: "2026-12-31", Organisation: new("Moniteurs actifs, Membres actifs")},
+		{Row: 7, LastName: "Petit", FirstName: "Chloé", Email: "chloe.petit@example.org", Seasons: new(""), LicenceExpires: "", Organisation: new("")},
+		{Row: 9, LastName: "Durand", FirstName: "Noé", Email: "noe.durand@example.org", Seasons: new("2025, 2026"), LicenceExpires: "", Organisation: new("")},
+		{Row: 10, LastName: "MARTIN", FirstName: "Lea", Email: "lea.martin2@example.org", Seasons: new("2025"), LicenceExpires: "2027-03-15", Organisation: new("")},
+		{Row: 11, LastName: "Leroy", FirstName: "", Email: "ines.leroy@example.org", Seasons: new("2026"), LicenceExpires: "2027-06-30", Organisation: new("")},
 	}, exp.Members)
 }
 
@@ -45,6 +45,7 @@ func TestParseWithoutOptionalColumns(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, exp.Members, 2)
 	assert.Nil(t, exp.Members[0].Seasons)
+	assert.Nil(t, exp.Members[0].Organisation)
 	assert.Empty(t, exp.Members[0].LicenceExpires)
 	assert.True(t, exp.ExportedAt.IsZero())
 }
