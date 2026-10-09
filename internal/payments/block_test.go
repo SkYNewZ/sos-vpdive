@@ -89,8 +89,10 @@ func TestLineReading(t *testing.T) {
 	assert.True(t, Line{State: StateDue, ProductType: TypeCard, UnitPrice: -18000}.Balance())
 	assert.True(t, Line{State: StateDue, ProductType: TypeTraining, UnitPrice: -6000}.Balance())
 	assert.True(t, Line{State: StateDue, ProductType: TypeCard}.Balance(), "a used-up carnet: a balance of 0,00 €")
+	assert.True(t, Line{State: StatePaid, ProductType: TypeCard}.Balance(), "a used-up carnet as VPDive marks it: « Payé » at 0,00 €")
 	assert.False(t, Line{State: StateDue, ProductType: "", UnitPrice: -500}.Balance(), "not a carnet or a training")
 	assert.False(t, Line{State: StatePaid, ProductType: TypeCard, UnitPrice: 30000}.Balance(), "a purchase")
+	assert.False(t, Line{State: StatePaid, ProductType: TypeCard, UnitPrice: -25000, Paid: -25000}.Balance(), "a refund")
 
 	assert.True(t, Line{State: StateDue, UnitPrice: 3500}.ToSettle())
 	assert.True(t, Line{State: StatePartial, UnitPrice: 12000}.ToSettle())
