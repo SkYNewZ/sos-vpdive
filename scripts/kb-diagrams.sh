@@ -9,7 +9,8 @@ cli=@mermaid-js/mermaid-cli@12.0.0
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 for md in kb/*.md; do
-	id=$(basename "$md" .md)
+	# Named by the fiche's declared id, as kb.Load looks for kb/<id>.svg.
+	id=$(tr -d '\r' <"$md" | sed -n 's/^id:[[:space:]]*//p' | head -n 1)
 	# The fence lines as kb.blocks sees them: CRs dropped, the closing fence trimmed.
 	tr -d '\r' <"$md" | awk '/^[[:space:]]*```mermaid[[:space:]]*$/ {on = 1; next} on && /^[[:space:]]*```[[:space:]]*$/ {exit} on {print}' >"$tmp/$id.mmd"
 	[ -s "$tmp/$id.mmd" ] || continue

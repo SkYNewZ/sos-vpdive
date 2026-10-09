@@ -160,8 +160,13 @@ func TestLoadRefusesBadTablesAndDiagrams(t *testing.T) {
 		{"two diagrams", fence + "\n\n" + fence, svgFor(diagramSource), "one diagram at most"},
 		{"svg missing", fence, "", "make diagrams"},
 		{"svg stale", fence, svgFor("flowchart LR\n"), "is stale"},
+		{"diagram in the procedure", "PROCEDURE", svgFor(diagramSource), "« Réponse adhérent » only"},
 	} {
-		files := map[string]string{"tarif-test.md": ficheWith(tc.answer)}
+		text := ficheWith(tc.answer)
+		if tc.answer == "PROCEDURE" { // /kb/ serves drawings to anyone: none for the committee's procedure
+			text = ficheWith("Prix.") + "\n" + fence + "\n"
+		}
+		files := map[string]string{"tarif-test.md": text}
 		if tc.svg != "" {
 			files["tarif-test.svg"] = tc.svg
 		}

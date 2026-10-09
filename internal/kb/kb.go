@@ -286,10 +286,14 @@ func withoutDiagram(text string) string {
 
 // drawing reads kb/<id>.svg, the drawing of the fiche's one diagram if it
 // has one, and refuses it when it was drawn from another source. The page
-// shows it as an image, and its route forbids scripts.
+// shows it as an image, and its route forbids scripts. /kb/ serves drawings
+// to anyone, so the committee's procedure holds none.
 func (f Fiche) drawing(content fs.FS) ([]byte, error) {
+	if slices.ContainsFunc(f.Procedure, func(b Block) bool { return b.Kind == Diagram }) {
+		return nil, fmt.Errorf("a diagram goes in « %s » only: its drawing is public", answerHeading)
+	}
 	var source string
-	for _, b := range slices.Concat(f.Answer, f.Procedure) {
+	for _, b := range f.Answer {
 		if b.Kind != Diagram {
 			continue
 		}
