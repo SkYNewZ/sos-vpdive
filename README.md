@@ -75,6 +75,9 @@ The image has no shell, so `exec` runs the binary itself.
   timeout above 60 seconds (nginx: `proxy_buffering off; proxy_read_timeout 1h;`).
   It is a live stream with a keepalive every 25 seconds. Without it, the board
   still works but needs a manual refresh.
+- Do not buffer `/assistant/messages` either, and keep the read timeout above
+  150 seconds (nginx: `proxy_buffering off; proxy_read_timeout 180s;`). The
+  model can stay silent for over 60 seconds; otherwise answers stop mid-way.
 - Accept request bodies up to 16 MB on both sites (nginx:
   `client_max_body_size 16m;`). A request can carry three 5 MB screenshots.
 - Serve HTTP/2. Every open committee tab holds a live stream, and HTTP/1.1
@@ -225,10 +228,10 @@ startup, and the service starts anyway.
 With `LLM_API_KEY` set, a model picks up to three fiches to show the member
 before sending, and writes a short summary for the committee. Members only
 ever read fiches, never model output. The model receives the category, the
-extra fields and the description, never the name, the email address or the
-screenshots. Without a key, or when the model fails or takes longer than
-`LLM_TIMEOUT` (8 s), the request leaves at once. `LLM_DAILY_LIMIT` (200 by
-default) caps the calls per day.
+extra fields and the description as typed, unmasked. The requester's name and
+email address and the screenshots are not sent. Without a key, or when the
+model fails or takes longer than `LLM_TIMEOUT` (8 s), the request leaves at
+once. `LLM_DAILY_LIMIT` (200 by default) caps the calls per day.
 
 Any provider that speaks Anthropic's Messages API works:
 
@@ -237,8 +240,43 @@ Any provider that speaks Anthropic's Messages API works:
 | Anthropic (default) | `https://api.anthropic.com` | `claude-haiku-4-5-20251001` |
 | DeepSeek | `https://api.deepseek.com/anthropic` | `deepseek-flash` |
 
-Every call turns reasoning off. DeepSeek reasons by default and would
-otherwise spend the 400-token answer budget before writing anything.
+Every suggestion call turns reasoning off. DeepSeek reasons by default and
+would otherwise spend the 400-token answer budget before writing anything.
+
+### Committee assistant
+
+Off by default: set `ASSISTANT_ENABLED=true`, with `LLM_API_KEY`. It adds an
+« Assistant » page to the committee site and an « Analyser » button on each
+request. A resolver pastes a member's message or asks a question, and the model
+answers from the club's data through read-only tools: the members list, VPDive
+and Mollie payments, the calendar, the requests filed in the tool, cancelled
+outings and the fiches. It changes nothing. The resolver acts in VPDive.
+
+The model provider receives the resolver's text, the request being analysed
+(with its requester's name, seasons and licence end) and what the tools
+return: member and participant names, seasons and licence end, payment lines,
+outings and carts, summaries of past requests and the fiches. One answer reads
+the payments, outings and requests of three people at most. An outing it opens
+lists every participant with their registration, role and cart (payment status
+and amount), and the names of those who unregistered, with the author of each
+unregistration. In all of it, email addresses, phone numbers and bank
+details (IBAN or French RIB) are masked by pattern before leaving. Screenshots
+and internal notes are never sent.
+
+Conversations live in the server's memory only: 30 minutes after the last
+question, 2 hours at most. Logout drops the conversations of that session. An
+erasure or a deletion (of a request, a message or a capture) drops every
+conversation, and so does a restart. Each account gets
+`ASSISTANT_DAILY_QUESTIONS` questions a day (50 by default). The owner sees a
+usage journal at `/assistant/journal`: who asked, when, tokens and an estimated
+cost (`ASSISTANT_PRICE_*`), never the questions.
+`ASSISTANT_MODEL` picks the model (`LLM_MODEL` when empty); `deepseek-flash`
+with reasoning gave the best answers in our tests. Reasoning is on by default:
+`ASSISTANT_THINKING=false` turns it off. `ASSISTANT_MAX_TOKENS` caps each model
+call, reasoning included: 32 000 tokens by default, 8 000 without reasoning
+(DeepSeek ignores the reasoning budget, so its reasoning uses up the same cap).
+When an answer hits the cap, the resolver sees what it wrote, with a note that
+it was cut. The provider must support tool use through the Messages API.
 
 ### Mail
 
@@ -317,6 +355,13 @@ On a real Android phone and a real iPhone:
   the data is lost. Back the key up apart from the database.
 - Logs and traces never hold a token, an email address, a name or a request's
   text.
+- Suggestions send the model provider a request's category, extra fields and
+  description as typed, unmasked, and never the requester's name, email address
+  or screenshots. The committee assistant sends the resolver's text, the request
+  it analyses and its tool results with email addresses, phone numbers and bank
+  details (IBAN or French RIB) masked by pattern, plus the names and data it
+  reads; screenshots and internal notes are never sent (see « Committee
+  assistant »).
 - Erasing a person on the « Effacement » page deletes their requests, their
   member entry and every payment, Mollie line, calendar participation and
   unregistration under their name, a namesake's included. Where they

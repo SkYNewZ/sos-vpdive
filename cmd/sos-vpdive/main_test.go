@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
+	"io"
 	"log/slog"
 	"maps"
 	"net"
@@ -396,4 +398,11 @@ func TestSetupWarnsWhenTheOwnerAccountIsMissing(t *testing.T) {
 	defer func() { assert.NoError(t, a.db.Close()) }()
 	assert.Contains(t, logs.String(), "owner account missing")
 	assert.NotContains(t, logs.String(), "alice", "no username in logs")
+}
+
+func TestAssistantBenchUsage(t *testing.T) {
+	err := run(context.Background(), []string{"assistant-bench"}, func(string) string { return "" }, io.Discard)
+	_, ok := errors.AsType[usageError](err)
+	assert.True(t, ok, "needs -messages and -out")
+	assert.ErrorContains(t, err, "-messages")
 }

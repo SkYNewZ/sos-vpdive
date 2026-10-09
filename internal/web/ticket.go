@@ -24,6 +24,9 @@ var ticketLinks = []string{"paiements", "membres", "messagerie", "support"}
 // replyActions send a reply to the member, alone or with a status change.
 var replyActions = []tickets.Action{tickets.ActionReply, tickets.ActionReplyWait, tickets.ActionReplyClose}
 
+// deleteActions remove what an assistant conversation may have read.
+var deleteActions = []tickets.Action{tickets.ActionDelete, tickets.ActionDeleteMessage, tickets.ActionDeleteCapture}
+
 // ticketMessage is what an action leaves on a page shown again: a notice,
 // and the text typed in the reply or note field with its problem.
 type ticketMessage struct {
@@ -51,7 +54,8 @@ type ticketData struct {
 	Payments   payments.Block
 	Mollie     payments.MollieBlock
 	Outings    outingsBlock
-	MollieLink vpdiveLink // VPayDive in VPDive: failed attempts show there only
+	MollieLink vpdiveLink      // VPayDive in VPDive: failed attempts show there only
+	Assistant  *assistantPanel // nil when the assistant is off
 }
 
 // profileView is the requester as the last members import knows them.
@@ -106,6 +110,10 @@ func (s *Server) renderTicket(w http.ResponseWriter, r *http.Request, status int
 	}
 	if m.Notice != nil {
 		p.Notices = append(p.Notices, *m.Notice)
+	}
+	if data.Assistant, err = s.ticketAssistant(r, t.ID, p.CSRF); err != nil {
+		s.serverError(w, r, err)
+		return
 	}
 	p.Data = data
 	s.render(w, r, status, "ticket", p)
@@ -219,6 +227,9 @@ func (s *Server) ticketAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	err := s.tickets.Apply(r.Context(), cmd)
+	if err == nil && slices.Contains(deleteActions, cmd.Action) {
+		s.forgetConversations()
+	}
 	switch {
 	case err == nil && cmd.Action == tickets.ActionDelete:
 		http.Redirect(w, r, "/?supprimee=1", http.StatusSeeOther)

@@ -6,16 +6,13 @@ requests a day. Simplicity and robustness beat features.
 
 ## Source of truth
 
-The spec is `.local/spec.md` (French, not in this repo). It was reviewed and
-validated: it wins over this file, over existing code, and over preference.
+The user's requests. The spec `.local/spec.md` (French, not in this repo)
+described the initial lots, all delivered: it is background on why things work
+the way they do, not a gate. A request that departs from it needs no spec
+amendment; follow the request and name the departure in one line. If a request
+is ambiguous, ask.
 
-- It opens with a reading guide. Work is split into lots (§15), one at a time.
-- A lot is done when its §13 criteria pass.
-- If the spec is ambiguous, contradictory, or looks wrong: stop and ask. Do not
-  deviate silently.
-- Open questions live in §14. They are not yours to resolve.
-
-### Spec amendments decided by the user (they win over the spec text)
+### Decisions taken on top of the spec
 
 - `Referrer-Policy: same-origin` on every response, tracking pages included:
   `no-referrer` (§11.1) makes browsers send `Origin: null` on form posts, which
@@ -115,6 +112,20 @@ validated: it wins over this file, over existing code, and over preference.
     `/annulations`.
   - `/annulations` links an outing to its calendar page when title and
     Paris day match one event, otherwise to the day view.
+- Committee assistant (design 2026-10-08, off by default): `/assistant` and the
+  « Analyser » panel of a request; streamed Messages API calls with eight
+  read-only tools (`internal/web/assistant_tools.go`), conversations in memory
+  bound to the session (30 min idle, 2 h max), per-account daily quota, owner
+  journal `/assistant/journal` without content. The model gets masked text
+  (`assistant.Mask`: addresses, phones, IBANs, by pattern) and opaque refs
+  (`m1`). Tool results are masked string by string (`assistant.MaskJSON`):
+  masking the encoded JSON missed a phone number after a newline escape. An
+  answer reads the payments, outings and requests of at most 3 people (the
+  `outing` tool still lists every participant). Its output is rendered by
+  `assistant.Render` only (links and images neutralised). §5.2's « no tools »
+  and §12.4's bans no longer hold for it. Reasoning is on by default
+  (`ASSISTANT_THINKING`) and `.env.example` recommends `deepseek-flash`: the
+  owner's choice after the benchmark (2026-10-09).
 
 ## Private material: `.local/` is gitignored
 
@@ -129,11 +140,11 @@ validated: it wins over this file, over existing code, and over preference.
 - This repo is public. README and docs are written as if for another club
   reusing the tool.
 
-## Stack, fixed by the spec
+## Stack
 
 - Go, standard library first (`net/http`, `html/template`, `log/slog`).
 - SQLite with a pure-Go driver, no CGO. Single binary, single instance.
-- Server-rendered HTML. Vanilla JS only where the spec requires it.
+- Server-rendered HTML. Vanilla JS only where a page needs it.
 - Tailwind CSS 4 + daisyUI 5, built with the Tailwind standalone CLI. No Node
   in the build.
 - Distroless image, non-root. One binary serves two hostnames.
@@ -157,12 +168,12 @@ No i18n framework.
 - The tool never connects to VPDive and never sends anything to its vendor.
 - Model output is never shown to members: it only selects articles and writes
   a summary for the committee (§5).
-- Design constraints of §12 override the defaults of any design skill.
+- §12 is the house style (club navy, one self-hosted font, theme `cpp`): new
+  pages stay in it, but a UX the user asks for wins over its bans.
 
 ## Out of bounds
 
 - `.env`, database files, or `.xlsx` outside `testdata/fixtures/` in git.
-- Anything the spec lists as out of scope (§2).
 - Key rotation, an ORM, a JS framework, a second datastore.
 
 ## Architecture
@@ -176,14 +187,19 @@ No i18n framework.
 - `tickets.Store` owns request state changes; it writes mails and alerts to
   the `mail.Outbox` in the same transaction, and `Outbox.Run` delivers them per
   channel (SMTP, Pushover, Web Push). Its `OnChange` feeds the SSE `Broker`.
+- `assistant.Client.Answer` runs the tool loop; `web.Server.streamAnswer`
+  streams it as NDJSON on `POST /assistant/messages`.
 - Background jobs in `serve`: outbox delivery, accounts reload, daily purge
   (`app.purge`, spec §8.3).
 
 ## Layout and commands
 
-- `cmd/sos-vpdive` (subcommands) + `internal/{config,secure,telemetry,store,xlsx,imports,members,payments,calendar,admins,tickets,mail,blobs,images,kb,suggest,push,web}`.
+- `cmd/sos-vpdive` (subcommands) + `internal/{config,secure,telemetry,store,xlsx,imports,members,payments,calendar,admins,tickets,mail,blobs,images,kb,suggest,assistant,push,web}`.
   Migrations: `internal/store/migrations/NNNN_*.sql`. Content files `config/*.yaml`
   (categories, products, vpdive, robots, calendar) are embedded by the root `content.go`.
+- `sos-vpdive assistant-bench -messages DIR -out DIR [-account NAME]` answers
+  message files with the assistant, headless, to compare models (needs
+  `ASSISTANT_ENABLED` and `LLM_API_KEY`).
 - `make test` / `make lint` (golangci-lint v2, `default: all`) / `make css` /
   `make build` / `make fixtures` (regenerates `testdata/fixtures/*.xlsx`).
 - One test: `go test ./internal/web -run TestName` (`make test` adds `-race`).
@@ -275,3 +291,7 @@ No i18n framework.
   endpoint downgrades it): `telemetry.sentryExporter` sets the URL with
   `WithEndpointURL` instead. A Sentry client with a custom `Transport` (tests) skips the telemetry
   buffer and delivers logs and events to it on `Flush`.
+- `//go:embed` of a directory skips files starting with `_` or `.`: `assets.go`
+  lists `templates/_*.html` explicitly.
+- File-edit tools may turn a typed `\uXXXX` escape into the raw character: write
+  such lines through the shell and check the bytes with `od -c`.

@@ -157,6 +157,21 @@ func (s *Store) Others(ctx context.Context, id int64) ([]Row, error) {
 	return s.scanRows(rows)
 }
 
+// ByEmail lists the confirmed requests of email, open first, then newest
+// (committee assistant): the same address rule as Others.
+func (s *Store) ByEmail(ctx context.Context, email string) ([]Row, error) {
+	normalized, err := secure.NormalizeEmail(email)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.DB.QueryContext(ctx, `SELECT `+rowColumns+` FROM submitted_tickets t WHERE t.email_hash = ?
+		ORDER BY t.status = 'done', t.submitted_at DESC, t.id DESC`, s.Keys.Hash(normalized))
+	if err != nil {
+		return nil, fmt.Errorf("requests of an address: %w", err)
+	}
+	return s.scanRows(rows)
+}
+
 func (s *Store) scanRows(rows *sql.Rows) ([]Row, error) {
 	out, err := store.Collect(rows, nil, func(rows *sql.Rows) (Row, error) {
 		var (

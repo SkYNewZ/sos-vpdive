@@ -10,6 +10,7 @@ require (
 	github.com/getsentry/sentry-go/slog v0.49.0
 	github.com/minio/minio-go/v7 v7.3.0
 	github.com/stretchr/testify v1.12.1
+	github.com/yuin/goldmark v1.8.6
 	go.opentelemetry.io/otel v1.47.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.47.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.47.0

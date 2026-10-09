@@ -1,6 +1,6 @@
 {{define "main"}}
 {{$d := .Data}}{{$t := $d.Ticket}}
-<div data-ticket-page="{{$t.ID}}">
+<div data-ticket-page="{{$t.ID}}" class="lg:data-panel-open:pr-[25rem] 2xl:data-panel-open:pr-[28rem]">
 <div data-changed-banner hidden role="status" class="alert alert-soft alert-info mb-4"><span>Cette demande a changé ailleurs. <a class="link font-semibold" href="/demandes/{{$t.ID}}">Recharger</a></span></div>
 <p><a class="link link-primary inline-flex min-h-11 items-center" href="/">Toutes les demandes</a></p>
 
@@ -11,6 +11,7 @@
 <span>Ancienneté : {{template "age" (age $t.SubmittedAt $t.ClosedAt)}}</span>
 <span>Résolveur : {{with $d.Assignee}}<span class="inline-flex items-center gap-2 align-middle"><img src="{{.Avatar}}" alt="" width="24" height="24" class="size-6"><span class="font-semibold">{{.Name}}</span> · {{.Role}}</span>{{else}}{{if $t.Assignee}}{{$t.Assignee}} (compte retiré){{else}}personne{{end}}{{end}}</span>
 </div>
+{{with $d.Assistant}}<div><button type="button" class="btn btn-outline min-h-11" data-assistant-open aria-controls="assistant-panel" aria-expanded="false">{{template "icon" "sparkles"}}<span data-assistant-open-label>{{if .Exchanges}}Voir l'analyse{{else}}Analyser{{end}}</span></button></div>{{end}}
 {{if $d.Can.close}}
 <div class="flex flex-wrap items-end gap-3">
 {{if $d.Can.take}}
@@ -254,6 +255,19 @@
 </section>
 </div>
 </div>
+{{with $d.Assistant}}<aside id="assistant-panel" class="fixed inset-0 z-40 flex flex-col bg-base-100 lg:left-auto lg:w-[24rem] 2xl:w-[27rem] lg:border-l lg:border-base-300" data-assistant data-demande="{{.TicketID}}" data-conversation="{{.Conversation}}" aria-labelledby="assistant-panel-titre" hidden>
+<div class="flex min-h-14 items-center justify-between gap-2 border-b border-base-300 px-3">
+<button type="button" class="btn btn-ghost min-h-11 gap-2 px-2 lg:hidden" data-assistant-close>{{template "icon" "arrow-left"}}<span>Retour à la demande</span></button>
+<h2 id="assistant-panel-titre" class="px-1 font-semibold outline-none max-lg:sr-only" tabindex="-1">Assistant</h2>
+<div class="flex items-center gap-1">
+<button type="button" class="btn btn-ghost min-h-11 px-2" data-assistant-restart>Nouvelle analyse</button>
+<button type="button" class="btn btn-ghost min-h-11 px-2 max-lg:hidden" data-assistant-close aria-label="Fermer l'assistant">{{template "icon" "x"}}</button>
+</div>
+</div>
+<div class="flex-1 overflow-y-auto p-4">{{template "assistantThread" .Exchanges}}</div>
+{{template "assistantComposer" .}}
+<template data-assistant-new>{{template "assistantExchange" .Empty}}</template>
+</aside>{{end}}
 </div>
 {{end}}
 

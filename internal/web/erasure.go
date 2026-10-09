@@ -59,7 +59,9 @@ func (s *Server) erase(w http.ResponseWriter, r *http.Request) {
 	if r.PostForm.Get("etape") == stepConfirm {
 		sess, _ := sessionFrom(ctx)
 		d.Step = stepDone
-		d.Counts, err = s.tickets.Erase(ctx, email, sess.account.Username)
+		if d.Counts, err = s.tickets.Erase(ctx, email, sess.account.Username); err == nil {
+			s.forgetConversations()
+		}
 	} else {
 		d.Counts, err = s.tickets.PreviewErasure(ctx, email)
 	}

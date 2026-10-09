@@ -25,7 +25,9 @@ const (
 )
 
 // Block is the « Paiements VPDive » block of a request page: what the last
-// import says of the requester, never shown to members or sent to the model.
+// import says of the requester, never shown to members. The committee
+// assistant reads it, masked, through its member_payments and
+// member_outings tools.
 type Block struct {
 	State     BlockState
 	Import    imports.Info // the payments import in place
@@ -45,9 +47,10 @@ type ToSettleLine struct {
 }
 
 // Balance reports the remaining credit of a carnet or a training: due,
-// negative, the credit being its absolute value (spec §7.1, §7.3).
+// negative, the credit being its absolute value (spec §7.1, §7.3). A
+// used-up one reads 0,00 €: a balance too.
 func (l Line) Balance() bool {
-	return l.State == StateDue && l.UnitPrice < 0 && (l.ProductType == TypeCard || l.ProductType == TypeTraining)
+	return l.State == StateDue && l.UnitPrice <= 0 && (l.ProductType == TypeCard || l.ProductType == TypeTraining)
 }
 
 // ToSettle reports a line the member still has to pay.

@@ -10,7 +10,8 @@ import (
 
 // MollieBlock is the « Encaissements Mollie » block of a request page: what
 // Mollie collected from the requester and whether VPDive settled it (spec
-// §7.5). Never shown to members or sent to the model.
+// §7.5). Never shown to members. The committee assistant reads it, masked,
+// through its member_payments and member_outings tools.
 type MollieBlock struct {
 	State    BlockState
 	Import   imports.Info    // the VPayDive import in place

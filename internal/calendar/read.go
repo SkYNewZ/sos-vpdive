@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/SkYNewZ/sos-vpdive/internal/imports"
 	"github.com/SkYNewZ/sos-vpdive/internal/store"
 )
 
@@ -134,11 +135,49 @@ func (s *Store) Event(ctx context.Context, id string) (_ Event, err error) {
 		return Event{}, err
 	}
 	defer endRead(tx, &err)
+	return s.event(ctx, tx, id)
+}
+
+// Outing is an event as the committee assistant reads it: Event's, with its
+// unregistrations, oldest first (lot 8 part 3; the outing page does not show
+// them), and the latest calendar import.
+type Outing struct {
+	Event
+
+	Import   imports.Info
+	Imported bool // false before the first calendar import
+}
+
+// Outing reads the event id, its unregistrations and the latest calendar
+// import in one snapshot: a push committing in between never mixes the
+// participants of one export with the unregistrations or the date of the
+// next.
+func (s *Store) Outing(ctx context.Context, id string) (_ Outing, err error) {
+	tx, err := s.readTx(ctx)
+	if err != nil {
+		return Outing{}, err
+	}
+	defer endRead(tx, &err)
+	var o Outing
+	if o.Event, err = s.event(ctx, tx, id); err != nil {
+		return Outing{}, err
+	}
+	if o.Unregistrations, err = s.unregistrations(ctx, tx, id); err != nil {
+		return Outing{}, err
+	}
+	if o.Import, o.Imported, err = imports.Last(ctx, tx, imports.Calendar); err != nil {
+		return Outing{}, err
+	}
+	return o, nil
+}
+
+// event reads the event id and its participants inside tx (see Event).
+func (s *Store) event(ctx context.Context, tx *sql.Tx, id string) (Event, error) {
 	var (
 		start, end int64
 		sealed     []byte
 	)
-	err = tx.QueryRowContext(ctx, `SELECT starts_at, ends_at, data FROM calendar_events WHERE id = ?`, id).
+	err := tx.QueryRowContext(ctx, `SELECT starts_at, ends_at, data FROM calendar_events WHERE id = ?`, id).
 		Scan(&start, &end, &sealed)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Event{}, ErrNotFound
@@ -173,6 +212,25 @@ func (s *Store) Event(ctx context.Context, id string) (_ Event, err error) {
 		return Event{}, fmt.Errorf("read participants of a calendar event: %w", err)
 	}
 	return ev, nil
+}
+
+// unregistrations reads the people who left event id inside tx, oldest
+// first.
+func (s *Store) unregistrations(ctx context.Context, tx *sql.Tx, id string) ([]Unregistration, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT data FROM calendar_unregistrations WHERE event_id = ? ORDER BY id`, id)
+	out, err := store.Collect(rows, err, func(rows *sql.Rows) (Unregistration, error) {
+		var sealed []byte
+		if err := rows.Scan(&sealed); err != nil {
+			return Unregistration{}, err
+		}
+		return s.openUnregistration(sealed)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("read unregistrations of a calendar event: %w", err)
+	}
+	// The script pushes them in its own order: the stable sort keeps it for equal times.
+	slices.SortStableFunc(out, func(a, b Unregistration) int { return a.Time.Compare(b.Time) })
+	return out, nil
 }
 
 // Participations returns the participations of the person of nameHash,

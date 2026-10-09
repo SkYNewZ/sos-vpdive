@@ -345,6 +345,263 @@ for (const button of document.querySelectorAll("[data-reload]")) {
   button.addEventListener("click", () => location.reload());
 }
 
+// Committee assistant (design 2026-10-08): sends a question and reads the
+// answer as it streams, one JSON event per line. The server renders every
+// piece of HTML (answer, dossier, sources) and this script only places it;
+// whatever comes from the model or from an import (step labels, error
+// texts) is set as text.
+const assistantBox = (box) => {
+  const form = box.querySelector("[data-assistant-form]");
+  const field = form.elements.text;
+  const thread = box.querySelector("[data-assistant-thread]");
+  const shape = box.querySelector("template[data-assistant-new]");
+  const send = form.querySelector("[data-assistant-send]");
+  const sticky = box.querySelector("[data-assistant-sticky]"); // the composer of /assistant, over the page
+  let running = null; // AbortController of the answer in flight
+
+  const busy = (on) => {
+    send.querySelector("[data-label-send]").hidden = on;
+    send.querySelector("[data-label-stop]").hidden = !on;
+    // On the live region itself: a screen reader waits for the end of the answer.
+    thread.setAttribute("aria-busy", on ? "true" : "false");
+  };
+
+  // Where the visible thread ends: above the sticky composer of /assistant,
+  // or at the foot of the box that scrolls in the request panel.
+  const floor = () => (sticky ? sticky.getBoundingClientRect().top : thread.parentElement.getBoundingClientRect().bottom);
+  // Brings the foot of an exchange above the composer, which scrollIntoView
+  // ignores: its height (and the phone tab bar's) becomes the scroll margin.
+  const toEnd = (node) => {
+    if (sticky) node.style.scrollMarginBottom = `${window.innerHeight - floor() + 16}px`;
+    node.scrollIntoView({ block: "end" });
+  };
+  const atEnd = (node) => node.getBoundingClientRect().bottom <= floor() + 40;
+  const setRemaining = (text) => {
+    if (text) for (const r of document.querySelectorAll("[data-assistant-remaining]")) r.textContent = text;
+  };
+
+  const ask = async (question) => {
+    if (running) return;
+    const node = shape.content.firstElementChild.cloneNode(true);
+    const asked = node.querySelector("[data-question]");
+    if (question) asked.textContent = question;
+    else asked.hidden = true; // « Analyser »: the start event names the request
+    document.querySelector("[data-assistant-empty]")?.remove();
+    thread.append(node);
+    const stepsBox = node.querySelector("[data-steps-box]");
+    const steps = node.querySelector("[data-steps]");
+    const summary = node.querySelector("[data-steps-summary]");
+    const answer = node.querySelector("[data-answer]");
+    const error = node.querySelector("[data-error]");
+    let ended = false; // a "done" or an "error" event came
+    // Applies a change to the exchange and keeps its foot in view, unless the resolver scrolled away.
+    const grow = (change) => {
+      const follow = atEnd(node);
+      change();
+      if (follow) toEnd(node);
+    };
+    const tally = () => {
+      const n = steps.children.length;
+      summary.textContent = n === 0 ? "Aucune donnée consultée" : n === 1 ? "1 donnée consultée" : `${n} données consultées`;
+    };
+    const fail = (message) => {
+      ended = true;
+      error.textContent = message;
+      error.hidden = false;
+      if (steps.children.length) {
+        tally();
+        stepsBox.open = false;
+      } else {
+        stepsBox.hidden = true;
+      }
+    };
+    const show = (event) => {
+      switch (event.type) {
+        case "start":
+          box.dataset.conversation = event.conversation;
+          setRemaining(event.remaining); // counted from now on, even if the answer stops
+          if (event.question) {
+            asked.textContent = event.question;
+            asked.hidden = false;
+          }
+          if (event.url) history.replaceState(null, "", event.url);
+          break;
+        case "thinking":
+          summary.textContent = "Réflexion…";
+          break;
+        case "step": {
+          const li = document.createElement("li");
+          li.textContent = event.label;
+          steps.append(li);
+          tally();
+          break;
+        }
+        case "answer":
+          answer.innerHTML = event.html ?? ""; // none: what streamed is no answer
+          break;
+        case "dossier":
+          for (const d of document.querySelectorAll("[data-assistant-dossier]")) d.innerHTML = event.html;
+          for (const d of document.querySelectorAll("[data-assistant-dossier-summary]")) d.textContent = event.summary;
+          break;
+        case "done":
+          ended = true;
+          answer.innerHTML = event.html;
+          node.querySelector("[data-sources]").innerHTML = event.sources ?? "";
+          stepsBox.open = false;
+          tally();
+          setRemaining(event.remaining);
+          for (const label of document.querySelectorAll("[data-assistant-open-label]")) label.textContent = "Voir l'analyse";
+          break;
+        case "error":
+          fail(event.message);
+          setRemaining(event.remaining);
+          break;
+      }
+    };
+    toEnd(node);
+    const body = new URLSearchParams({
+      csrf: form.elements.csrf.value,
+      text: question,
+      conversation: box.dataset.conversation ?? "",
+      demande: box.dataset.demande ?? "",
+    });
+    running = new AbortController();
+    busy(true);
+    try {
+      const response = await fetch(form.action, { method: "POST", body, signal: running.signal });
+      if (!response.ok) {
+        // Erased (404) or full (410): the next question starts a new conversation.
+        if (response.status === 404 || response.status === 410) delete box.dataset.conversation;
+        const message = (await response.text()).trim() || "Erreur : réessaie.";
+        grow(() => fail(message));
+        return;
+      }
+      const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+      let buffer = "";
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += value;
+        let end;
+        while ((end = buffer.indexOf("\n")) >= 0) {
+          const line = buffer.slice(0, end);
+          buffer = buffer.slice(end + 1);
+          if (line) {
+            const event = JSON.parse(line);
+            grow(() => show(event));
+          }
+        }
+      }
+      if (!ended) grow(() => fail("Connexion perdue : réessaie."));
+    } catch (err) {
+      // A drop or a stop after "done" leaves the kept answer as it is.
+      if (!ended) grow(() => fail(err.name === "AbortError" ? "Réponse arrêtée." : "Connexion perdue : réessaie."));
+    } finally {
+      running = null;
+      busy(false);
+    }
+  };
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (running) {
+      running.abort();
+      return;
+    }
+    const question = field.value.trim();
+    if (!question) {
+      field.focus();
+      return;
+    }
+    field.value = "";
+    field.style.height = "";
+    ask(question);
+  });
+  field.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault();
+      if (!running) form.requestSubmit(); // while an answer runs, only the button stops it
+    }
+  });
+  // Grows with its text: CSSOM, allowed by the style-src CSP.
+  field.addEventListener("input", () => {
+    field.style.height = "auto";
+    field.style.height = `${field.scrollHeight}px`;
+  });
+  box.addEventListener("click", (event) => {
+    const starter = event.target.closest("[data-starter]");
+    if (starter) {
+      field.value = starter.dataset.starter;
+      field.focus();
+    }
+    const pick = event.target.closest("[data-pick]");
+    if (pick) ask(pick.dataset.pick);
+  });
+  // « Nouvelle analyse » (request panel): the analysis starts again, in a new conversation.
+  box.querySelector("[data-assistant-restart]")?.addEventListener("click", () => {
+    if (running) return;
+    for (const ex of thread.querySelectorAll("[data-exchange]")) ex.remove();
+    delete box.dataset.conversation;
+    ask("");
+  });
+  return { ask, field, isRunning: () => running !== null };
+};
+
+const assistants = new Map();
+for (const box of document.querySelectorAll("[data-assistant]")) assistants.set(box, assistantBox(box));
+
+// A draft reply (the model's « brouillon » block): its button copies the text.
+document.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-copy-draft]");
+  if (!button) return;
+  try {
+    await navigator.clipboard.writeText(button.closest("[data-draft-reply]").querySelector("pre").textContent.trim());
+    button.textContent = "Copié";
+  } catch {
+    button.textContent = "Copie impossible : sélectionne le texte";
+  }
+});
+
+// Request page: « Analyser » opens the panel beside the request (a sheet on
+// a phone) and starts the analysis unless an answer is there already;
+// closing returns to the same place.
+const panel = document.querySelector("aside[data-assistant]");
+const opener = document.querySelector("[data-assistant-open]");
+if (panel && opener) {
+  let scroll = 0;
+  const heading = panel.querySelector("h2");
+  const openPanel = (on) => {
+    if (on) scroll = window.scrollY;
+    panel.hidden = !on;
+    opener.setAttribute("aria-expanded", String(on));
+    ticketPage?.toggleAttribute("data-panel-open", on);
+    if (on) {
+      heading.focus({ preventScroll: true }); // on a phone the sheet covers the opener: focus goes into it
+    } else {
+      opener.focus({ preventScroll: true });
+      if (!wide.matches) window.scrollTo(0, scroll);
+    }
+  };
+  opener.addEventListener("click", () => {
+    openPanel(true);
+    const box = assistants.get(panel);
+    const exchanges = [...panel.querySelectorAll("[data-exchange]")];
+    // An answer counts when it ended without an error; partial text before an error or a stop does not.
+    const answered = (ex) => ex.querySelector("[data-error]").hidden && ex.querySelector("[data-answer]").hasChildNodes();
+    if (box.isRunning() || exchanges.some(answered)) {
+      if (wide.matches) box.field.focus(); // a phone's keyboard would cover the answer
+      return;
+    }
+    // Never run or failed: start again, without the old error or partial answer above.
+    for (const ex of exchanges) ex.remove();
+    box.ask("");
+  });
+  for (const b of panel.querySelectorAll("[data-assistant-close]")) b.addEventListener("click", () => openPanel(false));
+  panel.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") openPanel(false);
+  });
+}
+
 // Committee notifications page (spec §9.6): push on or off for this device.
 // pushManager.subscribe comes first in the tap handler: Safari asks for the
 // permission only from a direct tap.

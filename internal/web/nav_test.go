@@ -59,3 +59,19 @@ func TestCommitteeShell(t *testing.T) {
 		assert.NotContains(t, members, absent)
 	}
 }
+
+// With the assistant on, « Assistant » joins the sidebar and « Plus », not
+// the phone tab bar; without it, no entry at all.
+func TestCommitteeShellAssistantEntry(t *testing.T) {
+	e := newTestEnv(t, withAssistant(t, &streamStub{}, 50))
+	cookie := e.login(t)
+	body := e.do(t, http.MethodGet, adminHost, "/annulations", nil, withCookie(cookie)).Body.String()
+	sidebar, dock, found := strings.Cut(body, `aria-label="Onglets du comité"`)
+	require.True(t, found, "the tab bar")
+	assert.Equal(t, 1, strings.Count(sidebar, `href="/assistant"`), "sidebar")
+	assert.Contains(t, sidebar, `<use href="#i-sparkles">`)
+	assert.NotContains(t, dock, `href="/assistant"`, "not a phone tab")
+
+	plus := e.do(t, http.MethodGet, adminHost, "/plus", nil, withCookie(cookie)).Body.String()
+	assert.Equal(t, 2, strings.Count(plus, `href="/assistant"`), "sidebar and « Plus »")
+}

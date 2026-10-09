@@ -141,7 +141,7 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	}
 	sess, _ := sessionFrom(r.Context())
 	s.deleteSession(r.Context(), sess.hash)
-	s.disconnectSession(sess.hash)
+	s.endSessions(string(sess.hash))
 	http.SetCookie(w, &http.Cookie{
 		Name: sessionCookieName, Value: "", Path: "/", MaxAge: -1,
 		Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode,

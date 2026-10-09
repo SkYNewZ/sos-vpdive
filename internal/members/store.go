@@ -1,12 +1,15 @@
 package members
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/imports"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
@@ -144,6 +147,17 @@ type Profile struct {
 	NameHash       []byte  // finds the payment lines (spec §7.3)
 }
 
+// Match is a member found by name (committee assistant).
+type Match struct {
+	Profile
+
+	Email  string
+	Shared int  // members bearing this name hash, this one included
+	Exact  bool // every word of the query is in the name
+
+	score int // words of the query found in the name
+}
+
 // Find returns the member of email. An address with a space returns
 // secure.ErrEmailSpace, as Lookup does.
 func (s *Store) Find(ctx context.Context, email string) (Profile, bool, error) {
@@ -167,19 +181,66 @@ func (s *Store) Find(ctx context.Context, email string) (Profile, bool, error) {
 	if p.FirstName, p.LastName, err = s.openNames(first, last); err != nil {
 		return Profile{}, false, err
 	}
-	if seasons != nil {
-		v, err := s.keys.OpenString(seasons)
-		if err != nil {
-			return Profile{}, false, fmt.Errorf("decrypt member: %w", err)
-		}
-		p.Seasons = &v
-	}
-	if licence != nil {
-		if p.LicenceExpires, err = s.keys.OpenString(licence); err != nil {
-			return Profile{}, false, fmt.Errorf("decrypt member: %w", err)
-		}
+	if err := s.openOptional(&p, seasons, licence); err != nil {
+		return Profile{}, false, err
 	}
 	return p, true, nil
+}
+
+// Search finds the members whose last and first names hold every word of
+// query, in any order, accents and case aside; failing that, those holding
+// at least one, most words first. It decrypts the names of the whole list:
+// a few hundred rows. No typo tolerance.
+func (s *Store) Search(ctx context.Context, query string, limit int) ([]Match, error) {
+	want := nameWords(query)
+	if len(want) == 0 {
+		return nil, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT name_hash, first_name, last_name, email, seasons, licence_expires FROM members ORDER BY id`)
+	all, err := store.Collect(rows, err, func(rows *sql.Rows) (m Match, err error) {
+		var first, last, email, seasons, licence []byte
+		if err = rows.Scan(&m.NameHash, &first, &last, &email, &seasons, &licence); err != nil {
+			return m, err
+		}
+		if m.FirstName, m.LastName, err = s.openNames(first, last); err != nil {
+			return m, err
+		}
+		words := nameWords(m.LastName + " " + m.FirstName)
+		for _, w := range want {
+			if slices.Contains(words, w) {
+				m.score++
+			}
+		}
+		if m.score == 0 {
+			return m, nil
+		}
+		if m.Email, err = s.keys.OpenString(email); err != nil {
+			return m, fmt.Errorf("decrypt member: %w", err)
+		}
+		return m, s.openOptional(&m.Profile, seasons, licence)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("search members: %w", err)
+	}
+	shared := map[string]int{}
+	best := 0
+	for _, m := range all {
+		shared[string(m.NameHash)]++
+		best = max(best, m.score)
+	}
+	var out []Match
+	for _, m := range all {
+		// An exact match hides the partial ones.
+		if m.score == 0 || (best == len(want) && m.score < best) {
+			continue
+		}
+		m.Exact, m.Shared = m.score == len(want), shared[string(m.NameHash)]
+		out = append(out, m)
+	}
+	slices.SortStableFunc(out, func(a, b Match) int {
+		return cmp.Or(cmp.Compare(b.score, a.score), cmp.Compare(a.LastName+" "+a.FirstName, b.LastName+" "+b.FirstName))
+	})
+	return out[:min(max(limit, 0), len(out))], nil
 }
 
 // Named returns the first and last name of the first member of nameHash,
@@ -273,6 +334,25 @@ func (s *Store) openNames(first, last []byte) (firstName, lastName string, err e
 	return firstName, lastName, nil
 }
 
+// openOptional decrypts the seasons and licence end into p, as Find does.
+func (s *Store) openOptional(p *Profile, seasons, licence []byte) error {
+	if seasons != nil {
+		v, err := s.keys.OpenString(seasons)
+		if err != nil {
+			return fmt.Errorf("decrypt member: %w", err)
+		}
+		p.Seasons = &v
+	}
+	if licence != nil {
+		v, err := s.keys.OpenString(licence)
+		if err != nil {
+			return fmt.Errorf("decrypt member: %w", err)
+		}
+		p.LicenceExpires = v
+	}
+	return nil
+}
+
 // replaceWith replaces the list in place with ms.
 func (s *Store) replaceWith(ms []Member) func(context.Context, *sql.Tx, int64) error {
 	return func(ctx context.Context, tx *sql.Tx, _ int64) error {
@@ -342,4 +422,20 @@ func (s *Store) sealNonEmpty(v string) any {
 		return nil
 	}
 	return s.keys.SealString(v)
+}
+
+// nameWords splits a name on what is neither a letter, a combining mark nor
+// an apostrophe, then normalises each word like secure.NormalizeName:
+// « Jean-Michel » is two words, « O'Connor » one, and a decomposed accent
+// stays in its word.
+func nameWords(s string) []string {
+	var out []string
+	for _, w := range strings.FieldsFunc(s, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.Is(unicode.Mn, r) && r != '\'' && r != '’'
+	}) {
+		if n := secure.NormalizeName(w); n != "" {
+			out = append(out, n)
+		}
+	}
+	return out
 }

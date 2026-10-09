@@ -1,0 +1,42 @@
+{{/* Committee assistant partials (design 2026-10-08), shared by /assistant and the request page. app.js clones assistantExchange from a <template> and fills it from the stream. */}}
+
+{{define "assistantThread"}}<ol class="flex flex-col gap-8" data-assistant-thread aria-live="polite">{{range .}}{{template "assistantExchange" .}}{{end}}</ol>{{end}}
+
+{{define "assistantExchange"}}<li class="flex flex-col gap-3" data-exchange>
+<p class="ml-auto max-w-[85%] rounded-box rounded-br-sm bg-primary px-4 py-3 whitespace-pre-wrap break-words text-primary-content" data-question>{{.Question}}</p>
+<div class="flex min-w-0 flex-col gap-2">
+<details class="text-sm text-base-content/80" data-steps-box{{if not .Answer}} open{{end}}>
+<summary class="inline-flex min-h-11 cursor-pointer items-center gap-2" data-steps-summary>{{if .Steps}}{{plural (len .Steps) "donnée consultée" "données consultées"}}{{else if .Answer}}Aucune donnée consultée{{else}}Recherche en cours…{{end}}</summary>
+<ul class="flex flex-col gap-1 border-l-2 border-base-300 pl-3" data-steps>{{range .Steps}}<li>{{.}}</li>{{end}}</ul>
+</details>
+<div class="answer" data-answer>{{.Answer}}</div>
+<p role="alert" class="alert alert-soft alert-error" data-error hidden></p>
+<div class="flex flex-wrap gap-2" data-sources>{{template "assistantSources" .Sources}}</div>
+</div>
+</li>{{end}}
+
+{{define "assistantSources"}}{{range .}}{{if .Link}}<a class="badge badge-outline min-h-8 gap-1" href="{{.Link}}">{{.Label}}</a>{{else}}<span class="badge min-h-8 {{if .Stale}}badge-soft badge-warning{{else}}badge-outline{{end}}">{{.Label}}{{with .Date}} · {{.}}{{end}}{{if .Stale}} · périmé{{end}}</span>{{end}}{{end}}{{end}}
+
+{{define "assistantDossier"}}{{if or .People .Sources}}
+{{with .People}}<h3 class="mt-4 text-sm font-semibold text-primary">Adhérents</h3>
+<ul class="mt-2 flex flex-col gap-3">{{range .}}<li>
+<p class="font-semibold">{{.Name}}{{if gt .Shared 1}} <span class="badge badge-soft badge-warning">Homonyme</span>{{end}}</p>
+<p class="text-sm break-all">{{.Email}}</p>
+<p class="text-sm">Saisons : {{.Seasons}} · licence : {{.Licence}}</p>
+{{if gt .Shared 1}}<button type="button" class="btn btn-outline btn-sm mt-1 min-h-11" data-pick="Je parle de {{.Ref}} ({{.Name}}).">C'est cette personne</button>{{end}}
+</li>{{end}}</ul>{{end}}
+{{with .Sources}}<h3 class="mt-4 text-sm font-semibold text-primary">Données consultées</h3>
+<ul class="mt-2 flex flex-col gap-1 text-sm">{{range .}}<li>{{if .Link}}<a class="link link-primary" href="{{.Link}}">{{.Label}}</a>{{else}}{{.Label}} · {{.Date}}{{if .Stale}} <span class="badge badge-soft badge-warning">périmé</span>{{end}}{{end}}</li>{{end}}</ul>{{end}}
+{{else}}<p class="mt-3 text-sm text-base-content/80">Les adhérents trouvés et les données lues s'affichent ici, avec la date de leur import.</p>{{end}}
+<p class="mt-4 border-t border-base-300 pt-3 text-sm text-base-content/80" data-assistant-remaining>{{.Remaining}}</p>
+{{with .Expires}}<p class="text-sm text-base-content/80">{{.}}</p>{{end}}{{end}}
+
+{{define "assistantComposer"}}<form method="post" action="/assistant/messages" class="flex flex-col gap-2 border-t border-base-300 bg-base-100 p-3" data-assistant-form>
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<label class="sr-only" for="assistant-text-{{.TicketID}}">Ta question, ou le message d'un adhérent</label>
+<textarea class="textarea max-h-[40dvh] w-full resize-none" id="assistant-text-{{.TicketID}}" name="text" rows="2" maxlength="8000" placeholder="Colle le message d'un adhérent ou pose ta question"></textarea>
+<div class="flex items-center justify-between gap-3">
+<p class="text-sm text-base-content/80" data-assistant-remaining>{{.Remaining}}</p>
+<button class="btn btn-primary min-h-11" type="submit" data-assistant-send><span data-label-send>Envoyer</span><span data-label-stop hidden>Arrêter</span></button>
+</div>
+</form>{{end}}
