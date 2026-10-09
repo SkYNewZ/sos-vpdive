@@ -293,6 +293,7 @@ const offlinePath = "/hors-ligne"
 func (s *Server) commonRoutes(mux *http.ServeMux, admin bool) {
 	mux.HandleFunc("GET /healthz", s.healthz)
 	mux.Handle("GET /static/", s.assets.handler())
+	mux.HandleFunc("GET /kb/{file}", s.kbDiagram)
 	s.handle(mux, "GET /robots.txt", s.robotsTxt)
 	s.handle(mux, "GET /manifest.webmanifest", s.manifestFile(admin))
 	s.handle(mux, "GET /sw.js", s.serviceWorker(admin))

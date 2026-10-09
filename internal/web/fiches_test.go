@@ -83,3 +83,25 @@ func TestRemovedFicheIsNamed(t *testing.T) {
 	assert.Contains(t, page, "Fiche retirée depuis l'envoi : fiche-supprimee")
 	assert.NotContains(t, page, "Aucune fiche proposée")
 }
+
+func TestFicheTablesAndDiagram(t *testing.T) {
+	e := newTestEnv(t)
+	cookie := e.login(t)
+	body := e.do(t, http.MethodGet, adminHost, "/fiches", nil, withCookie(cookie)).Body.String()
+	_, fiche, found := strings.Cut(body, `id="tarification"`)
+	require.True(t, found)
+	assert.Contains(t, fiche, `<div class="overflow-x-auto"><table class="table table-sm">`)
+	assert.Contains(t, fiche, `<th>Ton cas</th>`)
+	assert.Contains(t, fiche, `<img src="/kb/tarification.svg" alt="Les plongées à la carte`)
+
+	for _, host := range []string{publicHost, adminHost} {
+		rec := e.do(t, http.MethodGet, host, "/kb/tarification.svg", nil)
+		require.Equal(t, http.StatusOK, rec.Code, host)
+		assert.Equal(t, "image/svg+xml", rec.Header().Get("Content-Type"), host)
+		assert.Equal(t, "default-src 'none'; style-src 'unsafe-inline'", rec.Header().Get("Content-Security-Policy"), host)
+		assert.Contains(t, rec.Body.String(), "<!-- mermaid sha256:", host)
+		for _, path := range []string{"/kb/tarification.md", "/kb/carnet-solde-negatif.svg", "/kb/absente.svg"} {
+			assert.Equal(t, http.StatusNotFound, e.do(t, http.MethodGet, host, path, nil).Code, host+path)
+		}
+	}
+}

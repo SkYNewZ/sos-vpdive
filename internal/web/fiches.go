@@ -3,6 +3,7 @@ package web
 import (
 	"net/http"
 	"slices"
+	"strings"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/kb"
 )
@@ -66,4 +67,18 @@ func ticketButtons(fiches []kb.Fiche) []string {
 		}
 	}
 	return keys
+}
+
+// kbDiagram serves the drawing of a fiche's diagram (make diagrams) on both
+// hosts: screen 2 shows member answers. Its own CSP lets Mermaid's inline
+// styles apply and nothing load or run.
+func (s *Server) kbDiagram(w http.ResponseWriter, r *http.Request) {
+	id, ok := strings.CutSuffix(r.PathValue("file"), ".svg")
+	f, found := s.kb.Get(id)
+	if !ok || !found || f.Diagram == nil {
+		s.notFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
+	s.write(w, r, http.StatusOK, "image/svg+xml", f.Diagram)
 }
