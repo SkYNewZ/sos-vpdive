@@ -106,12 +106,12 @@ type Usage struct {
 	CacheWrite int `json:"cache_creation_input_tokens"`
 }
 
-// CostMicro is what u cost at a's prices, in micro-dollars: prices are per
-// million tokens. A cache write costs 1.25 times the input, Anthropic's rate
-// for the 5-minute cache that cache_control asks for; DeepSeek reports none.
-func (u *Usage) CostMicro(a *config.Assistant) int64 {
-	return (int64(u.Input)*a.PriceInput + int64(u.CacheWrite)*a.PriceInput*5/4 +
-		int64(u.CacheRead)*a.PriceCached + int64(u.Output)*a.PriceOutput) / 1_000_000
+// CostMicro is what u cost at p, in micro-dollars: prices are per million
+// tokens. A cache write costs 1.25 times the input, Anthropic's rate for the
+// 5-minute cache that cache_control asks for; DeepSeek reports none.
+func (u *Usage) CostMicro(p config.Prices) int64 {
+	return (int64(u.Input)*p.Input + int64(u.CacheWrite)*p.Input*5/4 +
+		int64(u.CacheRead)*p.Cached + int64(u.Output)*p.Output) / 1_000_000
 }
 
 func (u *Usage) add(o Usage) {

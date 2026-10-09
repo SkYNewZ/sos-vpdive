@@ -282,7 +282,7 @@ func TestStreamIdleAndCancel(t *testing.T) {
 }
 
 func TestUsageCostMicro(t *testing.T) {
-	sonnet := &config.Assistant{Priced: true, PriceInput: 2_000_000, PriceOutput: 10_000_000, PriceCached: 200_000}
+	sonnet := config.Prices{Set: true, Input: 2_000_000, Output: 10_000_000, Cached: 200_000}
 	u := Usage{Input: 1000, Output: 1000, CacheRead: 3000, CacheWrite: 4000}
 	assert.Equal(t, int64(22_600), u.CostMicro(sonnet),
 		"2 000 + 10 000 + 600 + 10 000 micro-dollars: a cache write costs 1.25 times the input")

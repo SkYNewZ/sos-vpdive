@@ -163,8 +163,8 @@ func assistantBench(ctx context.Context, getenv func(string) string, args []stri
 			Outcome: r.Outcome, Calls: r.Result.Calls, Tools: r.Result.Tools, Input: u.Input, Output: u.Output,
 			CacheRead: u.CacheRead, CacheWrite: u.CacheWrite,
 			FirstMS: r.Result.FirstText.Milliseconds(), DurationMS: r.Duration.Milliseconds()}
-		if a.Priced {
-			cost := u.CostMicro(a)
+		if a.Prices.Set {
+			cost := u.CostMicro(a.Prices)
 			m.CostMicro = &cost
 		}
 		if err := b.enc.Encode(m); err != nil {

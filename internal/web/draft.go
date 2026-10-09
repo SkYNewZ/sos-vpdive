@@ -42,7 +42,9 @@ func (s *Server) chooser(sub tickets.Submission) tickets.Chooser {
 			s.logger.InfoContext(ctx, "model daily cap reached, request sent without suggestions")
 			return tickets.Suggestion{}, false
 		}
+		start := time.Now()
 		res, err := s.suggest.Choose(ctx, s.suggestRequest(sub), s.fiches)
+		s.recordSuggestion(ctx, res, time.Since(start), err)
 		if err != nil {
 			s.logger.WarnContext(ctx, "model call failed, request sent without suggestions", "error", err)
 			return tickets.Suggestion{}, false

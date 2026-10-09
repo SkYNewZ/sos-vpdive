@@ -11,6 +11,7 @@ import (
 
 	"github.com/SkYNewZ/sos-vpdive/internal/assistant"
 	"github.com/SkYNewZ/sos-vpdive/internal/store"
+	"github.com/SkYNewZ/sos-vpdive/internal/suggest"
 )
 
 // usageRetention is how long the assistant journal keeps a row.
@@ -40,8 +41,8 @@ func (s *Server) recordUsage(ctx context.Context, u usageEntry) {
 		return
 	}
 	var cost, first sql.NullInt64
-	if a := s.cfg.Assistant; a != nil && a.Priced {
-		cost = sql.NullInt64{Int64: u.Result.Usage.CostMicro(a), Valid: true}
+	if a := s.cfg.Assistant; a != nil && a.Prices.Set {
+		cost = sql.NullInt64{Int64: u.Result.Usage.CostMicro(a.Prices), Valid: true}
 	}
 	if u.Result.FirstText > 0 {
 		first = sql.NullInt64{Int64: u.Result.FirstText.Milliseconds(), Valid: true}
@@ -56,16 +57,28 @@ func (s *Server) recordUsage(ctx context.Context, u usageEntry) {
 	}
 }
 
+// recordSuggestion writes a suggestion call, even after the member left; a
+// failure is logged.
+func (s *Server) recordSuggestion(ctx context.Context, res suggest.Result, d time.Duration, callErr error) {
+	ctx = context.WithoutCancel(ctx)
+	outcome := outcomeOK
+	if callErr != nil {
+		outcome = suggest.Code(callErr)
+	}
+	var cost sql.NullInt64
+	if p := s.cfg.LLM.Prices; p.Set {
+		u := assistant.Usage{Input: res.InputTokens, Output: res.OutputTokens}
+		cost = sql.NullInt64{Int64: u.CostMicro(p), Valid: true}
+	}
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO suggest_usage (at, model, input_tokens, output_tokens, cost_micro_usd, duration_ms, outcome)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`, s.now().Unix(), s.cfg.LLM.Model, res.InputTokens, res.OutputTokens, cost, d.Milliseconds(),
+		outcome); err != nil {
+		s.logger.ErrorContext(ctx, "record suggestion usage", "error", err)
+	}
+}
+
 // toolsText writes the tools JSON of a row as « find_member × 1, outing × 2 ».
 var toolsText = strings.NewReplacer(`{`, "", `}`, "", `"`, "", `:`, " × ", `,`, ", ")
-
-// journalTotal sums an account's questions over a period.
-type journalTotal struct {
-	Account                  string
-	Questions                int
-	Input, Output, CacheRead int
-	Cost                     sql.NullInt64
-}
 
 // journalRow is one question of the journal.
 type journalRow struct {
@@ -78,8 +91,9 @@ type journalRow struct {
 }
 
 type journalData struct {
-	Today, Month []journalTotal
-	Rows         []journalRow
+	dashboard
+
+	Rows []journalRow
 }
 
 // Outcomes the journal stores: answered, refused by the quota, or a code
@@ -100,20 +114,17 @@ var outcomeLabel = map[string]string{
 	outcomeLimit: "quota atteint", outcomeCanceled: "arrêté", outcomeInternal: "erreur interne",
 }
 
-// assistantJournal shows the owner who used the assistant, when, and what
-// it cost (GET /assistant/journal).
+// assistantJournal shows the owner what the assistant and the suggestions
+// cost, who asked and when (GET /assistant/journal).
 func (s *Server) assistantJournal(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	day := midnight(s.now(), s.paris)
-	var (
-		d   journalData
-		err error
-	)
-	if d.Today, err = s.journalTotals(ctx, day); err == nil {
-		if d.Month, err = s.journalTotals(ctx, day.AddDate(0, 0, 1-day.Day())); err == nil {
-			d.Rows, err = s.journalRows(ctx)
-		}
+	now := s.now()
+	calls, err := s.usageCalls(ctx, firstMonth(now, s.paris))
+	if err != nil {
+		s.serverError(w, r, err)
+		return
 	}
+	rows, err := s.journalRows(ctx)
 	if err != nil {
 		s.serverError(w, r, err)
 		return
@@ -123,21 +134,8 @@ func (s *Server) assistantJournal(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	p.Data = d
+	p.Data = journalData{dashboard: buildDashboard(calls, now, s.paris), Rows: rows}
 	s.render(w, r, http.StatusOK, "assistant_journal", p)
-}
-
-func (s *Server) journalTotals(ctx context.Context, since time.Time) ([]journalTotal, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT account, COUNT(*), SUM(input_tokens), SUM(output_tokens), SUM(cache_read_tokens),
-		SUM(cost_micro_usd) FROM assistant_usage WHERE at >= ? GROUP BY account ORDER BY account`, since.Unix())
-	out, err := store.Collect(rows, err, func(rows *sql.Rows) (t journalTotal, err error) {
-		err = rows.Scan(&t.Account, &t.Questions, &t.Input, &t.Output, &t.CacheRead, &t.Cost)
-		return t, err
-	})
-	if err != nil {
-		return nil, fmt.Errorf("assistant journal totals: %w", err)
-	}
-	return out, nil
 }
 
 func (s *Server) journalRows(ctx context.Context) ([]journalRow, error) {
@@ -156,12 +154,4 @@ func (s *Server) journalRows(ctx context.Context) ([]journalRow, error) {
 		return nil, fmt.Errorf("assistant journal rows: %w", err)
 	}
 	return out, nil
-}
-
-// dollars formats micro-dollars the French way, four decimals: « 0,0123 $ ».
-func dollars(micro sql.NullInt64) string {
-	if !micro.Valid {
-		return "—"
-	}
-	return strings.Replace(fmt.Sprintf("%.4f $", float64(micro.Int64)/1e6), ".", ",", 1)
 }
