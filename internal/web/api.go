@@ -27,7 +27,7 @@ const apiImportLimit = 10
 // {type} values of the pushed-import route.
 var exportNames = map[imports.Kind]string{
 	imports.Members: "liste des membres", imports.Payments: "export des paiements", imports.Mollie: "export VPayDive",
-	imports.Calendar: "calendrier",
+	imports.Calendar: "calendrier", imports.Carnets: "cartes VPDive",
 }
 
 // pushed is the answer to an accepted pushed import (spec §7.6): what the
@@ -110,10 +110,15 @@ func (s *Server) apiImport(w http.ResponseWriter, r *http.Request) {
 }
 
 // tooFewMessage explains a pushed file under half of the data in place. The
-// calendar has no manual upload to get past it (owner decision, lot 8).
+// calendar and the cards have no manual upload to get past it (owner
+// decisions, lot 8 and design 2026-10-09).
 func tooFewMessage(kind imports.Kind) string {
-	if kind == imports.Calendar {
+	switch kind {
+	case imports.Calendar:
 		return "Ce calendrier contient moins de la moitié des événements en place sur sa période. Vérifie le calendrier dans VPDive."
+	case imports.Carnets:
+		return "Cet envoi contient moins de la moitié des cartes en place. Vérifie les cartes sur la page Paiements de VPDive : si elles y sont, le script d'import est peut-être en panne."
+	case imports.Members, imports.Payments, imports.Mollie:
 	}
 	return "Ce fichier contient moins de la moitié des données en place. S'il est juste, dépose-le à la main sur la page des imports."
 }
@@ -136,6 +141,8 @@ func (s *Server) importPushed(ctx context.Context, exp export) error {
 		return s.payments.Import(ctx, exp.payments)
 	case exp.calendar != nil:
 		return s.calendar.Import(ctx, exp.calendar)
+	case exp.carnets != nil:
+		return s.carnets.Import(ctx, exp.carnets)
 	default:
 		return s.mollie.Import(ctx, exp.mollie)
 	}
@@ -154,6 +161,8 @@ func (e export) counts() pushed {
 		p.Kept, p.Skipped, p.ToCheck = len(e.mollie.Lines), e.mollie.Skipped, e.mollie.ToCheck()
 	case e.calendar != nil:
 		p.Kept, p.Skipped = len(e.calendar.Events), e.calendar.Skipped
+	case e.carnets != nil: // a card without holder is neither kept nor skipped
+		return pushed{Read: e.carnets.Read, Kept: len(e.carnets.Cards), Skipped: e.carnets.Skipped, ToCheck: e.carnets.ToCheck}
 	}
 	p.Read = p.Kept + p.Skipped
 	return p
@@ -165,8 +174,12 @@ func (s *Server) refusePushed(w http.ResponseWriter, r *http.Request, kind impor
 	ctx := r.Context()
 	s.logger.InfoContext(ctx, "pushed export refused", "kind", string(kind), "code", answer.Error)
 	next := "Vérifie l'export dans VPDive, puis dépose-le à la main si besoin"
-	if kind == imports.Calendar { // no manual upload for the calendar
+	switch kind { // no manual upload for what only the script brings
+	case imports.Calendar:
 		next = "Le script d'import est peut-être en panne. Dernier calendrier reçu"
+	case imports.Carnets:
+		next = "Le script d'import est peut-être en panne. Dernières cartes reçues"
+	case imports.Members, imports.Payments, imports.Mollie:
 	}
 	text := fmt.Sprintf("Le script d'import a déposé un fichier que l'outil a refusé : %s.\n\nRaison : %s\n\n"+
 		"Les données en place n'ont pas changé. %s", exportNames[kind], answer.Message, next)

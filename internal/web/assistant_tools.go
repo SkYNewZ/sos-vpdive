@@ -16,6 +16,7 @@ import (
 
 	"github.com/SkYNewZ/sos-vpdive/internal/assistant"
 	"github.com/SkYNewZ/sos-vpdive/internal/calendar"
+	"github.com/SkYNewZ/sos-vpdive/internal/carnets"
 	"github.com/SkYNewZ/sos-vpdive/internal/imports"
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
 	"github.com/SkYNewZ/sos-vpdive/internal/payments"
@@ -55,7 +56,7 @@ var toolDefs = []assistant.Tool{
 	{Name: "find_member", InputSchema: schema([]string{"query"}),
 		Description: "Cherche des adhérents dans la liste des membres par nom, prénom ou les deux (ordre libre, accents et casse ignorés), ou par « [email N] » tel qu'il apparaît dans la saisie. Renvoie au plus 10 candidats, chacun avec une référence m1, m2… à passer aux autres outils."},
 	{Name: "member_payments", InputSchema: schema([]string{refArg}, "du", "au"),
-		Description: "Paiements VPDive et encaissements Mollie d'un adhérent (référence m1…) : soldes de carnet et de formation, achats de carte, puis les lignes de la période, par défaut les 120 derniers jours. Dates du et au : AAAA-MM-JJ."},
+		Description: "Paiements VPDive et encaissements Mollie d'un adhérent (référence m1…) : soldes de carnet et de formation, achats de carte, puis les lignes de la période, par défaut les 120 derniers jours. Dates du et au : AAAA-MM-JJ. Donne aussi chaque carte de plongées de l'adhérent avec tout son historique : plongées débitées ou recréditées, changements de prix, commentaires."},
 	{Name: "member_outings", InputSchema: schema([]string{refArg}, "du", "au"),
 		Description: "Sorties VPDive d'un adhérent : inscription, panier, lignes de paiement rattachées, signaux, désinscriptions. Par défaut, des 90 derniers jours à toutes celles à venir. Dates du et au : AAAA-MM-JJ."},
 	{Name: "member_requests", InputSchema: schema([]string{refArg}),
@@ -82,6 +83,7 @@ var importLabel = map[imports.Kind]string{
 	imports.Payments: "Paiements VPDive",
 	imports.Mollie:   "Encaissements Mollie",
 	imports.Calendar: "Calendrier",
+	imports.Carnets:  "Cartes VPDive",
 }
 
 // toolbox runs the tools of one answer on the conversation c and gathers
@@ -449,12 +451,13 @@ type lineJSON struct {
 	MontantPaye  string `json:"montant_paye"`
 	Reduction    string `json:"reduction,omitempty"`
 	PayeLe       string `json:"paye_le,omitempty"`
+	Commentaire  string `json:"commentaire,omitempty"` // « Commentaire » of the export
 }
 
 func (s *Server) lineJSON(l payments.Line) lineJSON {
 	j := lineJSON{Date: s.formatTime(l.Starts), Creee: s.formatTime(l.Created), Intitule: l.Product, Type: l.ProductType,
 		Etat: l.State, Methode: methodLabel(l.Method), PrixUnitaire: euros(l.UnitPrice), Quantite: l.Quantity.Number(),
-		MontantPaye: euros(l.Paid), PayeLe: s.formatTime(l.PaidAt)}
+		MontantPaye: euros(l.Paid), PayeLe: s.formatTime(l.PaidAt), Commentaire: l.Comment}
 	if l.Discount != 0 {
 		j.Reduction = euros(l.Discount)
 	}
@@ -489,6 +492,9 @@ type paymentsResult struct {
 	EtatMollie    string       `json:"etat_mollie"`
 	Mollie        []mollieJSON `json:"mollie"`
 	MollieTronque bool         `json:"mollie_tronque,omitempty"`
+	ImportCartes  importState  `json:"import_cartes"`
+	EtatCartes    string       `json:"etat_cartes"`
+	Cartes        []carteJSON  `json:"cartes"` // every card, whatever the period
 }
 
 func (t *toolbox) memberPayments(ctx context.Context, input json.RawMessage) (any, string, error) {
@@ -532,7 +538,71 @@ mollie:
 			out.Mollie = append(out.Mollie, t.s.mollieJSON(l.MollieLine))
 		}
 	}
+	cards, err := t.s.carnets.Block(ctx, p.NameHash)
+	if err != nil {
+		return nil, "", err
+	}
+	out.ImportCartes = t.importSource(imports.Carnets, t.s.stateOf(cards.Import, cards.Import.ID != 0))
+	out.EtatCartes, out.Cartes = blockState[cards.State], make([]carteJSON, 0, len(cards.Cards))
+	for _, v := range cards.Cards {
+		out.Cartes = append(out.Cartes, t.s.carteJSON(v))
+	}
 	return out, "Paiements de " + p.Name + " lus", nil
+}
+
+// carteJSON is a card as the model reads it (design 2026-10-09 §7).
+type carteJSON struct {
+	Produit             string      `json:"produit"`
+	Etat                string      `json:"etat,omitempty"` // VPDive's state of the card, as received
+	SoldeVPDive         string      `json:"solde_vpdive"`   // as VPDive shows it: negative while credit is left
+	DebiteNet           string      `json:"debite_net"`
+	Debits              int         `json:"debits"`
+	Recredits           int         `json:"recredits"`
+	MontantsInhabituels int         `json:"montants_inhabituels"`
+	LignesNonLues       int         `json:"lignes_non_lues"`
+	TotauxPartiels      bool        `json:"totaux_partiels,omitempty"`
+	Historique          []entryJSON `json:"historique"`
+}
+
+// entryJSON is a line of a card's history, absent fields omitted.
+type entryJSON struct {
+	Le         string `json:"le,omitempty"`
+	Par        string `json:"par,omitempty"`
+	Action     string `json:"action"`
+	Sortie     string `json:"sortie,omitempty"`
+	DateSortie string `json:"date_sortie,omitempty"`
+	Montant    string `json:"montant,omitempty"`
+	Repartie   string `json:"repartie,omitempty"` // a dive taken from two cards: the sum of its parts
+	Inhabituel bool   `json:"inhabituel,omitempty"`
+	Texte      string `json:"texte,omitempty"`
+}
+
+// entryAction names a line's kind for the model; other lines keep VPDive's
+// action.
+var entryAction = map[carnets.Kind]string{
+	carnets.KindDebit: "débit", carnets.KindRecredit: "recrédit", carnets.KindPrice: "changement de prix", carnets.KindComment: "commentaire",
+}
+
+func (s *Server) carteJSON(v carnets.View) carteJSON {
+	c := carteJSON{Produit: v.Title, Etat: v.Status, SoldeVPDive: euros(v.Amount), DebiteNet: euros(v.Net()), Debits: v.Debits,
+		Recredits: v.Recredits, MontantsInhabituels: v.Unusual, LignesNonLues: v.Unread, TotauxPartiels: v.Partial(),
+		Historique: make([]entryJSON, 0, len(v.Lines))}
+	for _, l := range v.Lines {
+		e := entryJSON{Le: s.formatTime(l.Time), Par: l.By, Action: cmp.Or(entryAction[l.Kind], l.Action), Inhabituel: l.Unusual}
+		switch l.Kind {
+		case carnets.KindDebit, carnets.KindRecredit:
+			e.Sortie, e.DateSortie, e.Montant = l.Outing, l.Date, euros(l.Amount)
+			if l.Split != 0 {
+				e.Repartie = euros(l.Split)
+			}
+		case carnets.KindPrice:
+			e.Texte = euros(l.From) + " -> " + euros(l.To)
+		case carnets.KindComment, carnets.KindOther:
+			e.Texte = l.Detail
+		}
+		c.Historique = append(c.Historique, e)
+	}
+	return c
 }
 
 // --- member_outings

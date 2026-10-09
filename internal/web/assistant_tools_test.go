@@ -15,6 +15,7 @@ import (
 
 	"github.com/SkYNewZ/sos-vpdive/internal/assistant"
 	"github.com/SkYNewZ/sos-vpdive/internal/calendar"
+	"github.com/SkYNewZ/sos-vpdive/internal/carnets"
 	"github.com/SkYNewZ/sos-vpdive/internal/imports"
 	"github.com/SkYNewZ/sos-vpdive/internal/payments"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
@@ -403,4 +404,70 @@ func TestToolResultsAreMaskedAcrossLineBreaks(t *testing.T) {
 	assert.NotContains(t, resume, "7630006")
 	assert.Equal(t, []string{"jean@example.org"}, tb.c.Emails, "the address, not an escape glued to it")
 	assert.Contains(t, resume, "[email 1]")
+}
+
+// Design 2026-10-09 §7: member_payments gives each card of the person with
+// its history read, and each payment line its comment.
+func TestToolMemberPaymentsCards(t *testing.T) {
+	e, tb := toolEnv(t)
+	tb.call(t, "find_member", `{"query":"Hugo Bernard"}`)
+	got, _ := tb.call(t, "member_payments", `{"ref":"m1"}`)
+	assert.Equal(t, "aucun_import", got["etat_cartes"])
+	assert.Empty(t, got["cartes"])
+	assert.Equal(t, true, got["import_cartes"].(map[string]any)["aucun_import"])
+	assert.Contains(t, mustJSON(t, got["lignes"]), `"commentaire":"Plongée offerte par le club, accord du bureau"`)
+
+	e.importCarnets(t)
+	got, _ = tb.call(t, "member_payments", `{"ref":"m1"}`)
+	assert.Equal(t, "ok", got["etat_cartes"])
+	assert.NotEmpty(t, got["import_cartes"].(map[string]any)["recu"])
+	var cards []carteJSON
+	require.NoError(t, json.Unmarshal([]byte(mustJSON(t, got["cartes"])), &cards))
+	require.Len(t, cards, 2)
+	assert.Equal(t, "Carte 5 plongées niveau 1 et 2", cards[0].Produit, "newest first")
+	ten := cards[1]
+	assert.Equal(t, carteJSON{Produit: "Carte 10 plongées niveau 1 et 2", Etat: "Reste à payer", SoldeVPDive: "-120,00 €", DebiteNet: "42,00 €",
+		Debits: 4, Recredits: 1, MontantsInhabituels: 1, Historique: ten.Historique}, ten)
+	assert.Equal(t, []entryJSON{
+		{Action: "commentaire", Texte: "Débit de la plongée de nuit à revoir avec le trésorier"},
+		{Le: "20/08/2026 à 18:00", Par: "Hugo BERNARD", Action: "débit", Sortie: "Sortie Épave (N2)", DateSortie: "29/08/2026", Montant: "-10,00 €", Repartie: "25,00 €"},
+		{Le: "01/07/2026 à 19:00", Par: "Hugo BERNARD", Action: "débit", Sortie: "Plongée de nuit", DateSortie: "10/07/2026", Montant: "-2,00 €", Inhabituel: true},
+		{Le: "30/06/2026 à 10:00", Par: "Léa MARTIN", Action: "recrédit", Sortie: "Sortie Porquerolles", DateSortie: "05/07/2026", Montant: "30,00 €"},
+		{Le: "20/06/2026 à 19:00", Par: "Hugo BERNARD", Action: "débit", Sortie: "Sortie Porquerolles", DateSortie: "05/07/2026", Montant: "-30,00 €"},
+		{Le: "01/06/2026 à 19:00", Par: "Hugo BERNARD", Action: "débit", Sortie: "Sortie Cap Garonne", DateSortie: "13/06/2026", Montant: "-30,00 €"},
+		{Le: "02/05/2026 à 09:00", Par: "Alice COMITE", Action: "changement de prix", Texte: "-300,00 € -> -270,00 €"},
+		{Le: "01/05/2026 à 09:00", Par: "Hugo BERNARD", Action: "Ajout au panier"},
+	}, ten.Historique)
+	assert.NotContains(t, mustJSON(t, got["cartes"]), "totaux_partiels", "only on partial cards")
+	labels := make([]string, 0, len(tb.sources))
+	for _, src := range tb.sources {
+		labels = append(labels, src.Label)
+	}
+	assert.Contains(t, labels, "Cartes VPDive")
+
+	tb.call(t, "find_member", `{"query":"Chloé Petit"}`)
+	got, _ = tb.call(t, "member_payments", `{"ref":"m2"}`)
+	cards = nil
+	require.NoError(t, json.Unmarshal([]byte(mustJSON(t, got["cartes"])), &cards))
+	require.Len(t, cards, 1)
+	assert.True(t, cards[0].TotauxPartiels)
+	assert.Equal(t, 2, cards[0].LignesNonLues)
+}
+
+// A card's comment is free text: it reaches the model masked.
+func TestToolMemberPaymentsMasksCardComments(t *testing.T) {
+	e, tb := toolEnv(t)
+	body := []byte(`{"from": "2024-09-02", "to": "2026-09-02", "carts": [{"member": "BERNARD Hugo",
+		"title": "Carte 10 plongées niveau 1 et 2", "status": "", "method": "", "amount": "-75", "entries": [
+		{"action": "Commentaire", "at": "", "by": "", "detail": "Rappeler au 06 12 34 56 78 ou jean@example.org"},
+		{"action": "Ajout au panier", "at": "2026-05-01T09:00:00+02:00", "by": "Hugo BERNARD", "detail": ""}]}]}`)
+	exp, err := carnets.Parse(body, e.srv.paris)
+	require.NoError(t, err)
+	require.NoError(t, e.deps.Carnets.Resolve(context.Background(), exp))
+	require.NoError(t, e.deps.Carnets.Import(context.Background(), exp))
+	tb.call(t, "find_member", `{"query":"Hugo Bernard"}`)
+	got, _ := tb.call(t, "member_payments", `{"ref":"m1"}`)
+	cards := mustJSON(t, got["cartes"])
+	assert.Contains(t, cards, "Rappeler au [téléphone] ou [email 1]")
+	assert.NotContains(t, cards, "56 78")
 }

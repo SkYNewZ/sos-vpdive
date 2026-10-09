@@ -182,8 +182,12 @@ func (s *Server) adminNotices(ctx context.Context) ([]notice, error) {
 			continue
 		}
 		linkText := "Refaire l'import"
-		if st.kind == imports.Calendar { // nothing to upload by hand
+		switch st.kind { // nothing to upload by hand
+		case imports.Calendar:
 			linkText = "Voir le dernier calendrier reçu"
+		case imports.Carnets:
+			linkText = "Voir les dernières cartes reçues"
+		case imports.Members, imports.Payments, imports.Mollie:
 		}
 		out = append(out, notice{Kind: noticeWarning, Text: fmt.Sprintf(st.banner, s.formatDate(st.last.ImportedAt)),
 			Link: st.link, LinkText: linkText})

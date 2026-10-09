@@ -29,6 +29,7 @@ func TestErasureOfAPerson(t *testing.T) {
 	e.importPayments(t)
 	e.importMollie(t)
 	e.importCalendar(t, "calendar_valid.json")
+	e.importCarnets(t)
 	cookie := e.login(t)
 	first := e.submitTicket(t, "lea.martin@example.org", withCapture(t))
 	e.submitTicket(t, "lea.martin@example.org")
@@ -50,6 +51,7 @@ func TestErasureOfAPerson(t *testing.T) {
 	for _, want := range []string{
 		"2 demandes", "une ligne dans la liste des membres", "2 lignes de paiement", "2 lignes d'encaissement Mollie", "ne peut pas être rappelé",
 		"3 participations au calendrier, y compris celles d'un homonyme éventuel",
+		"1 carte VPDive, y compris celles d'un homonyme éventuel",
 		"les prochains imports de VPDive la réinscrivent",
 	} {
 		assert.Contains(t, preview, want)
@@ -57,10 +59,11 @@ func TestErasureOfAPerson(t *testing.T) {
 	assert.Equal(t, 3, e.count(t, "tickets"), "a preview erases nothing")
 
 	done := post(url.Values{"email": {"lea.martin@example.org"}, "etape": {"confirmer"}})
-	assert.Contains(t, done, "Données effacées : 2 demandes, la ligne de la liste des membres, 2 lignes de paiement, 2 lignes d'encaissement Mollie et 3 participations au calendrier.")
+	assert.Contains(t, done, "Données effacées : 2 demandes, la ligne de la liste des membres, 2 lignes de paiement, 2 lignes d'encaissement Mollie, 3 participations au calendrier et 1 carte VPDive.")
 	assert.Equal(t, 2, e.count(t, "calendar_participants"), "Bernard Hugo and the pilot stay")
 	assert.Equal(t, 18, e.count(t, "payment_lines"))
 	assert.Equal(t, 14, e.count(t, "online_payment_lines"))
+	assert.Equal(t, 3, e.count(t, "carnets"))
 	assert.Equal(t, 1, e.count(t, "tickets"))
 	assert.Equal(t, kept.ID, e.detail(t, kept.ID).ID)
 	known, err := e.deps.Members.Lookup(context.Background(), "lea.martin@example.org")

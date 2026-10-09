@@ -43,7 +43,7 @@ func (l MollieLine) Negative() bool { return l.Amount < 0 }
 // not in the members list.
 func (s *MollieStore) Block(ctx context.Context, nameHash []byte) (MollieBlock, error) {
 	var b MollieBlock
-	state, info, found, err := s.nameLines(ctx, nameHash)
+	state, info, found, err := s.NameLines(ctx, nameHash)
 	b.State, b.Import = state, info
 	if err != nil || state != BlockLines {
 		return b, err
@@ -53,11 +53,7 @@ func (s *MollieStore) Block(ctx context.Context, nameHash []byte) (MollieBlock, 
 		return MollieBlock{}, err
 	}
 	lines := make([]CollectedLine, len(found))
-	for i, r := range found {
-		l, err := openLine[MollieLine](s.keys, r.data)
-		if err != nil {
-			return MollieBlock{}, err
-		}
+	for i, l := range found {
 		lines[i].MollieLine = l
 		if l.Unsettled() {
 			lines[i].Dismissal = dismissal(dismissed, l.fingerprint(s.keys, nameHash))

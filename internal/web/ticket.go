@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/admins"
+	"github.com/SkYNewZ/sos-vpdive/internal/carnets"
 	"github.com/SkYNewZ/sos-vpdive/internal/kb"
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
 	"github.com/SkYNewZ/sos-vpdive/internal/payments"
@@ -39,23 +40,25 @@ type ticketMessage struct {
 type ticketData struct {
 	ticketMessage
 
-	Ticket     *tickets.Detail
-	Can        map[string]bool // action name -> the status allows it (templates cannot index by tickets.Action)
-	Assignee   *admins.Account
-	Accounts   []admins.Account
-	Profile    *profileView // nil when the address left the members list
-	Others     []tickets.Row
-	Fields     []tickets.FieldValue
-	Categories []option
-	Fiches     []kb.Fiche // chosen at submission (spec §5.3)
-	Removed    []string   // ids of chosen fiches no longer in kb/
-	Links      []vpdiveLink
-	Filter     paymentsFilter
-	Payments   payments.Block
-	Mollie     payments.MollieBlock
-	Outings    outingsBlock
-	MollieLink vpdiveLink      // VPayDive in VPDive: failed attempts show there only
-	Assistant  *assistantPanel // nil when the assistant is off
+	Ticket       *tickets.Detail
+	Can          map[string]bool // action name -> the status allows it (templates cannot index by tickets.Action)
+	Assignee     *admins.Account
+	Accounts     []admins.Account
+	Profile      *profileView // nil when the address left the members list
+	Others       []tickets.Row
+	Fields       []tickets.FieldValue
+	Categories   []option
+	Fiches       []kb.Fiche // chosen at submission (spec §5.3)
+	Removed      []string   // ids of chosen fiches no longer in kb/
+	Links        []vpdiveLink
+	Filter       paymentsFilter
+	Payments     payments.Block
+	Mollie       payments.MollieBlock
+	Carnets      carnets.Block
+	CarnetsStale bool // the latest cards push is past CARNETS_MAX_AGE
+	Outings      outingsBlock
+	MollieLink   vpdiveLink      // VPayDive in VPDive: failed attempts show there only
+	Assistant    *assistantPanel // nil when the assistant is off
 }
 
 // profileView is the requester as the last members import knows them.
@@ -166,6 +169,10 @@ func (s *Server) ticketView(ctx context.Context, t *tickets.Detail) (ticketData,
 	if d.Mollie, err = s.mollie.Block(ctx, profile.NameHash); err != nil {
 		return ticketData{}, err
 	}
+	if d.Carnets, err = s.carnets.Block(ctx, profile.NameHash); err != nil {
+		return ticketData{}, err
+	}
+	d.CarnetsStale = s.stateOf(d.Carnets.Import, true).Perime
 	if d.Outings, err = s.outingsBlock(ctx, t.SubmittedAt, profile, found, d.Payments, d.Mollie); err != nil {
 		return ticketData{}, err
 	}

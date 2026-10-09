@@ -188,6 +188,7 @@ type Config struct {
 	PaymentsMaxAge     time.Duration
 	VPayDiveMaxAge     time.Duration
 	CalendarMaxAge     time.Duration // age of the latest calendar push before the reminder (lot 8)
+	CarnetsMaxAge      time.Duration // age of the latest cards push before the reminder (design 2026-10-09)
 	ImportToken        string        // turns on POST /api/imports/{type} (spec §7.6); "" when unset
 	AgeWarnAfter       time.Duration // open request shown in orange from this age
 	AgeAlertAfter      time.Duration // and in red from this one
@@ -236,6 +237,7 @@ func Load(getenv func(string) string) (*Config, error) {
 		PaymentsMaxAge:     p.duration("PAYMENTS_MAX_AGE", "168h"),
 		VPayDiveMaxAge:     p.duration("VPAYDIVE_MAX_AGE", "168h"),
 		CalendarMaxAge:     p.duration("CALENDAR_MAX_AGE", "48h"),
+		CarnetsMaxAge:      p.duration("CARNETS_MAX_AGE", "48h"),
 		AgeWarnAfter:       p.duration("AGE_WARN_AFTER", "48h"),
 		AgeAlertAfter:      p.duration("AGE_ALERT_AFTER", "168h"),
 		RetentionDays:      p.int("RETENTION_DAYS", "365", 15, 3650),

@@ -44,3 +44,18 @@ func NormalizeName(s string) string {
 func NameKey(last, first string) string {
 	return NormalizeName(last) + "|" + NormalizeName(first)
 }
+
+// FullName tells whether a name is the person's full name in either order;
+// NormalizeName keeps letters only: "MARTIN Léa" is Léa Martin's. Nil when a
+// name part is empty: never on half a name. For erasure only, never for
+// matching.
+func FullName(last, first string) func(name string) bool {
+	l, f := NormalizeName(last), NormalizeName(first)
+	if l == "" || f == "" {
+		return nil
+	}
+	return func(name string) bool {
+		n := NormalizeName(name)
+		return n == l+f || n == f+l
+	}
+}

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/calendar"
+	"github.com/SkYNewZ/sos-vpdive/internal/carnets"
 	"github.com/SkYNewZ/sos-vpdive/internal/imports"
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
 	"github.com/SkYNewZ/sos-vpdive/internal/payments"
@@ -48,6 +49,7 @@ type importsData struct {
 	Payments paymentsSection
 	Mollie   mollieSection
 	Calendar *imports.Info // latest calendar pushed by the script (lot 8)
+	Carnets  *imports.Info // latest cards pushed by the script (design 2026-10-09)
 }
 
 // importErrors are shown beside the upload and the confirmation of a section.
@@ -151,15 +153,23 @@ func (s *Server) importsView(ctx context.Context, d *importsData) error {
 	if err := fillLines(ctx, &d.Mollie.linesSection, s.mollie); err != nil {
 		return err
 	}
-	cal, ok, err := imports.Last(ctx, s.db, imports.Calendar)
-	if err != nil {
+	if d.Calendar, err = s.lastImport(ctx, imports.Calendar); err != nil {
 		return err
 	}
-	if ok {
-		d.Calendar = &cal
+	if d.Carnets, err = s.lastImport(ctx, imports.Carnets); err != nil {
+		return err
 	}
 	d.Mollie.ToCheck, d.Payments.ToCheck, err = s.checks.Count(ctx)
 	return err
+}
+
+// lastImport is the latest import of kind, nil when none.
+func (s *Server) lastImport(ctx context.Context, kind imports.Kind) (*imports.Info, error) {
+	info, ok, err := imports.Last(ctx, s.db, kind)
+	if err != nil || !ok {
+		return nil, err
+	}
+	return &info, nil
 }
 
 // lineStore is what the imports page reads of the payments and Mollie stores.
@@ -216,6 +226,7 @@ type export struct {
 	payments *payments.Export
 	mollie   *payments.MollieExport
 	calendar *calendar.Export
+	carnets  *carnets.Export
 }
 
 // readExport reads and validates an export of kind, whatever its source:
@@ -227,7 +238,7 @@ func (s *Server) readExport(ctx context.Context, kind imports.Kind, data []byte)
 		rows    []xlsx.Row
 		created time.Time // the members export dates itself in row 2
 	)
-	if kind != imports.Calendar { // the calendar is JSON pushed by the script: no workbook
+	if kind != imports.Calendar && kind != imports.Carnets { // JSON pushed by the script: no workbook
 		if err := telemetry.Trace(ctx, s.tracer, "import.read", func(context.Context) error {
 			var err error
 			rows, err = xlsx.ReadFirstSheet(data, imports.Limits())
@@ -240,7 +251,7 @@ func (s *Server) readExport(ctx context.Context, kind imports.Kind, data []byte)
 		}
 	}
 	var exp export
-	err := telemetry.Trace(ctx, s.tracer, "import.validate", func(context.Context) error {
+	err := telemetry.Trace(ctx, s.tracer, "import.validate", func(ctx context.Context) error {
 		var err error
 		switch kind {
 		case imports.Members:
@@ -258,6 +269,11 @@ func (s *Server) readExport(ctx context.Context, kind imports.Kind, data []byte)
 		case imports.Calendar:
 			if exp.calendar, err = calendar.Parse(data, s.paris, s.now()); err == nil {
 				exp.calendar.FileHash = hash
+			}
+		case imports.Carnets:
+			if exp.carnets, err = carnets.Parse(data, s.paris); err == nil {
+				exp.carnets.FileHash = hash
+				err = s.carnets.Resolve(ctx, exp.carnets)
 			}
 		}
 		return err
@@ -411,6 +427,7 @@ func refusal(kind imports.Kind, err error) (code, message string, refused bool) 
 		membersErr  *members.ParseError
 		paymentsErr *payments.ParseError
 		calendarErr *calendar.ParseError
+		carnetsErr  *carnets.ParseError
 	)
 	switch {
 	case errors.Is(err, xlsx.ErrTooLarge):
@@ -421,6 +438,8 @@ func refusal(kind imports.Kind, err error) (code, message string, refused bool) 
 		return "invalid_workbook", unreadableMessage(kind), true
 	case errors.As(err, &calendarErr):
 		return "invalid_calendar", calendarMessage(calendarErr), true
+	case errors.As(err, &carnetsErr):
+		return "invalid_carnets", carnetsMessage(carnetsErr), true
 	case errors.As(err, &membersErr):
 		return string(membersErr.Kind), membersMessage(membersErr), true
 	case errors.As(err, &paymentsErr) && kind == imports.Mollie:
@@ -434,7 +453,7 @@ func refusal(kind imports.Kind, err error) (code, message string, refused bool) 
 func unreadableMessage(kind imports.Kind) string {
 	const unreadable = "Ce fichier n'est pas un classeur Excel (.xlsx) lisible."
 	switch kind {
-	case imports.Calendar: // JSON pushed by the script: never an unreadable workbook
+	case imports.Calendar, imports.Carnets: // JSON pushed by the script: never an unreadable workbook
 	case imports.Members:
 		return unreadable + " Dépose l'export « Télécharger » de la liste des membres."
 	case imports.Payments:
@@ -509,6 +528,22 @@ func calendarMessage(pe *calendar.ParseError) string {
 		return "Dates illisibles pour l'événement " + pe.Event + "."
 	case calendar.ProblemPerson:
 		return "Participant sans identifiant dans l'événement " + pe.Event + "."
+	}
+	return fileRefused
+}
+
+// carnetsMessage explains a refused list of cards. It cites at most the rank
+// of a cart, never a person.
+func carnetsMessage(pe *carnets.ParseError) string {
+	switch pe.Kind {
+	case carnets.ProblemUnreadable:
+		return "Cette liste de cartes n'est pas un JSON lisible."
+	case carnets.ProblemWindow:
+		return "Période des cartes absente ou illisible."
+	case carnets.ProblemCart:
+		return "Panier n° " + strconv.Itoa(pe.Cart) + " : titulaire, produit ou montant absent ou illisible."
+	case carnets.ProblemEntries:
+		return "Panier n° " + strconv.Itoa(pe.Cart) + " : historique absent, ligne sans action ou date illisible."
 	}
 	return fileRefused
 }

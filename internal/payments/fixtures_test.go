@@ -20,12 +20,15 @@ var update = flag.Bool("update", false, "rewrite testdata/fixtures from the defi
 
 // Witness values of ignored columns: none may ever appear in the database.
 const (
-	witnessComment   = "Commentaire privé du paiement"
 	witnessAddress   = "12 rue des Oursins"
 	witnessPostCode  = "83999"
 	witnessCity      = "Villeneuve-sur-Mer"
 	witnessEquipment = "Détendeur et gilet"
 )
+
+// fixtureComment is the « Commentaire » of Hugo's Levant line: read, and
+// stored sealed with the line.
+const fixtureComment = "Plongée offerte par le club, accord du bureau"
 
 // fixtureCreated is the creation date the valid fixture declares.
 var fixtureCreated = time.Date(2026, 9, 1, 12, 50, 27, 0, time.FixedZone("CEST", 2*3600))
@@ -54,7 +57,7 @@ func (l line) row() []any {
 		seen[name]++
 		out[i] = l[key]
 	}
-	out[16], out[17], out[18], out[19], out[20] = witnessComment, "Mme", witnessAddress, witnessPostCode, witnessCity
+	out[17], out[18], out[19], out[20] = "Mme", witnessAddress, witnessPostCode, witnessCity
 	if _, ok := l["Materiel"]; !ok {
 		out[14] = witnessEquipment
 	}
@@ -123,12 +126,15 @@ func validLines() []line {
 	textAmount["Prix unitaire"], textAmount["Montant paiement"], textAmount["Montant réduc."] = "12,50", " 1 012,50 ", "0"
 	nameless := paid("", "", 30, "vpaydive", "Plongée Porquerolles", "11/06/2026 10:00:00")
 
+	levant := prepaid("Bernard", "Hugo", 30, cancelledCaps, "10/05/2026 09:00", "01/05/2026 12:00:00")
+	levant["Commentaire"] = fixtureComment
+
 	return []line{
 		purchase,
 		balance("Bernard", "Hugo", -180, "Carte", carnetTitle, "05/01/2026 10:12:00"),
 		balance("Bernard", "Hugo", -30, "Carte", carnetTitle, "12/03/2026 18:00:00"),
 		balance("Bernard", "Hugo", -60, "Formation", "Formation N2", "02/02/2026 09:00:00"),
-		prepaid("Bernard", "Hugo", 30, cancelledCaps, "10/05/2026 09:00", "01/05/2026 12:00:00"),
+		levant,
 		byVPayDive,
 		toSettle,
 		partial,

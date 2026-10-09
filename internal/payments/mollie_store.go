@@ -32,19 +32,19 @@ func (p *MolliePreview) Read() int { return p.Lines + p.Skipped }
 // MollieStore imports VPayDive exports and reads the Mollie lines back
 // (table online_payment_lines, spec §7.5).
 type MollieStore struct {
-	lineTable
+	LineTable[MollieLine]
 
 	previews *imports.Previews[*MolliePreview]
 }
 
 // NewMollieStore returns a MollieStore; now is injectable for tests.
 func NewMollieStore(db *sql.DB, keys *secure.Keys, now func() time.Time) *MollieStore {
-	return &MollieStore{lineTable: mollieLines(db, keys, now), previews: imports.NewPreviews[*MolliePreview](now)}
+	return &MollieStore{LineTable: mollieLines(db, keys, now), previews: imports.NewPreviews[*MolliePreview](now)}
 }
 
 // mollieLines is the table of the VPayDive export.
-func mollieLines(db *sql.DB, keys *secure.Keys, now func() time.Time) lineTable {
-	return newLineTable(db, keys, now, imports.Mollie, "mollie", "online_payment_lines")
+func mollieLines(db *sql.DB, keys *secure.Keys, now func() time.Time) LineTable[MollieLine] {
+	return NewLineTable[MollieLine](db, keys, now, imports.Mollie, "mollie", "online_payment_lines")
 }
 
 // NewPreview compares exp with the lines in place and keeps the result for
@@ -88,7 +88,7 @@ func (s *MollieStore) Confirm(ctx context.Context, id, username string, secondCo
 		Kind: imports.Mollie, ExportedAt: p.Created, PeriodFrom: p.PeriodFrom, PeriodTo: p.PeriodTo,
 		ImportedAt: s.now(), ImportedBy: username, Rows: p.Lines, Skipped: p.Skipped, FileHash: p.FileHash,
 	}
-	return imports.Replace(ctx, s.db, "mollie.replace", &p.Meta, e, replaceLines(s.lineTable, p.lines))
+	return imports.Replace(ctx, s.db, "mollie.replace", &p.Meta, e, s.ReplaceWith(p.lines))
 }
 
 // Import replaces every Mollie line with a pushed export, without preview
@@ -99,5 +99,5 @@ func (s *MollieStore) Import(ctx context.Context, exp *MollieExport) error {
 		Kind: imports.Mollie, ExportedAt: exp.Created, PeriodFrom: exp.PeriodFrom, PeriodTo: exp.PeriodTo,
 		ImportedAt: s.now(), ImportedBy: imports.ScriptAuthor, Rows: len(exp.Lines), Skipped: exp.Skipped, FileHash: exp.FileHash,
 	}
-	return imports.Push(ctx, s.db, "mollie.replace", e, replaceLines(s.lineTable, exp.Lines))
+	return imports.Push(ctx, s.db, "mollie.replace", e, s.ReplaceWith(exp.Lines))
 }

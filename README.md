@@ -164,12 +164,13 @@ stored.
 | VPayDive | VPayDive page, « Exporter (Excel) », over the « Du » and « Au » dates | « Encaissements Mollie » on each request, « À vérifier » |
 
 The service reads only the columns it needs. It hashes the names on payment
-lines and never reads addresses, comments or civility.
-`MEMBERS_MAX_AGE`, `PAYMENTS_MAX_AGE`, `VPAYDIVE_MAX_AGE` and
-`CALENDAR_MAX_AGE` set when the committee is reminded to import again.
-Payment and Mollie lines are deleted after 90 days without a new import, the
-members list after 12 months. Calendar events are deleted 12 months after
-their start.
+lines, keeps their comments sealed with the rest of the line, and never reads
+addresses or civility.
+`MEMBERS_MAX_AGE`, `PAYMENTS_MAX_AGE`, `VPAYDIVE_MAX_AGE`, `CALENDAR_MAX_AGE`
+and `CARNETS_MAX_AGE` set when the committee is reminded to import again.
+Payment and Mollie lines and carnet cards are deleted after 90 days without a
+new import, the members list after 12 months. Calendar events are deleted 12
+months after their start.
 
 ### Pushed imports
 
@@ -196,6 +197,13 @@ missing from the push is deleted, and older events stay as history. A
 calendar holding less than half of the events stored in its window is
 refused. A malformed calendar is refused with `invalid_calendar`.
 
+The type `carnets` takes the carnet carts of VPDive's payments page as JSON,
+which only the script produces: there is no manual upload either. Each push
+replaces every card. A card goes to the member whose last and first names
+match its holder; a card that matches no member, or two, is left out and
+counted in `to_check`. A push holding less than half of the cards in place
+is refused, and a malformed one with `invalid_carnets`.
+
 The answer is JSON: `{"result": "imported", "read": 120, "kept": 118,
 "skipped": 2, "to_check": 3}`, with `"unchanged"` when the file has the same
 bytes as the latest import of its type. A refusal reads
@@ -207,7 +215,7 @@ bytes as the latest import of its type. A refusal reads
 | 401 | `unauthorized`: wrong token, logged without the token |
 | 404 | `unknown_type` |
 | 413 | `too_large`: body over 5 MB |
-| 422 | The file is refused: `too_large` (over 50 MB once decompressed), `too_many_rows`, `invalid_workbook`, `no_header`, `missing_column`, `invalid_number`, `invalid_date`, `empty_product`, `duplicate_email`, `invalid_email`, `invalid_calendar` or `too_few` |
+| 422 | The file is refused: `too_large` (over 50 MB once decompressed), `too_many_rows`, `invalid_workbook`, `no_header`, `missing_column`, `invalid_number`, `invalid_date`, `empty_product`, `duplicate_email`, `invalid_email`, `invalid_calendar`, `invalid_carnets` or `too_few` |
 | 429 | `rate_limited`: 10 calls an hour per address |
 | 500 | `internal` |
 
@@ -252,12 +260,12 @@ Off by default: set `ASSISTANT_ENABLED=true`, with `ASSISTANT_API_KEY`. It adds
 an « Assistant » page to the committee site and an « Analyser » button on each
 request. A resolver pastes a member's message or asks a question, and the model
 answers from the club's data through read-only tools: the members list, VPDive
-and Mollie payments, the calendar, the requests filed in the tool, cancelled
+and Mollie payments, the carnet cards and their history, the calendar, the requests filed in the tool, cancelled
 outings and the fiches. It changes nothing. The resolver acts in VPDive.
 
 The model provider receives the resolver's text, the request being analysed
 (with its requester's name, seasons and licence end) and what the tools
-return: member and participant names, seasons and licence end, payment lines,
+return: member and participant names, seasons and licence end, payment lines and their comments, carnet cards with each debit and its author,
 outings and carts, summaries of past requests and the fiches. One answer reads
 the payments, outings and requests of three people at most. An outing it opens
 lists every participant with their registration, role and cart (payment status
@@ -375,10 +383,11 @@ On a real Android phone and a real iPhone:
   reads; screenshots and internal notes are never sent (see « Committee
   assistant »).
 - Erasing a person on the « Effacement » page deletes their requests, their
-  member entry and every payment, Mollie line, calendar participation and
-  unregistration under their name, a namesake's included. Where they
-  unregistered someone else from an outing, their name is removed from that
-  record. The next imports bring back what VPDive still holds.
+  member entry and every payment, Mollie line, carnet card, calendar
+  participation and unregistration under their name, a namesake's included.
+  Where they unregistered someone else from an outing, or wrote a line of
+  someone else's card, their name is removed from that record. The next
+  imports bring back what VPDive still holds.
 
 ## Backup and restore
 
