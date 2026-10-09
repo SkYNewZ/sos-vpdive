@@ -173,3 +173,44 @@ func TestChangePasswordRacingAReset(t *testing.T) {
 	assert.Empty(t, rec.Result().Cookies(), "no new session")
 	assert.Equal(t, http.StatusSeeOther, e.postLogin(t, "alice", temporary).Code, "the reset stays in place")
 }
+
+func TestAccountPhoto(t *testing.T) {
+	e := newTestEnv(t)
+	cookie := e.login(t)
+	drawn, _ := e.deps.Admins.Get("alice")
+	csrf := e.csrf(t, cookie, "/compte")
+	post := func(v url.Values, files ...[]byte) *httptest.ResponseRecorder {
+		body, contentType := multipartFiles(t, v, "photo", files...)
+		return e.do(t, http.MethodPost, adminHost, "/compte/photo", body, contentType, withCookie(cookie))
+	}
+	page := func(target string) string {
+		return html.UnescapeString(e.do(t, http.MethodGet, adminHost, target, nil, withCookie(cookie)).Body.String())
+	}
+
+	before := page("/compte")
+	assert.Contains(t, before, `enctype="multipart/form-data"`)
+	assert.NotContains(t, before, "Retirer ma photo", "nothing to remove yet")
+
+	assert.Equal(t, http.StatusForbidden, post(url.Values{"csrf": {"wrong"}}, pngBytes(t)).Code)
+
+	rec := post(url.Values{"csrf": {csrf}}, []byte("%PDF-1.7"))
+	assert.Equal(t, http.StatusUnprocessableEntity, rec.Code)
+	assert.Contains(t, html.UnescapeString(rec.Body.String()), "pas une image PNG, JPEG ou WebP")
+
+	rec = post(url.Values{"csrf": {csrf}}, pngBytes(t))
+	require.Equal(t, http.StatusSeeOther, rec.Code, rec.Body.String())
+	assert.Equal(t, "/compte?photo=1", rec.Header().Get("Location"))
+	a, _ := e.deps.Admins.Get("alice")
+	assert.True(t, a.HasPhoto())
+	changed := page("/compte?photo=1")
+	assert.Contains(t, changed, "Photo changée.")
+	assert.Contains(t, changed, `src="data:image/jpeg;base64,`)
+	assert.Contains(t, changed, "Retirer ma photo")
+
+	rec = post(url.Values{"csrf": {csrf}, "action": {"retirer"}})
+	require.Equal(t, http.StatusSeeOther, rec.Code, rec.Body.String())
+	assert.Equal(t, "/compte?photo=0", rec.Header().Get("Location"))
+	a, _ = e.deps.Admins.Get("alice")
+	assert.Equal(t, drawn.Avatar, a.Avatar, "back to the drawn avatar")
+	assert.Contains(t, page("/compte?photo=0"), "Photo retirée.")
+}

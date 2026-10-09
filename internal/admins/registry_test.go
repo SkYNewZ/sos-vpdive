@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/base64"
+	"html/template"
+	"io/fs"
 	"log/slog"
 	"path/filepath"
 	"strings"
@@ -50,7 +53,7 @@ func newRegistry(t *testing.T, accounts ...Account) (*Registry, *sql.DB) {
 	db, err := store.Open(ctx, filepath.Join(t.TempDir(), store.FileName))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, db.Close()) })
-	r, err := Open(ctx, db, testKeys(t), slog.New(slog.DiscardHandler), time.Now)
+	r, err := Open(ctx, db, testKeys(t), filepath.Join(t.TempDir(), "avatars"), slog.New(slog.DiscardHandler), time.Now)
 	require.NoError(t, err)
 	for _, a := range accounts {
 		require.NoError(t, r.Insert(ctx, a))
@@ -179,6 +182,72 @@ func TestSetPushoverKey(t *testing.T) {
 	assert.Empty(t, a.PushoverUserKey)
 }
 
+// avatarFiles lists the photo files of r.
+func avatarFiles(t *testing.T, r *Registry) []string {
+	t.Helper()
+	entries, err := fs.ReadDir(r.avatars.FS(), ".")
+	require.NoError(t, err)
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	return names
+}
+
+func TestSetAvatarReplacesTheFile(t *testing.T) {
+	ctx := context.Background()
+	r, _ := newRegistry(t, alice())
+	drawn, _ := r.Get("alice")
+	assert.False(t, drawn.HasPhoto())
+
+	require.NoError(t, r.SetAvatar(ctx, "alice", []byte("first photo")))
+	first := avatarFiles(t, r)
+	require.Len(t, first, 1)
+	got, _ := r.Get("alice")
+	assert.True(t, got.HasPhoto())
+	assert.Equal(t, template.URL("data:image/jpeg;base64,"+base64.StdEncoding.EncodeToString([]byte("first photo"))), got.Avatar)
+	sealed, err := r.avatars.ReadFile(first[0])
+	require.NoError(t, err)
+	assert.NotContains(t, string(sealed), "first photo", "the file is sealed")
+
+	require.NoError(t, r.SetAvatar(ctx, "alice", []byte("second photo")))
+	second := avatarFiles(t, r)
+	require.Len(t, second, 1, "the old file is gone")
+	assert.NotEqual(t, first, second)
+
+	require.NoError(t, r.SetAvatar(ctx, "alice", nil))
+	assert.Empty(t, avatarFiles(t, r))
+	got, _ = r.Get("alice")
+	assert.False(t, got.HasPhoto())
+	assert.Equal(t, drawn.Avatar, got.Avatar, "back to the drawn avatar")
+
+	require.ErrorIs(t, r.SetAvatar(ctx, "nobody", []byte("photo")), ErrNotFound)
+	assert.Empty(t, avatarFiles(t, r), "a refused change leaves no file")
+}
+
+func TestDeleteRemovesAvatar(t *testing.T) {
+	ctx := context.Background()
+	r, _ := newRegistry(t, alice(), bob())
+	require.NoError(t, r.SetAvatar(ctx, "bob", []byte("photo")))
+	require.NoError(t, r.Delete(ctx, "bob"))
+	assert.Empty(t, avatarFiles(t, r))
+}
+
+// A database restored without the photo files must still load its accounts.
+func TestMissingAvatarFallsBackToDrawn(t *testing.T) {
+	ctx := context.Background()
+	r, db := newRegistry(t, alice())
+	drawn, _ := r.Get("alice")
+	require.NoError(t, r.SetAvatar(ctx, "alice", []byte("photo")))
+
+	restarted, err := Open(ctx, db, testKeys(t), t.TempDir(), slog.New(slog.DiscardHandler), time.Now)
+	require.NoError(t, err)
+	got, ok := restarted.Get("alice")
+	require.True(t, ok)
+	assert.Equal(t, drawn.Avatar, got.Avatar)
+	assert.True(t, got.HasPhoto(), "« Retirer ma photo » stays offered")
+}
+
 func TestDeleteCallsOnChange(t *testing.T) {
 	r, _ := newRegistry(t, alice(), bob())
 	calls := 0
@@ -201,7 +270,7 @@ func TestInsertDoesNotCallOnChange(t *testing.T) {
 // Watch hands the change to OnChange.
 func TestWatchSeesChangesFromAnotherProcess(t *testing.T) {
 	r, db := newRegistry(t, alice(), bob())
-	other, err := Open(context.Background(), db, testKeys(t), slog.New(slog.DiscardHandler), time.Now)
+	other, err := Open(context.Background(), db, testKeys(t), t.TempDir(), slog.New(slog.DiscardHandler), time.Now)
 	require.NoError(t, err)
 
 	got := make(chan struct{}, 1)
@@ -298,7 +367,7 @@ func TestWatchLogsAPersistentErrorOnce(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, db.Close()) })
 	var logs bytes.Buffer
-	r, err := Open(ctx, db, testKeys(t), slog.New(slog.NewTextHandler(&logs, nil)), time.Now)
+	r, err := Open(ctx, db, testKeys(t), t.TempDir(), slog.New(slog.NewTextHandler(&logs, nil)), time.Now)
 	require.NoError(t, err)
 	require.NoError(t, r.Insert(ctx, alice()))
 	corrupt := func() {

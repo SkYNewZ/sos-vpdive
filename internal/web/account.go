@@ -6,24 +6,87 @@ import (
 	"net/http"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/admins"
+	"github.com/SkYNewZ/sos-vpdive/internal/images"
 )
 
 // accountPath is « Mon compte »: every resolver changes their password there,
 // and a temporary password leads there first (spec §4.1 as amended).
 const accountPath = "/compte"
 
+// photoField is the photo input of « Mon compte ».
+const photoField = "photo"
+
 // accountData feeds templates/compte.html.
 type accountData struct {
 	MinLen int               // shortest password accepted
-	Errors map[string]string // by field: actuel, nouveau, confirmation
+	Errors map[string]string // by field: actuel, nouveau, confirmation, photo
 }
 
 func (s *Server) accountPage(w http.ResponseWriter, r *http.Request) {
 	var n *notice
-	if r.URL.Query().Get("change") == "1" {
+	q := r.URL.Query()
+	switch {
+	case q.Get("change") == "1":
 		n = &notice{Kind: noticeSuccess, Text: "Mot de passe changé. Tes autres appareils sont déconnectés."}
+	case q.Get("photo") == "1":
+		n = &notice{Kind: noticeSuccess, Text: "Photo changée."}
+	case q.Get("photo") == "0":
+		n = &notice{Kind: noticeSuccess, Text: "Photo retirée."}
 	}
 	s.renderAccount(w, r, http.StatusOK, accountData{}, n)
+}
+
+// setPhoto puts the photo the resolver sent in place of their avatar, or
+// goes back to the drawn avatar (action=retirer).
+func (s *Server) setPhoto(w http.ResponseWriter, r *http.Request) {
+	f, err := readMultipart(w, r, photoField)
+	if errors.Is(err, errFormTooLarge) { // nothing changes: no token needed to say so
+		s.renderPhotoError(w, r, "Ta photo dépasse 5 Mo.")
+		return
+	}
+	if err != nil {
+		s.readError(w, r, err)
+		return
+	}
+	if !s.csrfValid(r, f.values.Get("csrf")) {
+		s.forbidCSRF(w, r)
+		return
+	}
+	ctx := r.Context()
+	sess, _ := sessionFrom(ctx)
+	if f.values.Get("action") == "retirer" {
+		if err := s.admins.SetAvatar(ctx, sess.account.Username, nil); err != nil {
+			s.serverError(w, r, err)
+			return
+		}
+		http.Redirect(w, r, accountPath+"?photo=0", http.StatusSeeOther)
+		return
+	}
+	if len(f.files) == 0 {
+		s.renderPhotoError(w, r, "Choisis une photo.")
+		return
+	}
+	photo, err := images.Avatar(f.files[0])
+	switch {
+	case errors.Is(err, images.ErrTooBig):
+		s.renderPhotoError(w, r, "Ta photo dépasse 5 Mo.")
+	case errors.Is(err, images.ErrTooManyPixels):
+		s.renderPhotoError(w, r, "Ta photo est trop grande : 40 millions de pixels au plus.")
+	case errors.Is(err, images.ErrNotImage):
+		s.renderPhotoError(w, r, "Ce fichier n'est pas une image PNG, JPEG ou WebP.")
+	case err != nil:
+		s.serverError(w, r, err)
+	default:
+		if err := s.admins.SetAvatar(ctx, sess.account.Username, photo); err != nil {
+			s.serverError(w, r, err)
+			return
+		}
+		http.Redirect(w, r, accountPath+"?photo=1", http.StatusSeeOther)
+	}
+}
+
+func (s *Server) renderPhotoError(w http.ResponseWriter, r *http.Request, msg string) {
+	s.renderAccount(w, r, http.StatusUnprocessableEntity, accountData{Errors: map[string]string{photoField: msg}}, nil)
 }
 
 func (s *Server) renderAccount(w http.ResponseWriter, r *http.Request, status int, d accountData, n *notice) {

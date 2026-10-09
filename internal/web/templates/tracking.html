@@ -6,7 +6,7 @@
 <dt class="font-semibold">Catégorie</dt><dd class="mb-2 sm:mb-0">{{categoryLabel $t.Category}}</dd>
 <dt class="font-semibold">Envoyée le</dt><dd class="mb-2 sm:mb-0">{{formatTime $t.SubmittedAt}}</dd>
 <dt class="font-semibold">Suivie par</dt>
-<dd class="mb-2 sm:mb-0">{{with $d.Assignee}}<span class="inline-flex items-center gap-2"><img src="{{.Avatar}}" alt="" width="32" height="32" class="size-8"><span><span class="font-semibold">{{.Name}}</span> · {{.Role}}</span></span>{{else}}{{if $t.Status.Open}}Personne pour l'instant : un membre du comité va la prendre.{{else}}Le comité du club{{end}}{{end}}</dd>
+<dd class="mb-2 sm:mb-0">{{with $d.Assignee}}<span class="inline-flex items-center gap-2"><img src="{{.Avatar}}" alt="" width="32" height="32" class="size-8 rounded-full"><span><span class="font-semibold">{{.Name}}</span> · {{.Role}}</span></span>{{else}}{{if $t.Status.Open}}Personne pour l'instant : un membre du comité va la prendre.{{else}}Le comité du club{{end}}{{end}}</dd>
 </dl>
 
 <section class="mt-8" aria-labelledby="fil">

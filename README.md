@@ -48,7 +48,8 @@ docker compose exec app /sos-vpdive reset-password -name "First name" -role "Fun
 start when a required one is missing or invalid, and names it.
 
 The image is distroless and runs as a non-root user on a read-only file
-system. The database lives in the `/data` volume. The owner
+system. The database lives in the `/data` volume, next to the photos the
+committee members choose on « Mon compte » (`/data/avatars`, encrypted). The owner
 (`OWNER_USERNAME`) creates the other committee accounts on the « Comptes »
 page, each with a temporary password to change at the first sign-in. If the
 owner loses their password, this prints a new temporary one:
@@ -372,7 +373,9 @@ On a real Android phone and a real iPhone:
 
 `backup` makes a consistent copy of the database with SQLite's backup API. The
 copy stays encrypted and does not hold the key. Screenshots are not in it:
-they stay in the bucket.
+they stay in the bucket. Account photos are not in it either: copy
+`/data/avatars` with the database, or the accounts go back to their drawn
+avatar.
 
 ```sh
 docker compose exec app /sos-vpdive backup /data/backup-$(date +%F).db
