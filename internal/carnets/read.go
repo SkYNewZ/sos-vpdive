@@ -35,9 +35,9 @@ var (
 	// priceChange is « -125,00 € -> -100,00 € ».
 	priceChange = regexp.MustCompile(`(-?` + euroAmount + `) ?€ ?-> ?(-?` + euroAmount + `) ?€$`)
 	// signedEuros ends a tooltip that moves money: one no form reads is unread.
-	// qualifier is what a title ends with besides its name: « (N2) ».
-	qualifier   = regexp.MustCompile(`(?:\s*\([^()]*\))+$`)
 	signedEuros = regexp.MustCompile(`[+-]` + euroAmount + ` ?€$`)
+	// qualifier is what a title ends with besides its name: « (N2) ».
+	qualifier = regexp.MustCompile(`(?:\s*\([^()]*\))+$`)
 )
 
 // Line is a history line as read (design §4).

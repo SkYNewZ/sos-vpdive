@@ -228,7 +228,7 @@ func findColumns(h xlsx.Header) (columns, error) {
 	c.method, c.productType = optional("Methode de paiement", 0), optional("Type de produit", 0)
 	c.starts, c.paidAt = optional("Du", 0), optional("Date paiement", 0)
 	c.rental = optional("Materiel", 1) // the second « Materiel » is the rental amount; the first lists equipment
-	// Optional and never listed as missing: without it, only the comments lack.
+	// Optional and never listed as missing: without it, only the comments are missing.
 	c.comment = optionalCol(h, "Commentaire", 0)
 	return c, nil
 }
