@@ -7,10 +7,15 @@ import (
 	"time"
 )
 
-// Querier is what *sql.DB and *sql.Tx share.
+// Querier is what *sql.DB and *sql.Tx share for reads.
 type Querier interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
+// Execer is what *sql.DB and *sql.Tx share for writes.
+type Execer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
 // NullIfZero maps the zero value to NULL, for optional columns kept as plain

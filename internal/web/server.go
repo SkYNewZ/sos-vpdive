@@ -281,6 +281,7 @@ func (s *Server) apiRoutes(site http.Handler) *http.ServeMux {
 	mux := http.NewServeMux()
 	if s.cfg.ImportToken != "" {
 		s.handle(mux, "POST /api/imports/{type}", s.apiImport)
+		s.handle(mux, "POST /api/imports/{type}/failure", s.apiImportFailure)
 	} else {
 		s.handle(mux, "/api/imports/", s.notFound)
 	}

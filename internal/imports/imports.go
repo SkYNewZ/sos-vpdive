@@ -172,8 +172,8 @@ func countInPlace(ctx context.Context, q store.Querier, kind Kind) (int, error) 
 	return n, nil
 }
 
-// replace journals e, lets fn replace the data and marks the lines of
-// homonyms, inside tx.
+// replace journals e and its run, lets fn replace the data and marks the
+// lines of homonyms, inside tx.
 func replace(ctx context.Context, tx *sql.Tx, e Entry, fn func(ctx context.Context, tx *sql.Tx, importID int64) error) error {
 	res, err := tx.ExecContext(ctx,
 		`INSERT INTO imports (kind, exported_at, period_from, period_to, imported_at, imported_by, row_count, skipped_count, file_hash)
@@ -188,6 +188,9 @@ func replace(ctx context.Context, tx *sql.Tx, e Entry, fn func(ctx context.Conte
 		return fmt.Errorf("journal import: %w", err)
 	}
 	if err := fn(ctx, tx, id); err != nil {
+		return err
+	}
+	if err := Record(ctx, tx, nil, Run{Kind: e.Kind, At: e.ImportedAt, By: e.ImportedBy, Result: Imported, Rows: e.Rows, Skipped: e.Skipped}); err != nil {
 		return err
 	}
 	return MarkAmbiguous(ctx, tx)

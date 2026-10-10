@@ -77,14 +77,34 @@ func (p split) add(c usageCall) split {
 	return p
 }
 
+// axisDay is a day's place on a chart's axis.
+type axisDay struct {
+	Label string // « mar. 27 oct. »
+	Tick  string // under the axis, on some columns
+}
+
+// axisDays lays out the n days that end at today, the oldest first, with a
+// tick every seventh day, and maps each Paris day to its column.
+func axisDays(today time.Time, n int, paris *time.Location) ([]axisDay, map[string]int) {
+	days, dayAt := make([]axisDay, n), make(map[string]int, n)
+	for i := range days {
+		d := today.AddDate(0, 0, i+1-n)
+		dayAt[parisDay(d, paris)] = i
+		days[i].Label = frShortDay(d)
+		if (n-1-i)%7 == 0 {
+			days[i].Tick = strconv.Itoa(d.Day()) + " " + frMonthsShort[d.Month()-1]
+		}
+	}
+	return days, dayAt
+}
+
 // column is a day or a month: its sums, its stacked bar, its axis label.
 type column struct {
 	split
+	axisDay // a month's label and tick take the same fields
 
-	Label string // « mar. 27 oct. », « octobre 2026 »
-	Tick  string // under the axis, on some columns
-	X     int    // the left edge of its slot
-	A, S  string // path data of the assistant and suggestion segments
+	X    int    // the left edge of its slot
+	A, S string // path data of the assistant and suggestion segments
 }
 
 type chart struct {
@@ -119,14 +139,10 @@ func buildDashboard(calls []usageCall, now time.Time, paris *time.Location) dash
 	today := midnight(now, paris)
 	first := firstMonth(now, paris)
 	month := first.AddDate(0, dashboardMonths-1, 0)
-	days, dayAt := make([]column, dashboardDays), make(map[string]int, dashboardDays)
-	for i := range days {
-		d := today.AddDate(0, 0, i+1-dashboardDays)
-		dayAt[parisDay(d, paris)] = i
-		days[i].Label = frShortDay(d)
-		if (dashboardDays-1-i)%7 == 0 {
-			days[i].Tick = strconv.Itoa(d.Day()) + " " + frMonthsShort[d.Month()-1]
-		}
+	axis, dayAt := axisDays(today, dashboardDays, paris)
+	days := make([]column, dashboardDays)
+	for i, d := range axis {
+		days[i].axisDay = d
 	}
 	months, monthAt := make([]column, dashboardMonths), make(map[string]int, dashboardMonths)
 	for i := range months {

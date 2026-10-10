@@ -219,9 +219,25 @@ bytes as the latest import of its type. A refusal reads
 | 429 | `rate_limited`: 10 calls an hour per address |
 | 500 | `internal` |
 
+A refusal the service journaled (413, 422, 500) also carries
+`"recorded": true`.
+
 Each refused file (413 or 422) sends a mail to the club inbox. When an
 import outlives its maximum age, the club inbox gets one mail as well: with a
 script, it means the script has stopped working.
+
+Every run goes to a journal the imports page shows under each export: the
+five latest runs with their outcome, and a chart of the last 30 days (the
+rows of each day's last successful push, a mark on the days a run failed).
+A run the script could not complete is reported to
+`POST /api/imports/{type}/failure` with the same token, as JSON:
+`{"code": "vpdive_failed", "detail": "bridge: HTTP 403"}`. The code matches
+`^[a-z][a-z0-9_]{0,63}$`; the known ones read in French on the page
+(`sign_in_capped`, `vpdive_session`, `vpdive_failed`, `push_failed`,
+`push_refused`), any other shows its detail, cut to 200 characters. The
+answer is `{"result": "recorded"}`; a malformed report, or a body over 4 KiB,
+gets 400 `invalid_failure`, and the route has its own counter of 10 calls an
+hour per address. A reported failure sends no mail. Runs are deleted after 90 days.
 
 The script should download the members list without a filter and the two
 payment exports over the last 24 months, push each file unchanged, keep no
