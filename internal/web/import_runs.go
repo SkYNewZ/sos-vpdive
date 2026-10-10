@@ -18,12 +18,13 @@ const (
 	markHeight    = 3 // of the failure mark at the foot of a column, which the bar stops above
 )
 
-// journal is the runs of one export over the last journalDays.
+// journal is the latest runs of one export, whatever their age, and its runs
+// over the last journalDays.
 type journal struct {
 	Recent   []runRow // the latest first
 	Chart    runsChart
-	Runs     int
-	Failures int // refused or failed
+	Runs     int // over journalDays
+	Failures int // refused or failed, over journalDays
 }
 
 // runRow is a run as the list shows it. The template picks the dot's
@@ -74,11 +75,11 @@ var failureLabels = map[string]string{
 	"push_refused":   "envoi refusé par l'outil",
 }
 
-// buildJournal lays out runs, the latest first, over the journalDays that end
-// at now in paris.
+// buildJournal lists the latest of runs, the latest first, and lays out
+// those of the journalDays that end at now in paris.
 func buildJournal(kind imports.Kind, runs []imports.Run, now time.Time, paris *time.Location) journal {
 	unit := runUnits[kind]
-	j := journal{Runs: len(runs), Chart: runsChart{One: unit.one, Many: unit.many, Heading: unit.heading, Width: journalDays * slotWidth}}
+	j := journal{Chart: runsChart{One: unit.one, Many: unit.many, Heading: unit.heading, Width: journalDays * slotWidth}}
 	for _, r := range runs[:min(len(runs), journalRecent)] {
 		j.Recent = append(j.Recent, runRow{Run: r, Outcome: outcome(r, unit)})
 	}
@@ -95,6 +96,7 @@ func buildJournal(kind imports.Kind, runs []imports.Run, now time.Time, paris *t
 			continue
 		}
 		cols[c].Runs++
+		j.Runs++
 		switch r.Result {
 		case imports.Imported, imports.Unchanged:
 			cols[c].Rows = r.Rows

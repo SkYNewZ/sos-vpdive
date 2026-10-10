@@ -82,3 +82,13 @@ func TestBuildJournalEmpty(t *testing.T) {
 	assert.Equal(t, "1", j.Chart.Top)
 	assert.Equal(t, "cartes", j.Chart.Many)
 }
+
+func TestBuildJournalListsRunsOlderThanTheChart(t *testing.T) {
+	paris, err := time.LoadLocation("Europe/Paris")
+	require.NoError(t, err)
+	old := imports.Run{Result: imports.Failed, At: time.Date(2026, 8, 1, 4, 0, 0, 0, time.UTC), By: "script", Code: "vpdive_failed"}
+	j := buildJournal(imports.Members, []imports.Run{old}, time.Date(2026, 10, 27, 8, 0, 0, 0, time.UTC), paris)
+	require.Len(t, j.Recent, 1, "the last diagnostic outlives the 30 days")
+	assert.Zero(t, j.Runs)
+	assert.Zero(t, j.Failures)
+}

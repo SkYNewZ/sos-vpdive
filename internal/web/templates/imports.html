@@ -261,11 +261,12 @@
 {{define "lineCount"}}{{.Lines}} ligne{{if gt .Lines 1}}s{{end}}, {{.Payers}} payeur{{if gt .Payers 1}}s{{end}}{{end}}
 
 {{/* journal lists the latest runs of an export (design 2026-10-09): a manual import, a push, a refusal or a failure the script reported, then the chart of the last 30 days. */}}
-{{define "journal"}}{{if .Runs}}
+{{define "journal"}}{{with .Recent}}
 <h3 class="mt-5 text-lg font-semibold">Derniers passages</h3>
 <ul class="mt-2 flex flex-col gap-1">
-{{range .Recent}}<li class="flex items-start gap-2"><span class="status mt-1.5 shrink-0 {{if eq .Result "imported"}}status-success{{else if eq .Result "unchanged"}}status-neutral{{else if eq .Result "refused"}}status-warning{{else}}status-error{{end}}" aria-hidden="true"></span><span><span class="whitespace-nowrap">{{formatTime .At}}</span> · {{author .By}} · {{.Outcome}}</span></li>
+{{range .}}<li class="flex items-start gap-2"><span class="status mt-1.5 shrink-0 {{if eq .Result "imported"}}status-success{{else if eq .Result "unchanged"}}status-neutral{{else if eq .Result "refused"}}status-warning{{else}}status-error{{end}}" aria-hidden="true"></span><span><span class="whitespace-nowrap">{{formatTime .At}}</span> · {{author .By}} · {{.Outcome}}</span></li>
 {{end}}</ul>
+{{end}}{{if .Runs}}
 <p class="mt-2 text-sm">{{plural .Runs "passage" "passages"}} ces 30 derniers jours{{if .Failures}}, dont {{plural .Failures "échec" "échecs"}}{{end}}.</p>
 {{template "runsChart" .Chart}}
 {{else}}<p class="mt-4 text-sm">Aucun passage ces 30 derniers jours.</p>{{end}}{{end}}

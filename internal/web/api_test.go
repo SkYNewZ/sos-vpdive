@@ -321,17 +321,20 @@ func TestImportRunsAreJournaled(t *testing.T) {
 	long := e.reportFailure(t, "payments", `{"code":"push_failed","detail":"`+strings.Repeat("é", 300)+`"}`, importToken)
 	require.Equal(t, http.StatusOK, long.Code, long.Body.String())
 
-	runs, err := imports.Runs(context.Background(), e.db, imports.Members, time.Time{})
+	runs, err := imports.Runs(context.Background(), e.db, e.srv.keys, imports.Members, time.Time{})
 	require.NoError(t, err)
 	require.Len(t, runs, 4)
 	assert.Equal(t, []imports.Result{imports.Failed, imports.Refused, imports.Unchanged, imports.Imported},
 		[]imports.Result{runs[0].Result, runs[1].Result, runs[2].Result, runs[3].Result}, "the latest first")
 	assert.Equal(t, imports.Run{Kind: imports.Members, At: e.clock.now(), By: "script", Result: imports.Failed, Code: "vpdive_failed", Detail: "bridge: HTTP 403"}, runs[0])
+	var sealed []byte
+	require.NoError(t, e.db.QueryRowContext(t.Context(), `SELECT detail FROM import_runs WHERE code = 'vpdive_failed'`).Scan(&sealed))
+	assert.NotContains(t, string(sealed), "HTTP 403", "the detail is sealed")
 	assert.Equal(t, "too_few", runs[1].Code)
 	assert.Contains(t, runs[1].Detail, "moins de la moitié")
 	assert.Equal(t, 6, runs[2].Rows, "an unchanged push keeps the count read")
 	assert.Equal(t, imports.Run{Kind: imports.Members, At: e.clock.now().Add(-3 * time.Hour), By: "alice", Result: imports.Imported, Rows: 6, Skipped: 1}, runs[3])
-	payments, err := imports.Runs(context.Background(), e.db, imports.Payments, time.Time{})
+	payments, err := imports.Runs(context.Background(), e.db, e.srv.keys, imports.Payments, time.Time{})
 	require.NoError(t, err)
 	require.Len(t, payments, 1)
 	assert.Len(t, []rune(payments[0].Detail), imports.MaxDetail, "the detail is cut")
@@ -352,7 +355,7 @@ func TestImportRunsAreJournaled(t *testing.T) {
 
 	e.clock.advance(imports.RunsRetention + time.Hour)
 	require.NoError(t, e.srv.Purge(context.Background()))
-	runs, err = imports.Runs(context.Background(), e.db, imports.Members, time.Time{})
+	runs, err = imports.Runs(context.Background(), e.db, e.srv.keys, imports.Members, time.Time{})
 	require.NoError(t, err)
 	assert.Empty(t, runs, "runs are purged after 90 days")
 	assert.Contains(t, e.logs.String(), `"code":"vpdive_failed"`)
@@ -369,7 +372,7 @@ func TestImportFailureReportIsGuarded(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, rec.Code, body)
 		assert.Equal(t, "invalid_failure", answer(t, rec).Error)
 	}
-	runs, err := imports.Runs(context.Background(), e.db, imports.Members, time.Time{})
+	runs, err := imports.Runs(context.Background(), e.db, e.srv.keys, imports.Members, time.Time{})
 	require.NoError(t, err)
 	assert.Empty(t, runs)
 	assert.Empty(t, e.clubMails(t), "a reported failure mails nobody")

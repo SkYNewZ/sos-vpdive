@@ -190,7 +190,7 @@ func replace(ctx context.Context, tx *sql.Tx, e Entry, fn func(ctx context.Conte
 	if err := fn(ctx, tx, id); err != nil {
 		return err
 	}
-	if err := Record(ctx, tx, Run{Kind: e.Kind, At: e.ImportedAt, By: e.ImportedBy, Result: Imported, Rows: e.Rows, Skipped: e.Skipped}); err != nil {
+	if err := Record(ctx, tx, nil, Run{Kind: e.Kind, At: e.ImportedAt, By: e.ImportedBy, Result: Imported, Rows: e.Rows, Skipped: e.Skipped}); err != nil {
 		return err
 	}
 	return MarkAmbiguous(ctx, tx)

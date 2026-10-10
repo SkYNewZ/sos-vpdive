@@ -165,9 +165,8 @@ func (s *Server) importsView(ctx context.Context, d *importsData) error {
 	}
 	d.Journals = make(map[string]journal, len(runUnits))
 	now := s.now()
-	since := midnight(now, s.paris).AddDate(0, 0, 1-journalDays)
-	for kind := range runUnits {
-		runs, err := imports.Runs(ctx, s.db, kind, since)
+	for kind := range runUnits { // every run kept: the latest outlive the chart
+		runs, err := imports.Runs(ctx, s.db, s.keys, kind, now.Add(-imports.RunsRetention))
 		if err != nil {
 			return err
 		}

@@ -182,7 +182,7 @@ func (s *Server) admitScript(w http.ResponseWriter, r *http.Request, counter str
 // and reported false.
 func (s *Server) recordRun(ctx context.Context, r imports.Run) bool {
 	r.At = s.now()
-	if err := imports.Record(ctx, s.db, r); err != nil {
+	if err := imports.Record(ctx, s.db, s.keys, r); err != nil {
 		s.logger.ErrorContext(ctx, "journal import run", "error", err)
 		return false
 	}
@@ -264,7 +264,7 @@ func (s *Server) refusePushed(w http.ResponseWriter, r *http.Request, kind impor
 	text := fmt.Sprintf("Le script d'import a déposé un fichier que l'outil a refusé : %s.\n\nRaison : %s\n\n"+
 		"Les données en place n'ont pas changé. %s", exportNames[kind], answer.Message, next)
 	if err := store.Tx(ctx, s.db, "import.refused", func(ctx context.Context, tx *sql.Tx) error {
-		if err := imports.Record(ctx, tx, imports.Run{Kind: kind, At: s.now(), By: imports.ScriptAuthor,
+		if err := imports.Record(ctx, tx, s.keys, imports.Run{Kind: kind, At: s.now(), By: imports.ScriptAuthor,
 			Result: imports.Refused, Code: answer.Error, Detail: answer.Message}); err != nil {
 			return err
 		}

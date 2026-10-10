@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 	"github.com/SkYNewZ/sos-vpdive/internal/store"
 )
 
@@ -41,29 +42,44 @@ type Run struct {
 	Skipped int
 }
 
-// Record journals r through q.
-func Record(ctx context.Context, q store.Execer, r Run) error {
+// Record journals r through q. A detail is sealed with k (spec §8.4): the
+// script's text could quote a person; k may be nil for a run without one.
+func Record(ctx context.Context, q store.Execer, k *secure.Keys, r Run) error {
+	var detail []byte
+	if r.Detail != "" {
+		detail = k.SealString(r.Detail)
+	}
 	if _, err := q.ExecContext(ctx,
 		`INSERT INTO import_runs (kind, at, run_by, result, code, detail, row_count, skipped_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		string(r.Kind), r.At.Unix(), r.By, string(r.Result), r.Code, r.Detail, r.Rows, r.Skipped); err != nil {
+		string(r.Kind), r.At.Unix(), r.By, string(r.Result), r.Code, detail, r.Rows, r.Skipped); err != nil {
 		return fmt.Errorf("journal %s run: %w", r.Kind, err)
 	}
 	return nil
 }
 
-// Runs returns the runs of kind at or after since, the latest first.
-func Runs(ctx context.Context, q store.Querier, kind Kind, since time.Time) ([]Run, error) {
+// Runs returns the runs of kind at or after since, the latest first, their
+// details opened with k.
+func Runs(ctx context.Context, q store.Querier, k *secure.Keys, kind Kind, since time.Time) ([]Run, error) {
 	rows, err := q.QueryContext(ctx,
 		`SELECT at, run_by, result, code, detail, row_count, skipped_count FROM import_runs
 		 WHERE kind = ? AND at >= ? ORDER BY at DESC, id DESC`, string(kind), since.Unix())
 	out, err := store.Collect(rows, err, func(rows *sql.Rows) (Run, error) {
 		var (
-			r  = Run{Kind: kind}
-			at int64
+			r      = Run{Kind: kind}
+			at     int64
+			detail []byte
 		)
-		err := rows.Scan(&at, &r.By, &r.Result, &r.Code, &r.Detail, &r.Rows, &r.Skipped)
+		if err := rows.Scan(&at, &r.By, &r.Result, &r.Code, &detail, &r.Rows, &r.Skipped); err != nil {
+			return r, err
+		}
 		r.At = time.Unix(at, 0).UTC()
-		return r, err
+		if len(detail) > 0 {
+			var err error
+			if r.Detail, err = k.OpenString(detail); err != nil {
+				return r, err
+			}
+		}
+		return r, nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list %s runs: %w", kind, err)

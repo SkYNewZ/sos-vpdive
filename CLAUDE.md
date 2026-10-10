@@ -148,9 +148,9 @@ is ambiguous, ask.
   « Membres actifs » (Carte 10 N3+ at 220 €, own dives at 0 €, guest products).
 - Import runs journal (design 2026-10-09): `import_runs` keeps 90 days of
   every run (manual import, push, refusal, failure) and the imports page
-  shows each export's five latest runs and a 30-day chart (server SVG, like
+  shows each export's five latest runs (within the 90 days) and a 30-day chart (server SVG, like
   the usage dashboard). The script reports what it could not push to
-  `POST /api/imports/{type}/failure` (code and detail); a journaled refusal
+  `POST /api/imports/{type}/failure` (code and detail, sealed); a journaled refusal
   answers `"recorded": true` so it is not reported twice. No mail on a
   failure: the staleness alert covers a lasting one.
 - Fiches may hold Markdown tables and one ```mermaid diagram (2026-10-09), served as `/kb/<id>.svg` on both hosts with its own CSP. The fiche `tarification` is the only source of the club's prices: the public Tarifs page wins over VPDive's price plans, whose gaps it lists for the resolver.

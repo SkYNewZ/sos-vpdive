@@ -3,8 +3,8 @@
 -- manual import or an accepted push is 'imported'; a push with the bytes of
 -- the latest import is 'unchanged'; a file the service refused is 'refused'
 -- with its code and the message the committee would read; a run the script
--- could not complete is 'failed' with the class it reports. Rows are kept
--- 90 days.
+-- could not complete is 'failed' with the class it reports. The detail is
+-- sealed (spec §8.4), NULL without one. Rows are kept 90 days.
 CREATE TABLE import_runs (
     id INTEGER PRIMARY KEY,
     kind TEXT NOT NULL CHECK (kind IN ('members', 'payments', 'vpaydive', 'calendar', 'carnets')),
@@ -12,7 +12,7 @@ CREATE TABLE import_runs (
     run_by TEXT NOT NULL,
     result TEXT NOT NULL CHECK (result IN ('imported', 'unchanged', 'refused', 'failed')),
     code TEXT NOT NULL DEFAULT '',
-    detail TEXT NOT NULL DEFAULT '',
+    detail BLOB,
     row_count INTEGER NOT NULL DEFAULT 0,
     skipped_count INTEGER NOT NULL DEFAULT 0
 );
