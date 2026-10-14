@@ -14,10 +14,10 @@ github.com/dlclark/regexp2 v1.12.0 h1:0j4c5qQmnC6XOWNjP3PIXURXN2gWx76rd3KvgdPkCz
 github.com/dlclark/regexp2 v1.12.0/go.mod h1:DHkYz0B9wPfa6wondMfaivmHpzrQ3v9q8cnmRbL6yW8=
 github.com/dustin/go-humanize v1.0.1 h1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkpeCY=
 github.com/dustin/go-humanize v1.0.1/go.mod h1:Mu1zIs6XwVuF/gI1OepvI0qD18qycQx+mFykh5fBlto=
-github.com/getsentry/sentry-go v0.49.0 h1:Ehejknu1l023Ub7QoRBVLAI7g3Jnhqku4oWx4B4Sh5s=
-github.com/getsentry/sentry-go v0.49.0/go.mod h1:nuMJAoCfe1u0Bts2ocyNI+TW8HT84vRMqwA5Qq/SKUI=
-github.com/getsentry/sentry-go/otel v0.49.0 h1:BRMzf4PqYEGsgxNS8BMX54I0DYVcBWbCtQ1s+aS67n0=
-github.com/getsentry/sentry-go/otel v0.49.0/go.mod h1:FVrBdl+7ofh9neiuGLYtaGwEIv8fsW8LmV62pYMIrKk=
+github.com/getsentry/sentry-go v0.50.0 h1:gkO59rn/i0RCAXUUTflC5QVbTQGPXbaFabs2olVzc9g=
+github.com/getsentry/sentry-go v0.50.0/go.mod h1:+xsDuN+SoRN/xfs1hdq78wnrE3omIZf+FCuh9FOW1C8=
+github.com/getsentry/sentry-go/otel v0.50.0 h1:MlUtdu7dN4POvAde4qlrzC0h3DPniZA3IFdjCuZwAKA=
+github.com/getsentry/sentry-go/otel v0.50.0/go.mod h1:OfwS7wmoL6iHwUJsvmUV7FsKMdLs/wZTIi7t75sPMHg=
 github.com/getsentry/sentry-go/slog v0.49.0 h1:yqwJF00OSNY7AZQ5su40ajXKOcxW+A/ap4jTTNTMx+U=
 github.com/getsentry/sentry-go/slog v0.49.0/go.mod h1:icu7tMeOAGgAYJ5XU5ETe0mRuaT4JhIBKNAcBDcNHPg=
 github.com/go-errors/errors v1.4.2 h1:J6MZopCL4uSllY1OfXM374weqZFFItUbrImctkmUxIA=
