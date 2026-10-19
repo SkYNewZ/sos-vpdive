@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -97,5 +98,18 @@ func TestExpectedRefusalsCreateNoSentryEvent(t *testing.T) {
 	stranger.Set("email", "nobody@example.org")
 	assert.Equal(t, http.StatusUnprocessableEntity, e.sendRequest(t, stranger).Code)
 
+	assert.Empty(t, e.sentryEvents(t))
+}
+
+// A client that hung up is expected: it is logged, never a Sentry event.
+func TestClientThatLeftIsNotASentryError(t *testing.T) {
+	e := newTestEnv(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	r := httptest.NewRequestWithContext(ctx, http.MethodPost, "/demandes", nil)
+
+	e.srv.serverError(httptest.NewRecorder(), r, fmt.Errorf("tickets.confirm: begin: %w", context.Canceled))
+
+	assert.Contains(t, e.logs.String(), `"level":"WARN","msg":"client left"`)
 	assert.Empty(t, e.sentryEvents(t))
 }

@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -225,8 +226,13 @@ func idleText(refs []string) string {
 	return strconv.Itoa(len(refs)) + " demandes ouvertes sont sans activité depuis 12 mois, à revoir : " + strings.Join(refs, ", ") + "."
 }
 
-// serverError logs an internal error and answers 500 without detail.
+// serverError logs an internal error and answers 500 without detail. A
+// client that left is expected, so it stays below Error (and out of Sentry).
 func (s *Server) serverError(w http.ResponseWriter, r *http.Request, err error) {
+	if errors.Is(err, context.Canceled) && r.Context().Err() != nil {
+		s.logger.WarnContext(r.Context(), "client left", "error", err)
+		return
+	}
 	s.logger.ErrorContext(r.Context(), "internal error", "error", err)
 	s.writeText(w, r, http.StatusInternalServerError, "Erreur interne. Réessaie dans un instant.\n")
 }

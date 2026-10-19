@@ -284,3 +284,18 @@ func TestCommitteeAlertsCarryTheSummary(t *testing.T) {
 	require.Len(t, alerts, 1)
 	assert.Equal(t, out.Ref+" · Léa Martin · "+e.store.Catalog.CategoryLabel("carnet")+"\nCarnet décompté après une sortie annulée.", alerts[0].Text)
 }
+
+// A member who leaves while the model is asked still files the request:
+// the draft is stored, so it is confirmed and acknowledged.
+func TestSubmitConfirmsWhenTheClientLeaves(t *testing.T) {
+	e := newTestStore(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	out, err := e.store.Submit(ctx, submission(t), func(context.Context) (Suggestion, bool) {
+		cancel()
+		return Suggestion{}, false
+	})
+	require.NoError(t, err)
+	status, _ := e.status(t, e.idOf(t, out.Ref))
+	assert.Equal(t, StatusTodo, status)
+	assert.Len(t, e.mails(t), 2)
+}
