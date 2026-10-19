@@ -102,7 +102,8 @@ func (s *Store) Submit(ctx context.Context, sub Submission, choose Chooser) (Out
 			return s.suggested(ctx, id, sg)
 		}
 	}
-	ref, err := s.Confirm(ctx, id)
+	// The draft is stored: file it even if the member has left meanwhile.
+	ref, err := s.Confirm(context.WithoutCancel(ctx), id)
 	return Outcome{Ref: ref}, err
 }
 
