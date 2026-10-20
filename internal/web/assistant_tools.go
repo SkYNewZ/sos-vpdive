@@ -16,10 +16,12 @@ import (
 
 	"github.com/SkYNewZ/sos-vpdive/internal/assistant"
 	"github.com/SkYNewZ/sos-vpdive/internal/calendar"
+	"github.com/SkYNewZ/sos-vpdive/internal/campaign"
 	"github.com/SkYNewZ/sos-vpdive/internal/carnets"
 	"github.com/SkYNewZ/sos-vpdive/internal/imports"
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
 	"github.com/SkYNewZ/sos-vpdive/internal/payments"
+	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 	"github.com/SkYNewZ/sos-vpdive/internal/telemetry"
 )
 
@@ -59,6 +61,8 @@ var toolDefs = []assistant.Tool{
 		Description: "Paiements VPDive et encaissements Mollie d'un adhérent (référence m1…) : soldes de carnet et de formation, achats de carte, puis les lignes de la période, par défaut les 120 derniers jours. Dates du et au : AAAA-MM-JJ. Donne aussi chaque carte de plongées de l'adhérent avec tout son historique : plongées débitées ou recréditées, changements de prix, commentaires."},
 	{Name: "member_outings", InputSchema: schema([]string{refArg}, "du", "au"),
 		Description: "Sorties VPDive d'un adhérent : inscription, panier, lignes de paiement rattachées, signaux, désinscriptions. Par défaut, des 90 derniers jours à toutes celles à venir. Dates du et au : AAAA-MM-JJ."},
+	{Name: "member_membership", InputSchema: schema([]string{refArg}),
+		Description: "Campagne d'adhésion VPDive d'une personne (référence m1…). Statut « En cours » : dossier pas encore validé par le club, ce qui bloque le paiement de la saison ; « Validé » : dossier validé, avec la date et qui l'a validé. Chaque entrée d'adhésion et de licence a un état : « Réglé » est payé, « Au panier » est ajouté au panier mais pas encore payé ; moyen et date seulement pour un paiement saisi à la main ou par VPayDive. La date de l'export (export_du) fait foi : un paiement ou une validation plus récents n'y sont pas encore. Un nom que portent plusieurs personnes répond homonyme, sans détail."},
 	{Name: "member_requests", InputSchema: schema([]string{refArg}),
 		Description: "Demandes déposées dans cet outil par l'adresse de l'adhérent : référence, catégorie, statut, date, résumé."},
 	{Name: "find_outings", InputSchema: schema([]string{"du", "au"}, "texte"),
@@ -127,6 +131,8 @@ func (t *toolbox) run(ctx context.Context, name string, input json.RawMessage) (
 		out, step, err = t.memberPayments(ctx, input)
 	case "member_outings":
 		out, step, err = t.memberOutings(ctx, input)
+	case "member_membership":
+		out, step, err = t.memberMembership(ctx, input)
 	case "member_requests":
 		out, step, err = t.memberRequests(ctx, input)
 	case "find_outings":
@@ -284,11 +290,16 @@ func euros(a payments.Amount) string { return plainSpaces(a.Euros()) }
 type candidate struct {
 	Ref          string `json:"ref"`
 	Nom          string `json:"nom"`
-	Saisons      string `json:"saisons"`
-	Licence      string `json:"licence"`
-	Organisation string `json:"organisation"`      // VPDive groups
-	Homonyme     bool   `json:"homonyme,omitzero"` // absent when false: the model would say « pas d'homonyme »
+	Saisons      string `json:"saisons,omitzero"` // a member's are never empty
+	Licence      string `json:"licence,omitzero"`
+	Organisation string `json:"organisation,omitzero"` // VPDive groups
+	Source       string `json:"source,omitzero"`       // sourceCampaign for someone the members list does not name
+	Homonyme     bool   `json:"homonyme,omitzero"`     // absent when false: the model would say « pas d'homonyme »
 }
+
+// sourceCampaign marks a candidate known by the membership campaign only:
+// no address, so no request of theirs can be read.
+const sourceCampaign = "campagne"
 
 type findMemberResult struct {
 	Import         importState `json:"import_membres"`
@@ -308,7 +319,8 @@ func (t *toolbox) findMember(ctx context.Context, input json.RawMessage) (any, s
 		return nil, "", err
 	}
 	var matches []members.Match
-	if email, ok := assistant.Placeholder(in.Query, t.c.Emails); ok {
+	email, byEmail := assistant.Placeholder(in.Query, t.c.Emails)
+	if byEmail {
 		matches, err = t.s.memberOf(ctx, email)
 	} else {
 		matches, err = t.s.members.Search(ctx, in.Query, maxCandidates)
@@ -323,6 +335,11 @@ func (t *toolbox) findMember(ctx context.Context, input json.RawMessage) (any, s
 			out.Correspondance = "exacte"
 		}
 		out.Candidats = append(out.Candidats, candidateOf(t.c, m))
+	}
+	if !byEmail { // the campaign holds no address
+		if err := t.campaignCandidates(ctx, in.Query, &out); err != nil {
+			return nil, "", err
+		}
 	}
 	return out, "Recherche « " + strings.TrimSpace(in.Query) + " » : " + plural(len(out.Candidats), "candidat", "candidats"), nil
 }
@@ -353,6 +370,58 @@ func candidateOf(c *assistant.Conversation, m members.Match) candidate {
 		orgs = cmp.Or(*m.Organisation, "aucune")
 	}
 	return candidate{Ref: ref, Nom: name, Saisons: view.Seasons, Licence: view.Licence, Organisation: orgs, Homonyme: m.Shared > 1}
+}
+
+// campaignCandidates adds to out the people of the campaign whose name holds
+// every word of query and whom the members list does not name: a new
+// member, before the next members import. A name the campaign holds twice
+// is one candidate, a homonym (design 2026-10-20 « Assistant »).
+func (t *toolbox) campaignCandidates(ctx context.Context, query string, out *findMemberResult) error {
+	want := members.NameWords(query)
+	if len(want) == 0 {
+		return nil
+	}
+	people, err := t.s.campaign.All(ctx) // a few hundred
+	if err != nil {
+		return err
+	}
+	seen := map[string]bool{}
+	for _, m := range people {
+		p := m.Line
+		if len(out.Candidats) == maxCandidates {
+			break
+		}
+		if !allIn(want, members.NameWords(p.LastName+" "+p.FirstName)) {
+			continue
+		}
+		hash := t.s.keys.Hash(secure.NameKey(p.LastName, p.FirstName))
+		if seen[string(hash)] {
+			continue
+		}
+		seen[string(hash)] = true
+		n, err := t.s.members.NameCount(ctx, hash)
+		if err != nil {
+			return err
+		}
+		if n > 0 { // the member's candidate stands for them
+			continue
+		}
+		name := strings.TrimSpace(p.FirstName + " " + p.LastName)
+		ref := t.c.AddPerson(assistant.Person{Name: name, NameHash: hash})
+		out.Candidats = append(out.Candidats, candidate{Ref: ref, Nom: name, Source: sourceCampaign, Homonyme: m.Ambiguous})
+		out.Correspondance = "exacte"
+	}
+	return nil
+}
+
+// allIn tells whether every word of want is in words.
+func allIn(want, words []string) bool {
+	for _, w := range want {
+		if !slices.Contains(words, w) {
+			return false
+		}
+	}
+	return true
 }
 
 // --- shared by the member tools
@@ -741,6 +810,10 @@ func (t *toolbox) memberRequests(ctx context.Context, input json.RawMessage) (an
 	if problem != nil {
 		return *problem, "Lecture de demandes refusée", nil
 	}
+	if p.Email == "" { // a result, not an error: an error ends the whole answer
+		return requestsResult{Demandes: []requestJSON{}, Note: "pas d'adresse : personne connue par la campagne seulement"},
+			"Demandes de " + p.Name + " : pas d'adresse", nil
+	}
 	rows, err := t.s.tickets.ByEmail(ctx, p.Email)
 	if err != nil {
 		return nil, "", err
@@ -757,6 +830,72 @@ func (t *toolbox) memberRequests(ctx context.Context, input json.RawMessage) (an
 		t.addSource(assistant.Source{Label: r.Ref, Link: "/demandes/" + strconv.FormatInt(r.ID, 10)})
 	}
 	return out, "Demandes de " + p.Name + " lues", nil
+}
+
+// --- member_membership
+
+// campaignEntryJSON is an entry of the « Adhésion » or « License » cell.
+type campaignEntryJSON struct {
+	Libelle   string `json:"libelle,omitempty"`
+	Etat      string `json:"etat,omitempty"` // Réglé, Au panier, état inconnu : …
+	Montant   string `json:"montant,omitempty"`
+	Moyen     string `json:"moyen,omitempty"`
+	Le        string `json:"le,omitempty"`
+	AVerifier string `json:"a_verifier,omitempty"` // an unreadable entry, as received
+}
+
+// membershipJSON is a campaign line, with the fields of the request block.
+type membershipJSON struct {
+	Nom        string              `json:"nom"`
+	Statut     string              `json:"statut"`
+	Validation string              `json:"validation"`
+	Adhesion   []campaignEntryJSON `json:"adhesion"`
+	Licence    []campaignEntryJSON `json:"licence"`
+	Reglement  string              `json:"reglement,omitempty"`
+}
+
+type membershipResult struct {
+	Import   importState      `json:"import_campagne"`
+	ExportDu string           `json:"export_du,omitempty"`
+	Etat     string           `json:"etat"`
+	Lignes   []membershipJSON `json:"lignes"`
+}
+
+func (t *toolbox) memberMembership(ctx context.Context, input json.RawMessage) (any, string, error) {
+	p, _, _, problem := t.member(input, 0)
+	if problem != nil {
+		return *problem, "Lecture de campagne refusée", nil
+	}
+	state, info, people, err := t.s.campaign.NameLines(ctx, p.NameHash)
+	if err != nil {
+		return nil, "", err
+	}
+	out := membershipResult{Import: t.importSource(imports.Campaign, t.s.stateOf(info, info.ID != 0)),
+		ExportDu: t.s.formatTime(info.ExportedAt), Etat: blockState[state], Lignes: []membershipJSON{}}
+	if state == payments.BlockAmbiguous {
+		out.Etat = "homonyme"
+	}
+	for _, l := range people {
+		j := membershipJSON{Nom: strings.TrimSpace(l.FirstName + " " + l.LastName), Statut: l.Status, Validation: "Pas encore validé",
+			Adhesion: t.s.entriesJSON(l.Membership), Licence: t.s.entriesJSON(l.Licence), Reglement: l.Settlement}
+		if l.Status == campaign.StatusValidated {
+			j.Validation = t.s.validation(l)
+		}
+		out.Lignes = append(out.Lignes, j)
+	}
+	return out, "Campagne d'adhésion de " + p.Name + " lue", nil
+}
+
+func (s *Server) entriesJSON(entries []campaign.Entry) []campaignEntryJSON {
+	out := make([]campaignEntryJSON, len(entries))
+	for i, e := range entries {
+		if e.Unreadable() {
+			out[i] = campaignEntryJSON{AVerifier: e.Raw}
+			continue
+		}
+		out[i] = campaignEntryJSON{Libelle: e.Label, Etat: stateText(e.State), Montant: euros(e.Amount), Moyen: e.Method, Le: s.formatDate(e.PaidOn)}
+	}
+	return out
 }
 
 // --- find_outings and outing

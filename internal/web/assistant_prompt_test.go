@@ -88,6 +88,7 @@ func TestQuestionText(t *testing.T) {
 	assert.Contains(t, first, "Nous sommes le mercredi 2 septembre 2026, 12:00 (heure de Paris).")
 	assert.Contains(t, first, "- Liste des membres : reçu le 02/09/2026")
 	assert.Contains(t, first, "- Paiements VPDive : aucun import")
+	assert.Contains(t, first, "- Campagne d'adhésion : aucun import")
 	assert.Contains(t, first, "<saisie_resolveur>\n\"Hugo ([email 1], [téléphone]) a un souci.\"\n</saisie_resolveur>")
 	assert.NotContains(t, first, "@")
 

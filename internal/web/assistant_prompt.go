@@ -147,7 +147,7 @@ func (s *Server) assistantContext(ctx context.Context) (string, error) {
 	now := s.now().In(s.paris)
 	var b strings.Builder
 	b.WriteString("Nous sommes le " + frLongDay(now) + ", " + now.Format("15:04") + " (heure de Paris).\nImports en place :\n")
-	for _, kind := range []imports.Kind{imports.Members, imports.Payments, imports.Mollie, imports.Calendar, imports.Carnets} {
+	for _, kind := range []imports.Kind{imports.Members, imports.Payments, imports.Mollie, imports.Calendar, imports.Carnets, imports.Campaign} {
 		st, err := s.importState(ctx, kind)
 		if err != nil {
 			return "", err

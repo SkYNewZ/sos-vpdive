@@ -230,6 +230,11 @@ func TestAddPersonOnce(t *testing.T) {
 	assert.Equal(t, "b@example.org", p.Email)
 	_, ok = c.Person("m9")
 	assert.False(t, ok)
+
+	// Known by the campaign only: no address, one ref per name hash.
+	assert.Equal(t, "m3", c.AddPerson(Person{NameHash: []byte("roux")}))
+	assert.Equal(t, "m4", c.AddPerson(Person{NameHash: []byte("inconnu")}))
+	assert.Equal(t, "m3", c.AddPerson(Person{NameHash: []byte("roux")}))
 }
 
 func TestStoreNilStopStillBusy(t *testing.T) {

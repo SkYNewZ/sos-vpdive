@@ -376,7 +376,7 @@ func TestToolDefsAreServed(t *testing.T) {
 		require.NoError(t, err, def.Name)
 		assert.NotContains(t, out, "outil inconnu", def.Name)
 	}
-	assert.ElementsMatch(t, []string{"find_member", "member_payments", "member_outings", "member_requests",
+	assert.ElementsMatch(t, []string{"find_member", "member_payments", "member_outings", "member_membership", "member_requests",
 		"find_outings", "outing", "cancellations", "read_fiche"}, names)
 }
 

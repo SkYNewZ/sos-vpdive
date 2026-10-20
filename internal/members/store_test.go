@@ -403,11 +403,11 @@ func TestNameCount(t *testing.T) {
 }
 
 func TestNameWords(t *testing.T) {
-	assert.Equal(t, []string{"jean", "michel", "roux"}, nameWords("Jean-Michel  ROUX"))
-	assert.Equal(t, []string{"lea", "martin"}, nameWords("Léa Martin"))
-	assert.Equal(t, []string{"oconnor"}, nameWords("O'Connor"), "an apostrophe joins, as NormalizeName does")
-	assert.Equal(t, []string{"lea"}, nameWords("Le\u0301a"), "a decomposed accent stays in its word")
-	assert.Empty(t, nameWords(" - "))
+	assert.Equal(t, []string{"jean", "michel", "roux"}, NameWords("Jean-Michel  ROUX"))
+	assert.Equal(t, []string{"lea", "martin"}, NameWords("Léa Martin"))
+	assert.Equal(t, []string{"oconnor"}, NameWords("O'Connor"), "an apostrophe joins, as NormalizeName does")
+	assert.Equal(t, []string{"lea"}, NameWords("Le\u0301a"), "a decomposed accent stays in its word")
+	assert.Empty(t, NameWords(" - "))
 }
 
 func TestSearch(t *testing.T) {

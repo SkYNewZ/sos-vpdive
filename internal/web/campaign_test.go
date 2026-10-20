@@ -219,3 +219,92 @@ func TestRequestPageCampaignBlock(t *testing.T) {
 	cookie = e.login(t) // logins expire after 30 days of test clock
 	assert.Contains(t, block(hugo.ID), "Plus de 90 jours sans import : la campagne d'adhésion a été effacée.")
 }
+
+// Design 2026-10-20 « Assistant »: member_membership gives the campaign line
+// of a person as the request block does, a homonym without detail.
+func TestToolMemberMembership(t *testing.T) {
+	e, tb := toolEnv(t)
+	tb.call(t, "find_member", `{"query":"Hugo Bernard"}`)
+	got, _ := tb.call(t, "member_membership", `{"ref":"m1"}`)
+	assert.Equal(t, "aucun_import", got["etat"])
+
+	e.importCampaign(t)
+	got, step := tb.call(t, "member_membership", `{"ref":"m1"}`)
+	assert.Equal(t, "Campagne d'adhésion de Hugo Bernard lue", step)
+	assert.Equal(t, "ok", got["etat"])
+	assert.Equal(t, "21/10/2026 à 09:15", got["export_du"], "the export date is authoritative")
+	assert.NotEmpty(t, got["import_campagne"].(map[string]any)["recu"])
+	lines := got["lignes"].([]any)
+	require.Len(t, lines, 1)
+	hugo := mustJSON(t, lines[0])
+	for _, want := range []string{`"statut":"En cours"`, `"validation":"Pas encore validé"`, `"etat":"Réglé"`,
+		`"montant":"50,00 €"`, `"moyen":"vpaydive"`, `"le":"12/10/2026"`, `"reglement":"Tout réglé"`} {
+		assert.Contains(t, hugo, want)
+	}
+	assert.Equal(t, "Campagne d'adhésion", tb.sources[len(tb.sources)-1].Label)
+
+	tb.call(t, "find_member", `{"query":"Chloé Petit"}`)
+	got, _ = tb.call(t, "member_membership", `{"ref":"m2"}`)
+	assert.Contains(t, mustJSON(t, got["lignes"]), `"validation":"Validé le 14/10/2026 à 18:32 par Hugo Bernard"`)
+
+	tb.call(t, "find_member", `{"query":"Noé Durand"}`)
+	got, _ = tb.call(t, "member_membership", `{"ref":"m3"}`)
+	assert.Contains(t, mustJSON(t, got["lignes"]), `"etat":"Au panier"`)
+
+	tb.call(t, "find_member", `{"query":"Max Roux"}`)
+	got, _ = tb.call(t, "member_membership", `{"ref":"m4"}`)
+	assert.Contains(t, got["erreur"], "trois personnes", "the membership counts among the people read")
+
+	tb.read = nil
+	got, _ = tb.call(t, "member_membership", `{"ref":"m4"}`)
+	roux := mustJSON(t, got["lignes"])
+	assert.Contains(t, roux, `"validation":"Validé, validation illisible"`)
+	assert.Contains(t, roux, `"a_verifier":"Adhésion réglée en espèces"`)
+
+	tb.call(t, "find_member", `{"query":"Léa Martin"}`)
+	got, _ = tb.call(t, "member_membership", `{"ref":"m5"}`)
+	assert.Equal(t, "homonyme", got["etat"])
+	assert.Empty(t, got["lignes"], "no detail for a homonym")
+}
+
+// Design 2026-10-20 « Assistant »: a new member is in the campaign before
+// the members list; find_member offers them, once, without an address.
+func TestToolFindMemberInTheCampaign(t *testing.T) {
+	e, tb := toolEnv(t)
+	e.importCampaign(t)
+	got, _ := tb.call(t, "find_member", `{"query":"Max Roux"}`)
+	assert.Equal(t, "exacte", got["correspondance"])
+	cands := got["candidats"].([]any)
+	require.Len(t, cands, 1)
+	roux := cands[0].(map[string]any)
+	assert.Equal(t, map[string]any{"ref": "m1", "nom": "Max Roux", "source": "campagne"}, roux)
+	assert.Empty(t, tb.c.People[0].Email)
+
+	got, _ = tb.call(t, "find_member", `{"query":"roux"}`)
+	assert.Equal(t, "m1", got["candidats"].([]any)[0].(map[string]any)["ref"], "one ref per person")
+
+	got, _ = tb.call(t, "find_member", `{"query":"Paul Inconnu"}`)
+	cands = got["candidats"].([]any)
+	require.Len(t, cands, 1, "two campaign lines of one name: one candidate")
+	assert.Equal(t, true, cands[0].(map[string]any)["homonyme"])
+
+	got, _ = tb.call(t, "find_member", `{"query":"Hugo Bernard"}`)
+	cands = got["candidats"].([]any)
+	require.Len(t, cands, 1, "a member's campaign line is not a second candidate")
+	assert.NotContains(t, cands[0], "source")
+	assert.Len(t, tb.c.People, 3)
+}
+
+// Design 2026-10-20 « Assistant »: a tool that needs an address answers a
+// campaign-only person normally; an error would end the whole answer.
+func TestToolMemberRequestsOfACampaignPerson(t *testing.T) {
+	e, tb := toolEnv(t)
+	e.importCampaign(t)
+	tb.call(t, "find_member", `{"query":"Max Roux"}`)
+	got, _ := tb.call(t, "member_membership", `{"ref":"m1"}`)
+	assert.Equal(t, "ok", got["etat"])
+	got, step := tb.call(t, "member_requests", `{"ref":"m1"}`)
+	assert.Equal(t, "pas d'adresse : personne connue par la campagne seulement", got["note"])
+	assert.Empty(t, got["demandes"])
+	assert.Equal(t, "Demandes de Max Roux : pas d'adresse", step)
+}
