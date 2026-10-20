@@ -3,7 +3,6 @@ package carnets
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -82,43 +81,13 @@ func (s *Store) forgetAuthor(ctx context.Context, tx *sql.Tx, last, first string
 	if isMember == nil {
 		return nil
 	}
-	type row struct {
-		id     int64
-		sealed []byte
-	}
-	rows, err := tx.QueryContext(ctx, `SELECT id, data FROM carnets`)
-	all, err := store.Collect(rows, err, func(rows *sql.Rows) (r row, err error) {
-		err = rows.Scan(&r.id, &r.sealed)
-		return r, err
-	})
-	if err != nil {
-		return fmt.Errorf("cards to check for an author: %w", err)
-	}
-	for _, r := range all {
-		plain, err := s.keys.Open(r.sealed)
-		if err != nil {
-			return fmt.Errorf("decrypt card: %w", err)
-		}
-		var c Card
-		if err := json.Unmarshal(plain, &c); err != nil {
-			return fmt.Errorf("decode card: %w", err)
-		}
+	return s.RewriteTx(ctx, tx, func(c *Card) bool {
 		changed := false
 		for i := range c.Entries {
 			if isMember(c.Entries[i].By) {
 				c.Entries[i].By, changed = "", true
 			}
 		}
-		if !changed {
-			continue
-		}
-		data, err := json.Marshal(c)
-		if err != nil {
-			return fmt.Errorf("encode card: %w", err)
-		}
-		if _, err := tx.ExecContext(ctx, `UPDATE carnets SET data = ? WHERE id = ?`, s.keys.Seal(data), r.id); err != nil {
-			return fmt.Errorf("blank a card's author: %w", err)
-		}
-	}
-	return nil
+		return changed
+	})
 }

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/calendar"
+	"github.com/SkYNewZ/sos-vpdive/internal/campaign"
 	"github.com/SkYNewZ/sos-vpdive/internal/carnets"
 	"github.com/SkYNewZ/sos-vpdive/internal/imports"
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
@@ -239,6 +240,7 @@ type export struct {
 	mollie   *payments.MollieExport
 	calendar *calendar.Export
 	carnets  *carnets.Export
+	campaign *campaign.Export
 }
 
 // readExport reads and validates an export of kind, whatever its source:
@@ -286,6 +288,10 @@ func (s *Server) readExport(ctx context.Context, kind imports.Kind, data []byte)
 			if exp.carnets, err = carnets.Parse(data, s.paris); err == nil {
 				exp.carnets.FileHash = hash
 				err = s.carnets.Resolve(ctx, exp.carnets)
+			}
+		case imports.Campaign:
+			if exp.campaign, err = campaign.Parse(rows, s.paris); err == nil {
+				exp.campaign.FileHash = hash
 			}
 		}
 		return err
@@ -472,6 +478,8 @@ func unreadableMessage(kind imports.Kind) string {
 		return unreadable + " Dépose l'export « Télécharger Excel » de la page des paiements."
 	case imports.Mollie:
 		return unreadable + " Dépose l'export « Exporter (Excel) » de la page VPayDive."
+	case imports.Campaign:
+		return unreadable + " Dépose l'export « Télécharger » de la page de la campagne d'adhésion."
 	}
 	return unreadable
 }

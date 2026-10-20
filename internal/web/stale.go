@@ -97,7 +97,7 @@ func (s *Server) alertStale(ctx context.Context, last imports.Info) (bool, error
 			advice = "Seul le script d'import dépose le calendrier, et il est peut-être en panne. Dernier calendrier reçu"
 		case imports.Carnets:
 			advice = "Seul le script d'import dépose les cartes VPDive, et il est peut-être en panne. Dernières cartes reçues"
-		case imports.Members, imports.Payments, imports.Mollie:
+		case imports.Members, imports.Payments, imports.Mollie, imports.Campaign:
 		}
 		text := fmt.Sprintf("Le dernier import (%s) date du %s.\n\n%s", exportNames[last.Kind], s.formatDate(last.ImportedAt), advice)
 		if err := s.queueImportsMail(ctx, tx, mail.EventImportStale, "Import ancien : "+exportNames[last.Kind], text); err != nil {

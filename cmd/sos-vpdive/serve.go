@@ -22,6 +22,7 @@ import (
 	"github.com/SkYNewZ/sos-vpdive/internal/admins"
 	"github.com/SkYNewZ/sos-vpdive/internal/blobs"
 	"github.com/SkYNewZ/sos-vpdive/internal/calendar"
+	"github.com/SkYNewZ/sos-vpdive/internal/campaign"
 	"github.com/SkYNewZ/sos-vpdive/internal/carnets"
 	"github.com/SkYNewZ/sos-vpdive/internal/config"
 	"github.com/SkYNewZ/sos-vpdive/internal/mail"
@@ -54,6 +55,7 @@ type app struct {
 	mollie   *payments.MollieStore
 	calendar *calendar.Store
 	carnets  *carnets.Store
+	campaign *campaign.Store
 	tickets  *tickets.Store
 	outbox   *mail.Outbox
 	senders  mail.Router // one sender per configured channel
@@ -111,6 +113,7 @@ func setup(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*app, 
 	mollieStore := payments.NewMollieStore(db, keys, time.Now)
 	calendarStore := calendar.NewStore(db, keys, time.Now)
 	carnetStore := carnets.NewStore(db, keys, time.Now)
+	campaignStore := campaign.NewStore(db, keys, time.Now)
 	outbox := mail.NewOutbox(db, keys, time.Now)
 	pushStore := push.NewStore(db, keys, time.Now)
 	var (
@@ -124,14 +127,15 @@ func setup(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*app, 
 	senders, alerts := alertSenders(cfg, registry, webPush, logger)
 	broker := web.NewBroker()
 	ticketStore := tickets.NewStore(tickets.Deps{
-		DB: db, Keys: keys, Catalog: catalog, Members: memberStore, Payments: paymentStore, Mollie: mollieStore, Calendar: calendarStore, Carnets: carnetStore, Outbox: outbox,
+		DB: db, Keys: keys, Catalog: catalog, Members: memberStore, Payments: paymentStore, Mollie: mollieStore, Calendar: calendarStore, Carnets: carnetStore,
+		Campaign: campaignStore, Outbox: outbox,
 		Blobs: captures, Account: registry.Get, BaseURL: cfg.BaseURL, AdminBaseURL: cfg.AdminBaseURL,
 		ClubEmail: cfg.NotifyEmail.Address, Alerts: alerts, RetentionDays: cfg.RetentionDays,
 		Now: time.Now, Logger: logger, OnChange: broker.Publish,
 	})
 	a := &app{
 		logger: logger, db: db, admins: registry, members: memberStore, payments: paymentStore, mollie: mollieStore, calendar: calendarStore, carnets: carnetStore,
-		tickets: ticketStore, outbox: outbox,
+		campaign: campaignStore, tickets: ticketStore, outbox: outbox,
 		senders: senders, push: pushStore, broker: broker,
 	}
 	if err := ticketStore.ReleaseMissing(ctx, registry.Has); err != nil {
@@ -142,7 +146,8 @@ func setup(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*app, 
 		turnstile = web.NewTurnstile(cfg.TurnstileSiteKey, cfg.TurnstileSecretKey, "")
 	}
 	a.web, err = web.New(web.Deps{
-		Config: cfg, DB: db, Keys: keys, Members: memberStore, Payments: paymentStore, Mollie: mollieStore, Calendar: calendarStore, Carnets: carnetStore, Admins: registry,
+		Config: cfg, DB: db, Keys: keys, Members: memberStore, Payments: paymentStore, Mollie: mollieStore, Calendar: calendarStore, Carnets: carnetStore,
+		Campaign: campaignStore, Admins: registry,
 		Content: sosvpdive.Content, Logger: logger, Now: time.Now, Turnstile: turnstile,
 		Tickets: ticketStore, Outbox: outbox, Push: pushStore, PushTest: pushTest, Broker: broker, KB: base,
 	})
@@ -283,6 +288,7 @@ func (a *app) purge(ctx context.Context) {
 		{"purge_mollie", a.mollie.Purge},
 		{"purge_calendar", a.calendar.Purge},
 		{"purge_carnets", a.carnets.Purge},
+		{"purge_campaign", a.campaign.Purge},
 		{"alert_stale_imports", a.web.AlertStaleImports},
 		{"purge_tickets", a.tickets.Purge},
 		{"purge_outbox", a.outbox.Purge},

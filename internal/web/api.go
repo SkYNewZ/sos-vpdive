@@ -198,7 +198,7 @@ func tooFewMessage(kind imports.Kind) string {
 		return "Ce calendrier contient moins de la moitié des événements en place sur sa période. Vérifie le calendrier dans VPDive."
 	case imports.Carnets:
 		return "Cet envoi contient moins de la moitié des cartes en place. Vérifie les cartes sur la page Paiements de VPDive : si elles y sont, le script d'import est peut-être en panne."
-	case imports.Members, imports.Payments, imports.Mollie:
+	case imports.Members, imports.Payments, imports.Mollie, imports.Campaign:
 	}
 	return "Ce fichier contient moins de la moitié des données en place. S'il est juste, dépose-le à la main sur la page des imports."
 }
@@ -223,6 +223,8 @@ func (s *Server) importPushed(ctx context.Context, exp export) error {
 		return s.calendar.Import(ctx, exp.calendar)
 	case exp.carnets != nil:
 		return s.carnets.Import(ctx, exp.carnets)
+	case exp.campaign != nil:
+		return s.campaign.Import(ctx, exp.campaign)
 	default:
 		return s.mollie.Import(ctx, exp.mollie)
 	}
@@ -241,6 +243,8 @@ func (e export) counts() pushed {
 		p.Kept, p.Skipped, p.ToCheck = len(e.mollie.Lines), e.mollie.Skipped, e.mollie.ToCheck()
 	case e.calendar != nil:
 		p.Kept, p.Skipped = len(e.calendar.Events), e.calendar.Skipped
+	case e.campaign != nil:
+		p.Kept, p.Skipped = len(e.campaign.People), e.campaign.Skipped
 	case e.carnets != nil: // a card without holder is neither kept nor skipped
 		return pushed{Read: e.carnets.Read, Kept: len(e.carnets.Cards), Skipped: e.carnets.Skipped, ToCheck: e.carnets.ToCheck}
 	}
@@ -259,7 +263,7 @@ func (s *Server) refusePushed(w http.ResponseWriter, r *http.Request, kind impor
 		next = "Le script d'import est peut-être en panne. Dernier calendrier reçu"
 	case imports.Carnets:
 		next = "Le script d'import est peut-être en panne. Dernières cartes reçues"
-	case imports.Members, imports.Payments, imports.Mollie:
+	case imports.Members, imports.Payments, imports.Mollie, imports.Campaign:
 	}
 	text := fmt.Sprintf("Le script d'import a déposé un fichier que l'outil a refusé : %s.\n\nRaison : %s\n\n"+
 		"Les données en place n'ont pas changé. %s", exportNames[kind], answer.Message, next)

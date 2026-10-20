@@ -10,10 +10,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/blobs"
+	"github.com/SkYNewZ/sos-vpdive/internal/campaign"
 	"github.com/SkYNewZ/sos-vpdive/internal/carnets"
+	"github.com/SkYNewZ/sos-vpdive/internal/imports"
 	"github.com/SkYNewZ/sos-vpdive/internal/members/memberstest"
 	"github.com/SkYNewZ/sos-vpdive/internal/payments/paymentstest"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
+	"github.com/SkYNewZ/sos-vpdive/internal/xlsx"
 )
 
 func TestDeleteCaptureAndMessage(t *testing.T) {
@@ -116,6 +119,13 @@ func TestErase(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, e.store.Carnets.Resolve(ctx, pushed))
 	require.NoError(t, e.store.Carnets.Import(ctx, pushed))
+	workbook, err := os.ReadFile(memberstest.FixturePath("campaign_valid.xlsx"))
+	require.NoError(t, err)
+	rows, err := xlsx.ReadFirstSheet(workbook, imports.Limits())
+	require.NoError(t, err)
+	people, err := campaign.Parse(rows, time.UTC)
+	require.NoError(t, err)
+	require.NoError(t, e.store.Campaign.Import(ctx, people))
 	e.submit(t, png())
 	first, _ := e.submit(t)
 	require.NoError(t, e.apply(t, first, Command{Action: ActionClose}))
@@ -127,7 +137,7 @@ func TestErase(t *testing.T) {
 
 	preview, err := e.store.PreviewErasure(ctx, " Lea.Martin@example.org")
 	require.NoError(t, err)
-	assert.Equal(t, Erasure{Tickets: 2, Member: true, PaymentLines: 2, MollieLines: 2, Cards: 1}, preview, "the homonym's lines go too (owner decision)")
+	assert.Equal(t, Erasure{Tickets: 2, Member: true, PaymentLines: 2, MollieLines: 2, Cards: 1, CampaignLines: 2}, preview, "the homonym's lines go too (owner decision)")
 
 	done, err := e.store.Erase(ctx, " Lea.Martin@example.org", "alice")
 	require.NoError(t, err)
@@ -144,6 +154,7 @@ func TestErase(t *testing.T) {
 	assert.Zero(t, e.count(t, `SELECT COUNT(*) FROM online_payment_lines WHERE name_hash = ?`, e.keys.Hash(secure.NameKey("Martin", "Léa"))))
 	assert.Equal(t, 14, e.count(t, `SELECT COUNT(*) FROM online_payment_lines`), "and their Mollie lines")
 	assert.Equal(t, 3, e.count(t, `SELECT COUNT(*) FROM carnets`), "Léa's card goes, the others stay")
+	assert.Equal(t, 8, e.count(t, `SELECT COUNT(*) FROM campaign_lines`), "Léa and her homonym go, the others stay")
 	assert.Empty(t, e.objects(t))
 	assert.Equal(t, 1, e.count(t, `SELECT COUNT(*) FROM stats_monthly`), "the closed request is still counted")
 	assert.Contains(t, e.logs.String(), `"msg":"person erased"`)

@@ -16,6 +16,7 @@ import (
 	"github.com/SkYNewZ/sos-vpdive/internal/admins"
 	"github.com/SkYNewZ/sos-vpdive/internal/blobs"
 	"github.com/SkYNewZ/sos-vpdive/internal/calendar"
+	"github.com/SkYNewZ/sos-vpdive/internal/campaign"
 	"github.com/SkYNewZ/sos-vpdive/internal/carnets"
 	"github.com/SkYNewZ/sos-vpdive/internal/mail"
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
@@ -166,6 +167,7 @@ type Deps struct {
 	Mollie        *payments.MollieStore
 	Calendar      *calendar.Store
 	Carnets       *carnets.Store
+	Campaign      *campaign.Store
 	Outbox        *mail.Outbox
 	Blobs         blobs.Store
 	Account       func(username string) (admins.Account, bool)

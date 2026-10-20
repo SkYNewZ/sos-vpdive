@@ -1,7 +1,7 @@
-// Package imports holds what the members, payments, Mollie, calendar and carnets imports share
-// (spec §7.2, §7.6): the imports journal, unconfirmed previews kept in
-// memory, the replacement transaction with the guards of a pushed import, and
-// the « ambiguë » mark of payment lines (§7.3).
+// Package imports holds what the members, payments, Mollie, calendar, carnets
+// and campaign imports share (spec §7.2, §7.6): the imports journal,
+// unconfirmed previews kept in memory, the replacement transaction with the
+// guards of a pushed import, and the « ambiguë » mark of payment lines (§7.3).
 package imports
 
 import (
@@ -37,6 +37,7 @@ const (
 	Mollie   Kind = "vpaydive" // the VPayDive export, Mollie collections (spec §7.5)
 	Calendar Kind = "calendar" // the activity calendar pushed as JSON (lot 8)
 	Carnets  Kind = "carnets"  // the carnet carts pushed as JSON (design 2026-10-09)
+	Campaign Kind = "campaign" // the membership campaign export (design 2026-10-20)
 )
 
 // ScriptAuthor is the journal author of a pushed import (spec §7.6).
@@ -49,6 +50,7 @@ var inPlace = map[Kind]string{
 	Payments: `SELECT COUNT(*) FROM payment_lines`,
 	Mollie:   `SELECT COUNT(*) FROM online_payment_lines`,
 	Carnets:  `SELECT COUNT(*) FROM carnets`,
+	Campaign: `SELECT COUNT(*) FROM campaign_lines`,
 }
 
 // Limits are the workbook limits applied to every upload (spec §7.2): 50 MiB
@@ -196,9 +198,9 @@ func replace(ctx context.Context, tx *sql.Tx, e Entry, fn func(ctx context.Conte
 	return MarkAmbiguous(ctx, tx)
 }
 
-// MarkAmbiguous marks the payment, Mollie and card lines whose name belongs to
-// several members. The mark is never cleared: only a new import of the lines
-// starts afresh (spec §7.3, §7.5).
+// MarkAmbiguous marks the payment, Mollie, card and campaign lines whose name
+// belongs to several members. The mark is never cleared: only a new import of
+// the lines starts afresh (spec §7.3, §7.5).
 func MarkAmbiguous(ctx context.Context, tx *sql.Tx) error {
 	for _, q := range []string{
 		`UPDATE payment_lines SET ambiguous = 1
@@ -206,6 +208,8 @@ func MarkAmbiguous(ctx context.Context, tx *sql.Tx) error {
 		`UPDATE online_payment_lines SET ambiguous = 1
 		 WHERE ambiguous = 0 AND name_hash IN (SELECT name_hash FROM members GROUP BY name_hash HAVING COUNT(*) > 1)`,
 		`UPDATE carnets SET ambiguous = 1
+		 WHERE ambiguous = 0 AND name_hash IN (SELECT name_hash FROM members GROUP BY name_hash HAVING COUNT(*) > 1)`,
+		`UPDATE campaign_lines SET ambiguous = 1
 		 WHERE ambiguous = 0 AND name_hash IN (SELECT name_hash FROM members GROUP BY name_hash HAVING COUNT(*) > 1)`,
 	} {
 		if _, err := tx.ExecContext(ctx, q); err != nil {
