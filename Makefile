@@ -17,7 +17,7 @@ css:
 
 # Regenerate the synthetic workbooks in testdata/fixtures/.
 fixtures:
-	go test ./internal/members ./internal/payments -run TestFixturesAreUpToDate -update
+	go test ./internal/members ./internal/payments ./internal/campaign -run TestFixturesAreUpToDate -update
 
 # Redraw kb/<id>.svg from each fiche's ```mermaid block (needs Node; the SVGs are committed).
 diagrams:
