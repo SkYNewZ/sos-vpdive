@@ -61,7 +61,7 @@ func (s *Server) membershipsPage(w http.ResponseWriter, r *http.Request) {
 			{ID: "valides", Title: "Validés"},
 			{ID: "incomplets", Title: "Incomplets", Intro: "Une seule des deux réglée, ou au panier sans paiement."},
 		}}
-	people := slices.Clone(o.People)
+	people := o.People // fresh from Overview: sorted in place
 	slices.SortStableFunc(people, func(a, b payments.Marked[campaign.Person]) int {
 		return cmp.Or(
 			cmp.Compare(secure.NormalizeName(a.Line.LastName), secure.NormalizeName(b.Line.LastName)),
@@ -73,7 +73,7 @@ func (s *Server) membershipsPage(w http.ResponseWriter, r *http.Request) {
 		var i int
 		switch {
 		case p.Status == campaign.StatusValidated:
-			i, v.Validation, v.Unpaid = 1, s.validation(p), !membership || !licence
+			i, v.Unpaid = 1, !membership || !licence
 		case membership && licence && p.Status == campaign.StatusPending:
 			i, v.Validation = 0, "En attente de validation"
 		case len(p.Membership)+len(p.Licence) > 0:
@@ -96,6 +96,9 @@ func (s *Server) membershipsPage(w http.ResponseWriter, r *http.Request) {
 func (s *Server) campaignRow(m payments.Marked[campaign.Person]) campaignRow {
 	p := m.Line
 	v := campaignRow{Name: strings.TrimSpace(p.LastName + " " + p.FirstName), Homonym: m.Ambiguous}
+	if p.Status == campaign.StatusValidated {
+		v.Validation = s.validation(p)
+	}
 	view := func(entries []campaign.Entry, isMembership bool) []campaignEntry {
 		out := make([]campaignEntry, len(entries))
 		for i, e := range entries {
@@ -184,11 +187,7 @@ func (s *Server) campaignBlock(ctx context.Context, nameHash []byte, typedLast, 
 		return campaignBlock{}, err
 	}
 	for _, p := range people {
-		v := campaignPerson{campaignRow: s.campaignRow(payments.Marked[campaign.Person]{Line: p}), Status: p.Status, Settlement: p.Settlement}
-		if p.Status == campaign.StatusValidated {
-			v.Validation = s.validation(p)
-		}
-		b.People = append(b.People, v)
+		b.People = append(b.People, campaignPerson{campaignRow: s.campaignRow(payments.Marked[campaign.Person]{Line: p}), Status: p.Status, Settlement: p.Settlement})
 	}
 	return b, nil
 }
