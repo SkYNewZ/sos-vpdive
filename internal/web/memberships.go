@@ -69,7 +69,7 @@ func (s *Server) membershipsPage(w http.ResponseWriter, r *http.Request) {
 	})
 	for _, m := range people {
 		p, v := m.Line, s.campaignRow(m)
-		membership, licence := paid(p.Membership), paid(p.Licence)
+		membership, licence := campaign.Paid(p.Membership), campaign.Paid(p.Licence)
 		var i int
 		switch {
 		case p.Status == campaign.StatusValidated:
@@ -120,11 +120,6 @@ func (s *Server) validation(p campaign.Person) string {
 		return "Validé le " + s.formatTime(p.ValidatedAt)
 	}
 	return "Validé le " + s.formatTime(p.ValidatedAt) + " par " + p.ValidatedBy
-}
-
-// paid tells whether one of the entries is paid.
-func paid(entries []campaign.Entry) bool {
-	return slices.ContainsFunc(entries, func(e campaign.Entry) bool { return e.State == campaign.StatePaid })
 }
 
 // missing says what keeps an incomplete person off the list to validate.

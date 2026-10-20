@@ -39,21 +39,25 @@ func TestAcknowledgementSaysTheMembershipWaitsForTheClub(t *testing.T) {
 	cases := []struct {
 		name, email, first, last, category string
 		keep                               func(campaign.Person) bool
+		age                                time.Duration // of the campaign import when the request comes
 		want                               bool
 	}{
-		{"all four hold", "hugo.bernard@example.org", "Hugo", "Bernard", "adhesion", everyone, true},
-		{"another category", "hugo.bernard@example.org", "Hugo", "Bernard", "carnet", everyone, false},
-		{"not in the members list, never by the typed name", "nouveau@example.org", "Hugo", "Bernard", "adhesion", everyone, false},
-		{"no campaign line for the member", "hugo.bernard@example.org", "Hugo", "Bernard", "adhesion",
-			func(p campaign.Person) bool { return p.LastName != "Bernard" }, false},
-		{"homonyms", "lea.martin@example.org", "Léa", "Martin", "adhesion", everyone, false},
-		{"already validated", "chloe.petit@example.org", "Chloé", "Petit", "adhesion", everyone, false},
+		{"all four hold, something unpaid", "noe.durand@example.org", "Noé", "Durand", "adhesion", everyone, 0, true},
+		{"import older than CAMPAIGN_MAX_AGE", "noe.durand@example.org", "Noé", "Durand", "adhesion", everyone, 49 * time.Hour, false},
+		{"both paid, to validate: nothing blocks the payment", "hugo.bernard@example.org", "Hugo", "Bernard", "adhesion", everyone, 0, false},
+		{"another category", "noe.durand@example.org", "Noé", "Durand", "carnet", everyone, 0, false},
+		{"not in the members list, never by the typed name", "nouveau@example.org", "Noé", "Durand", "adhesion", everyone, 0, false},
+		{"no campaign line for the member", "noe.durand@example.org", "Noé", "Durand", "adhesion",
+			func(p campaign.Person) bool { return p.LastName != "Durand" }, 0, false},
+		{"homonyms", "lea.martin@example.org", "Léa", "Martin", "adhesion", everyone, 0, false},
+		{"already validated", "chloe.petit@example.org", "Chloé", "Petit", "adhesion", everyone, 0, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			e := newTestStore(t)
+			e := newTestStore(t, func(d *Deps) { d.CampaignMaxAge = 48 * time.Hour })
 			memberstest.Import(t, e.members, "members_valid.xlsx")
 			e.importCampaign(t, c.keep)
+			e.clock.advance(c.age)
 			sub := submission(t)
 			sub.Email, sub.FirstName, sub.LastName, sub.Fields.Category = c.email, c.first, c.last, c.category
 			_, err := e.store.Submit(context.Background(), sub, nil)

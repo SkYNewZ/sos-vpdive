@@ -7,6 +7,7 @@ package campaign
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -58,6 +59,11 @@ type Entry struct {
 
 // Unreadable reports an entry outside the grammar, to check by hand.
 func (e Entry) Unreadable() bool { return e.Raw != "" }
+
+// Paid tells whether one of the entries is paid.
+func Paid(entries []Entry) bool {
+	return slices.ContainsFunc(entries, func(e Entry) bool { return e.State == StatePaid })
+}
 
 // Person is one row of the export, reduced to the read columns. It is stored
 // as sealed JSON; NameKey is hashed at import and never stored.

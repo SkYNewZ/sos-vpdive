@@ -131,7 +131,7 @@ func setup(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*app, 
 		Campaign: campaignStore, Outbox: outbox,
 		Blobs: captures, Account: registry.Get, BaseURL: cfg.BaseURL, AdminBaseURL: cfg.AdminBaseURL,
 		ClubEmail: cfg.NotifyEmail.Address, Alerts: alerts, RetentionDays: cfg.RetentionDays,
-		Now: time.Now, Logger: logger, OnChange: broker.Publish,
+		CampaignMaxAge: cfg.CampaignMaxAge, Now: time.Now, Logger: logger, OnChange: broker.Publish,
 	})
 	a := &app{
 		logger: logger, db: db, admins: registry, members: memberStore, payments: paymentStore, mollie: mollieStore, calendar: calendarStore, carnets: carnetStore,

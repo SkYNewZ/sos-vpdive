@@ -271,8 +271,10 @@ const categoryMembership = "adhesion"
 // membershipPending tells whether the acknowledgement of t says the
 // membership file waits for the club (design 2026-10-20 « Mail d'accusé de
 // réception »): a membership request from an address of the members list
-// whose name has one campaign line, not ambiguous, still « En cours ». Never
-// through the typed name: the mail would tell a stranger about a member.
+// whose name has one campaign line, not ambiguous, still « En cours » with
+// the membership or the licence unpaid, from an import younger than
+// CampaignMaxAge. Never through the typed name: the mail would tell a
+// stranger about a member.
 func (s *Store) membershipPending(ctx context.Context, t ticketRow) (bool, error) {
 	if t.category != categoryMembership {
 		return false, nil
@@ -281,9 +283,10 @@ func (s *Store) membershipPending(ctx context.Context, t ticketRow) (bool, error
 	if err != nil || !found {
 		return false, err
 	}
-	state, _, people, err := s.Campaign.NameLines(ctx, p.NameHash)
-	if err != nil {
+	state, info, people, err := s.Campaign.NameLines(ctx, p.NameHash)
+	if err != nil || state != payments.BlockLines || len(people) != 1 || s.Now().Sub(info.ImportedAt) > s.CampaignMaxAge {
 		return false, err
 	}
-	return state == payments.BlockLines && len(people) == 1 && people[0].Status == campaign.StatusPending, nil
+	pp := people[0]
+	return pp.Status == campaign.StatusPending && (!campaign.Paid(pp.Membership) || !campaign.Paid(pp.Licence)), nil
 }

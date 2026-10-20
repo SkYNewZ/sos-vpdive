@@ -167,7 +167,9 @@ is ambiguous, ask.
     payments.
   - The acknowledgement says the file waits for the club only when the
     category is `adhesion`, the address is a member's, their name has one
-    campaign line, not ambiguous, and its Statut is `En cours`.
+    campaign line, not ambiguous, its Statut is `En cours` with the
+    membership or the licence unpaid (« c'est ce qui bloque le paiement »),
+    and the import is younger than `CAMPAIGN_MAX_AGE`.
   - A person known by the campaign only has no address: erasure goes through
     VPDive (the next import drops them, the 90-day purge covers a stop). The
     assistant offers them as `find_member` candidates `source: "campagne"`;

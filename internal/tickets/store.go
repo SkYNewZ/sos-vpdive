@@ -159,26 +159,27 @@ func CleanText(s string, minRunes, maxRunes int) (clean string, ok bool) {
 
 // Deps are the store's collaborators.
 type Deps struct {
-	DB            *sql.DB
-	Keys          *secure.Keys
-	Catalog       *Catalog
-	Members       *members.Store
-	Payments      *payments.Store
-	Mollie        *payments.MollieStore
-	Calendar      *calendar.Store
-	Carnets       *carnets.Store
-	Campaign      *campaign.Store
-	Outbox        *mail.Outbox
-	Blobs         blobs.Store
-	Account       func(username string) (admins.Account, bool)
-	BaseURL       *url.URL       // members site, in member mails
-	AdminBaseURL  *url.URL       // committee site, in club mails
-	ClubEmail     string         // NOTIFY_EMAIL address, recipient of club mails
-	Alerts        []mail.Channel // configured alert channels besides the club mail; none allowed
-	RetentionDays int
-	Now           func() time.Time
-	Logger        *slog.Logger
-	OnChange      func(Change) // after each commit; nil allowed
+	DB             *sql.DB
+	Keys           *secure.Keys
+	Catalog        *Catalog
+	Members        *members.Store
+	Payments       *payments.Store
+	Mollie         *payments.MollieStore
+	Calendar       *calendar.Store
+	Carnets        *carnets.Store
+	Campaign       *campaign.Store
+	Outbox         *mail.Outbox
+	Blobs          blobs.Store
+	Account        func(username string) (admins.Account, bool)
+	BaseURL        *url.URL       // members site, in member mails
+	AdminBaseURL   *url.URL       // committee site, in club mails
+	ClubEmail      string         // NOTIFY_EMAIL address, recipient of club mails
+	Alerts         []mail.Channel // configured alert channels besides the club mail; none allowed
+	RetentionDays  int
+	CampaignMaxAge time.Duration // past it, the campaign import says nothing in a member mail
+	Now            func() time.Time
+	Logger         *slog.Logger
+	OnChange       func(Change) // after each commit; nil allowed
 }
 
 // Store reads and changes requests.
