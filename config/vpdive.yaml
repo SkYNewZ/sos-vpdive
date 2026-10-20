@@ -10,6 +10,9 @@ links:
   - key: membres
     label: Liste des membres, et export des membres
     path: /f/user/index
+  - key: campagne
+    label: Campagne d'adhésion
+    path: /f/campaign/users/OO2mtT1O0mAa_yIwb9uHGKUjEFuDTUbL_mVKy_l3KUk
   - key: messagerie
     label: Messagerie
     path: /app/messages

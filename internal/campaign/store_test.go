@@ -268,3 +268,33 @@ func TestEraseBlanksTheMemberAsValidatorOnly(t *testing.T) {
 	}))
 	assert.Equal(t, []string{"", "", "Hugo Durand", ""}, validators(), "half a name blanks nothing")
 }
+
+// Design « Page Suivi des adhésions »: the page reads every person in file
+// order with the « ambiguë » mark, and tells a purge from no import.
+func TestOverview(t *testing.T) {
+	f := newStoreFixture(t)
+	ctx := context.Background()
+	o, err := f.store.Overview(ctx)
+	require.NoError(t, err)
+	assert.False(t, o.Imported)
+	assert.False(t, o.Purged)
+
+	require.NoError(t, f.push(t, f.validFixture(t)))
+	o, err = f.store.Overview(ctx)
+	require.NoError(t, err)
+	assert.True(t, o.Imported)
+	assert.Equal(t, imports.ScriptAuthor, o.Import.ImportedBy)
+	require.Len(t, o.People, 10)
+	assert.Equal(t, "Bernard", o.People[0].Line.LastName, "file order")
+	assert.False(t, o.People[0].Ambiguous)
+	assert.Equal(t, "MARTIN", o.People[4].Line.LastName)
+	assert.True(t, o.People[4].Ambiguous, "a member's homonym")
+
+	f.clock.t = f.clock.t.AddDate(0, 0, 91)
+	require.NoError(t, f.store.Purge(ctx))
+	o, err = f.store.Overview(ctx)
+	require.NoError(t, err)
+	assert.False(t, o.Imported)
+	assert.True(t, o.Purged)
+	assert.Empty(t, o.People)
+}

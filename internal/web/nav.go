@@ -28,6 +28,7 @@ var adminNav = []navItem{
 	{Section: "anomalies", Path: "/anomalies", Label: "À vérifier", Icon: "list-checks", Tab: true},
 	{Section: "annulations", Path: "/annulations", Label: "Annulations", Icon: "calendar-x", Tab: true},
 	{Section: "calendrier", Path: "/calendrier", Label: "Calendrier", Icon: "calendar-days"},
+	{Section: "adhesions", Path: "/adhesions", Label: "Adhésions", Icon: "id-card"},
 	{Section: "assistant", Path: "/assistant", Label: "Assistant", Icon: "sparkles", Assistant: true},
 	{Section: "fiches", Path: "/fiches", Label: "Fiches", Icon: "book-open", Tab: true},
 	{Section: "imports", Path: importsPath, Label: "Imports", Icon: "upload"},

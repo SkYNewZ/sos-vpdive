@@ -239,6 +239,31 @@ func (t LineTable[T]) NameLines(ctx context.Context, nameHash []byte) (BlockStat
 	return BlockLines, info, lines, nil
 }
 
+// Marked is a stored line with its « ambiguë » mark: an ambiguous line is
+// never attributed to one person.
+type Marked[T any] struct {
+	Line      T
+	Ambiguous bool
+}
+
+// All returns every line in place, decrypted, in file order. Only a page
+// that lists everyone reads it (design 2026-10-20 « Effacement et vie
+// privée »).
+func (t LineTable[T]) All(ctx context.Context) ([]Marked[T], error) {
+	found, err := t.sealed(ctx, t.q.all)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Marked[T], len(found))
+	for i, r := range found {
+		if out[i].Line, err = openLine[T](t.keys, r.data); err != nil {
+			return nil, err
+		}
+		out[i].Ambiguous = r.ambiguous
+	}
+	return out, nil
+}
+
 // sealed reads stored lines in id order; query selects name_hash, ambiguous
 // and data.
 func (t LineTable[T]) sealed(ctx context.Context, query string, args ...any) ([]sealedLine, error) {

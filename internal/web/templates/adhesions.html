@@ -1,0 +1,40 @@
+{{define "main"}}
+{{$d := .Data}}
+<h1 class="text-2xl font-bold text-primary max-lg:sr-only">Suivi des adhésions</h1>
+<p class="mt-4">Cette page suit la campagne d'adhésion de VPDive : qui a réglé l'adhésion et la licence, et dont le dossier est validé.</p>
+{{with $d.Link.URL}}<p class="mt-2"><a class="link link-primary inline-flex min-h-11 items-center" href="{{.}}" target="_blank" rel="noopener">Campagne d'adhésion</a> dans VPDive</p>{{end}}
+{{if not $d.Imported}}
+<p class="mt-3">{{if $d.Purged}}Plus de 90 jours sans import : la campagne d'adhésion a été effacée.{{else}}Aucune campagne d'adhésion importée.{{end}} <a class="link link-primary inline-flex min-h-11 items-center" href="/imports#campagne-titre">Importer la campagne d'adhésion</a></p>
+{{else}}
+{{template "paymentsImport" $d.Import}}
+{{range $d.Sections}}<section class="mt-8" aria-labelledby="{{.ID}}">
+<h2 id="{{.ID}}" class="text-xl font-semibold">{{.Title}} ({{len .People}})</h2>
+{{with .Intro}}<p class="mt-1 text-sm">{{.}}</p>{{end}}
+{{with .People}}
+<div class="panel mt-2 overflow-x-auto max-md:hidden"><table class="table">
+<thead><tr><th scope="col">Nom</th><th scope="col">Adhésion</th><th scope="col">Licence</th><th scope="col">Validation</th></tr></thead>
+<tbody>{{range .}}<tr>
+<td class="break-words">{{template "campaignName" .}}</td>
+<td>{{template "campaignEntries" .Membership}}</td>
+<td>{{template "campaignEntries" .Licence}}</td>
+<td>{{template "campaignValidation" .}}</td>
+</tr>{{end}}</tbody>
+</table></div>
+<ul class="mt-2 flex flex-col gap-2 md:hidden">{{range .}}<li class="panel p-4">
+<p class="font-semibold break-words">{{template "campaignName" .}}</p>
+<p class="mt-2 text-sm font-semibold">Adhésion</p><div>{{template "campaignEntries" .Membership}}</div>
+<p class="mt-2 text-sm font-semibold">Licence</p><div>{{template "campaignEntries" .Licence}}</div>
+<p class="mt-2 text-sm font-semibold">Validation</p><div>{{template "campaignValidation" .}}</div>
+</li>{{end}}</ul>
+{{else}}<p class="mt-2">Personne.</p>{{end}}
+</section>
+{{end}}
+<p class="mt-6">{{$d.Invited}} personne{{if gt $d.Invited 1}}s{{end}} invitée{{if gt $d.Invited 1}}s{{end}} sans adhésion ni licence.</p>
+{{end}}
+{{end}}
+
+{{define "campaignName"}}{{.Name}}{{if .Homonym}} <span class="badge badge-soft badge-warning">Homonyme</span>{{end}}{{end}}
+
+{{define "campaignEntries"}}{{range .}}<span class="block">{{if .Unreadable}}<span class="break-words">{{.Raw}}</span> <span class="badge badge-soft badge-warning">à vérifier</span>{{else}}{{.StateText}} · <span class="whitespace-nowrap">{{.Amount.Euros}}</span>{{with .Method}} · {{.}}{{end}}{{with .PaidOn}} ({{.}}){{end}}{{if .OddAmount}} <span class="badge badge-soft badge-warning">montant ≠ 50 €</span>{{end}}{{end}}</span>{{else}}Rien{{end}}{{end}}
+
+{{define "campaignValidation"}}{{.Validation}}{{if .Unpaid}} <span class="badge badge-soft badge-warning">Adhésion ou licence non réglée</span>{{end}}{{end}}

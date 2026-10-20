@@ -44,6 +44,31 @@ func NewStore(db *sql.DB, keys *secure.Keys, now func() time.Time) *Store {
 	}
 }
 
+// Overview is what the page « Suivi des adhésions » reads: the latest import
+// and every person in place, in file order.
+type Overview struct {
+	Imported bool // an import is in place, possibly with nobody
+	Purged   bool // its people were deleted after 90 days without an import
+	Import   imports.Info
+	People   []payments.Marked[Person]
+}
+
+// Overview decrypts every person in place (a few hundred).
+func (s *Store) Overview(ctx context.Context) (Overview, error) {
+	people, err := s.All(ctx)
+	if err != nil {
+		return Overview{}, err
+	}
+	o := Overview{People: people}
+	var imported bool
+	if o.Import, imported, err = s.LastImport(ctx); err != nil {
+		return Overview{}, err
+	}
+	o.Purged = imported && len(people) == 0 && s.Expired(o.Import)
+	o.Imported = imported && !o.Purged
+	return o, nil
+}
+
 // NewPreview compares exp with the people in place and keeps the result for
 // 15 minutes, bound to username and to the import in place.
 func (s *Store) NewPreview(ctx context.Context, username string, exp *Export) (*Preview, error) {
