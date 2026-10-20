@@ -62,7 +62,7 @@ type runUnit struct{ one, many, heading string }
 var runUnits = map[imports.Kind]runUnit{
 	imports.Members: {"compte", "comptes", "Comptes"}, imports.Payments: {"ligne", "lignes", "Lignes"},
 	imports.Mollie: {"ligne", "lignes", "Lignes"}, imports.Calendar: {"événement", "événements", "Événements"},
-	imports.Carnets: {"carte", "cartes", "Cartes"},
+	imports.Carnets: {"carte", "cartes", "Cartes"}, imports.Campaign: {"personne", "personnes", "Personnes"},
 }
 
 // failureLabels read the classes the script reports; an unknown class shows

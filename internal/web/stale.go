@@ -28,6 +28,7 @@ func (s *Server) importAges() []importAge {
 		{imports.Payments, s.cfg.PaymentsMaxAge, "Les paiements datent du %s. Pense à refaire l'import.", importsPath + "#paiements-titre"},
 		{imports.Mollie, s.cfg.VPayDiveMaxAge, "Les encaissements Mollie datent du %s. Pense à refaire l'import.", importsPath + "#encaissements-titre"},
 		{imports.Calendar, s.cfg.CalendarMaxAge, "Le calendrier date du %s. Le script d'import est peut-être en panne.", importsPath + "#calendrier-titre"},
+		{imports.Campaign, s.cfg.CampaignMaxAge, "La campagne d'adhésion date du %s. Pense à refaire l'import.", importsPath + "#campagne-titre"},
 		{imports.Carnets, s.cfg.CarnetsMaxAge, "Les cartes VPDive datent du %s. Le script d'import est peut-être en panne.", importsPath + "#cartes-titre"},
 	}
 }

@@ -162,6 +162,7 @@ func newTestEnv(t *testing.T, opts ...func(*Deps)) *testEnv {
 		VPayDiveMaxAge: 168 * time.Hour,
 		CalendarMaxAge: 48 * time.Hour,
 		CarnetsMaxAge:  48 * time.Hour,
+		CampaignMaxAge: 48 * time.Hour,
 		TrustedProxies: []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")},
 		AgeWarnAfter:   48 * time.Hour,
 		AgeAlertAfter:  168 * time.Hour,

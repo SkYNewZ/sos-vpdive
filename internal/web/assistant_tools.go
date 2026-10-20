@@ -84,6 +84,7 @@ var importLabel = map[imports.Kind]string{
 	imports.Mollie:   "Encaissements Mollie",
 	imports.Calendar: "Calendrier",
 	imports.Carnets:  "Cartes VPDive",
+	imports.Campaign: "Campagne d'adhésion",
 }
 
 // toolbox runs the tools of one answer on the conversation c and gathers

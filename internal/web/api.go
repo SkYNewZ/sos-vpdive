@@ -36,7 +36,7 @@ const maxReportBytes = 4 << 10
 // {type} values of the pushed-import route.
 var exportNames = map[imports.Kind]string{
 	imports.Members: "liste des membres", imports.Payments: "export des paiements", imports.Mollie: "export VPayDive",
-	imports.Calendar: "calendrier", imports.Carnets: "cartes VPDive",
+	imports.Calendar: "calendrier", imports.Carnets: "cartes VPDive", imports.Campaign: "campagne d'adhésion",
 }
 
 // pushed is the answer to an accepted pushed import (spec §7.6): what the
