@@ -13,6 +13,7 @@ import (
 
 	"github.com/SkYNewZ/sos-vpdive/internal/campaign"
 	"github.com/SkYNewZ/sos-vpdive/internal/imports"
+	"github.com/SkYNewZ/sos-vpdive/internal/tickets"
 	"github.com/SkYNewZ/sos-vpdive/internal/xlsx"
 	"github.com/SkYNewZ/sos-vpdive/internal/xlsx/xlsxtest"
 )
@@ -153,4 +154,68 @@ func TestCampaignReminder(t *testing.T) {
 	mails := e.staleMails(t)
 	require.Len(t, mails, 1)
 	assert.Equal(t, "Import ancien : campagne d'adhésion", mails[0].Subject)
+}
+
+// Design 2026-10-20 « Bloc Campagne d'adhésion »: the block of a request
+// page in each of its states, through the members list, then through the
+// typed name for a requester outside it, and never on the tracking page.
+func TestRequestPageCampaignBlock(t *testing.T) {
+	e := newTestEnv(t)
+	e.importMembers(t, "members_valid.xlsx")
+	cookie := e.login(t)
+	typed := func(first, last string) func(*tickets.Submission) {
+		return func(s *tickets.Submission) { s.FirstName, s.LastName = first, last }
+	}
+	hugo := e.submitTicket(t, "hugo.bernard@example.org") // typed « Léa Martin »: the members list wins
+	chloe := e.submitTicket(t, "chloe.petit@example.org")
+	lea := e.submitTicket(t, "lea.martin@example.org")
+	newcomer := e.submitTicket(t, "nouveau@example.org", typed("Hugo", "Bernard"))
+	reversed := e.submitTicket(t, "inverse@example.org", typed("Bernard", "Hugo"))
+	namesake := e.submitTicket(t, "paul@example.org", typed("Paul", "Inconnu"))
+	stranger := e.submitTicket(t, "zoe@example.org", typed("Zoé", "Absente"))
+	block := func(id int64) string {
+		t.Helper()
+		page := e.openTicket(t, cookie, id).body
+		start, end := strings.Index(page, `id="campagne"`), strings.Index(page, `id="sorties"`)
+		require.True(t, start >= 0 && start < end, "before the outings block")
+		return page[start:end]
+	}
+	assert.Contains(t, block(hugo.ID), "Aucune campagne d'adhésion importée.")
+
+	rows, err := xlsx.ReadFirstSheet(oneCampaignPerson(t), imports.Limits())
+	require.NoError(t, err)
+	exp, err := campaign.Parse(rows, e.srv.paris)
+	require.NoError(t, err)
+	require.NoError(t, e.deps.Campaign.Import(context.Background(), exp))
+	assert.Contains(t, block(chloe.ID), "Ce membre n'est pas dans la campagne.")
+
+	e.importCampaign(t)
+	got := block(hugo.ID)
+	for _, want := range []string{
+		"Campagne d'adhésion", "Export du fichier créé le 21/10/2026 (indicatif)",
+		"Statut", "En cours", "Pas encore validé", "Réglé · ", "50,00\u00a0€", "vpaydive (12/10/2026)", "Tout réglé",
+	} {
+		assert.Contains(t, got, want)
+	}
+	assert.NotContains(t, got, "rapproché par le nom tapé")
+	assert.Contains(t, block(chloe.ID), "Validé le 14/10/2026 à 18:32 par Hugo Bernard")
+	assert.Contains(t, block(lea.ID), "Plusieurs personnes portent ce nom : aucune ligne n'est affichée. Cherche dans VPDive.")
+
+	for _, id := range []int64{newcomer.ID, reversed.ID} {
+		got := block(id)
+		assert.Contains(t, got, "rapproché par le nom tapé, à confirmer")
+		assert.Contains(t, got, "vpaydive (12/10/2026)")
+	}
+	assert.Contains(t, block(namesake.ID), "Plusieurs personnes portent ce nom : aucune ligne n'est affichée.")
+	assert.NotContains(t, block(namesake.ID), "rapproché par le nom tapé")
+	assert.Contains(t, block(stranger.ID), "Le demandeur n'est pas dans la liste des membres, et le nom tapé n'est pas dans la campagne.")
+
+	_, tracking := e.tracking(t, newcomer.Token)
+	assert.NotContains(t, tracking, "Campagne d'adhésion")
+	assert.NotContains(t, tracking, "rapproché")
+
+	e.clock.advance(91 * 24 * time.Hour)
+	require.NoError(t, e.deps.Campaign.Purge(context.Background()))
+	cookie = e.login(t) // logins expire after 30 days of test clock
+	assert.Contains(t, block(hugo.ID), "Plus de 90 jours sans import : la campagne d'adhésion a été effacée.")
 }

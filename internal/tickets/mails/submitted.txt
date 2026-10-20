@@ -1,6 +1,10 @@
 Bonjour {{.FirstName}},
 
 Ta demande {{.Ref}} est bien reçue. Un membre du comité va la prendre en charge.
+{{- if .MembershipPending}}
+
+Ton dossier d'adhésion est en attente de validation de la part du club : c'est ce qui bloque le paiement.
+{{- end}}
 
 Pour suivre ta demande, répondre ou ajouter une capture d'écran, utilise ce lien personnel :
 {{.Link}}

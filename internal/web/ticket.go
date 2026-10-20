@@ -56,6 +56,7 @@ type ticketData struct {
 	Mollie       payments.MollieBlock
 	Carnets      carnets.Block
 	CarnetsStale bool // the latest cards push is past CARNETS_MAX_AGE
+	Campaign     campaignBlock
 	Outings      outingsBlock
 	MollieLink   vpdiveLink      // VPayDive in VPDive: failed attempts show there only
 	Assistant    *assistantPanel // nil when the assistant is off
@@ -173,6 +174,9 @@ func (s *Server) ticketView(ctx context.Context, t *tickets.Detail) (ticketData,
 		return ticketData{}, err
 	}
 	d.CarnetsStale = s.stateOf(d.Carnets.Import, true).Perime
+	if d.Campaign, err = s.campaignBlock(ctx, profile.NameHash, t.LastName, t.FirstName); err != nil {
+		return ticketData{}, err
+	}
 	if d.Outings, err = s.outingsBlock(ctx, t.SubmittedAt, profile, found, d.Payments, d.Mollie); err != nil {
 		return ticketData{}, err
 	}

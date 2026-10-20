@@ -70,6 +70,27 @@
 </li>{{end}}</ul>
 {{end}}
 </section>
+<section class="panel p-4 lg:p-5" aria-labelledby="campagne">
+<h2 id="campagne" class="text-xl font-semibold">Campagne d'adhésion</h2>
+{{with $d.Campaign}}{{if or (eq .State "no_lines") (eq .State "purged")}}
+<p class="mt-3">{{if eq .State "purged"}}Plus de 90 jours sans import : la campagne d'adhésion a été effacée.{{else}}Aucune campagne d'adhésion importée.{{end}} <a class="link link-primary inline-flex min-h-11 items-center" href="/imports#campagne-titre">Importer la campagne d'adhésion</a></p>
+{{else}}
+{{template "paymentsImport" .Import}}
+{{if eq .State "ambiguous"}}<p class="mt-3">Plusieurs personnes portent ce nom : aucune ligne n'est affichée. Cherche dans VPDive.</p>
+{{else if and (eq .State "empty") .Typed}}<p class="mt-3">Le demandeur n'est pas dans la liste des membres, et le nom tapé n'est pas dans la campagne.</p>
+{{else if eq .State "empty"}}<p class="mt-3">Ce membre n'est pas dans la campagne.</p>
+{{else}}{{$typed := .Typed}}{{range .People}}
+{{if $typed}}<p class="mt-3"><span class="badge badge-soft badge-warning">rapproché par le nom tapé, à confirmer</span> Le demandeur n'est pas dans la liste des membres : cette ligne porte le nom tapé sur le formulaire.</p>{{end}}
+<dl class="mt-3 grid grid-cols-1 gap-x-4 sm:grid-cols-[auto_minmax(0,1fr)] sm:gap-y-2">
+<dt class="font-semibold">Nom</dt><dd class="mb-2 break-words sm:mb-0">{{.Name}}</dd>
+<dt class="font-semibold">Statut</dt><dd class="mb-2 sm:mb-0">{{.Status}}</dd>
+<dt class="font-semibold">Validation</dt><dd class="mb-2 sm:mb-0">{{with .Validation}}{{.}}{{else}}Pas encore validé{{end}}</dd>
+<dt class="font-semibold">Adhésion</dt><dd class="mb-2 sm:mb-0">{{template "campaignEntries" .Membership}}</dd>
+<dt class="font-semibold">Licence</dt><dd class="mb-2 sm:mb-0">{{template "campaignEntries" .Licence}}</dd>
+<dt class="font-semibold">Règlement</dt><dd class="mb-2 sm:mb-0">{{with .Settlement}}{{.}}{{else}}Non renseigné{{end}}</dd>
+</dl>
+{{end}}{{end}}{{end}}{{end}}
+</section>
 <section class="panel p-4 lg:p-5" aria-labelledby="sorties">
 <h2 id="sorties" class="text-xl font-semibold">Sorties VPDive</h2>
 {{with $d.Outings}}{{if eq .State "no_calendar"}}<p class="mt-3">Aucun calendrier reçu pour l'instant.</p>

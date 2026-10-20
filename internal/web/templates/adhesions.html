@@ -35,6 +35,4 @@
 
 {{define "campaignName"}}{{.Name}}{{if .Homonym}} <span class="badge badge-soft badge-warning">Homonyme</span>{{end}}{{end}}
 
-{{define "campaignEntries"}}{{range .}}<span class="block">{{if .Unreadable}}<span class="break-words">{{.Raw}}</span> <span class="badge badge-soft badge-warning">à vérifier</span>{{else}}{{.StateText}} · <span class="whitespace-nowrap">{{.Amount.Euros}}</span>{{with .Method}} · {{.}}{{end}}{{with .PaidOn}} ({{.}}){{end}}{{if .OddAmount}} <span class="badge badge-soft badge-warning">montant ≠ 50 €</span>{{end}}{{end}}</span>{{else}}Rien{{end}}{{end}}
-
 {{define "campaignValidation"}}{{.Validation}}{{if .Unpaid}} <span class="badge badge-soft badge-warning">Adhésion ou licence non réglée</span>{{end}}{{end}}

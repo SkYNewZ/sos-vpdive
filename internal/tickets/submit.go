@@ -11,7 +11,9 @@ import (
 	"modernc.org/sqlite"
 	sqlite3 "modernc.org/sqlite/lib"
 
+	"github.com/SkYNewZ/sos-vpdive/internal/campaign"
 	"github.com/SkYNewZ/sos-vpdive/internal/mail"
+	"github.com/SkYNewZ/sos-vpdive/internal/payments"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 	"github.com/SkYNewZ/sos-vpdive/internal/store"
 )
@@ -182,7 +184,11 @@ func (s *Store) Confirm(ctx context.Context, id int64) (string, error) {
 		if err := s.addEvent(ctx, tx, id, eventSubmitted, ActorMember, nil); err != nil {
 			return err
 		}
-		if err := s.memberMail(ctx, tx, t, 0, mail.EventSubmitted, mailData{}); err != nil {
+		pending, err := s.membershipPending(ctx, t)
+		if err != nil {
+			return err
+		}
+		if err := s.memberMail(ctx, tx, t, 0, mail.EventSubmitted, mailData{MembershipPending: pending}); err != nil {
 			return err
 		}
 		created = true
@@ -256,4 +262,28 @@ func (s *Store) insertAttachments(ctx context.Context, tx *sql.Tx, ticketID, mes
 func isUniqueViolation(err error) bool {
 	var se *sqlite.Error
 	return errors.As(err, &se) && se.Code() == sqlite3.SQLITE_CONSTRAINT_UNIQUE
+}
+
+// categoryMembership is the category of the membership campaign requests
+// (config/categories.yaml).
+const categoryMembership = "adhesion"
+
+// membershipPending tells whether the acknowledgement of t says the
+// membership file waits for the club (design 2026-10-20 « Mail d'accusé de
+// réception »): a membership request from an address of the members list
+// whose name has one campaign line, not ambiguous, still « En cours ». Never
+// through the typed name: the mail would tell a stranger about a member.
+func (s *Store) membershipPending(ctx context.Context, t ticketRow) (bool, error) {
+	if t.category != categoryMembership {
+		return false, nil
+	}
+	p, found, err := s.Members.Find(ctx, t.email)
+	if err != nil || !found {
+		return false, err
+	}
+	state, _, people, err := s.Campaign.NameLines(ctx, p.NameHash)
+	if err != nil {
+		return false, err
+	}
+	return state == payments.BlockLines && len(people) == 1 && people[0].Status == campaign.StatusPending, nil
 }

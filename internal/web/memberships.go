@@ -2,6 +2,7 @@ package web
 
 import (
 	"cmp"
+	"context"
 	"net/http"
 	"slices"
 	"strings"
@@ -147,4 +148,65 @@ func stateText(state string) string {
 		return "Au panier"
 	}
 	return "état inconnu : " + state
+}
+
+// campaignBlock is the « Campagne d'adhésion » block of a request page
+// (design 2026-10-20). A requester outside the members list is looked up by
+// the name typed on the form, committee side only: never for the mail, the
+// member or the payments (a departure from §7.3).
+type campaignBlock struct {
+	State  payments.BlockState
+	Import imports.Info
+	Typed  bool // looked up by the typed name: a line found is to confirm
+	People []campaignPerson
+}
+
+// campaignPerson is a campaign line as the block shows it.
+type campaignPerson struct {
+	campaignRow
+
+	Status, Settlement string
+}
+
+// campaignBlock finds the campaign lines of the requester: through the
+// members list (nameHash), else through the typed name in either order.
+func (s *Server) campaignBlock(ctx context.Context, nameHash []byte, typedLast, typedFirst string) (campaignBlock, error) {
+	var (
+		b      campaignBlock
+		people []campaign.Person
+		err    error
+	)
+	b.State, b.Import, people, err = s.campaign.NameLines(ctx, nameHash)
+	if err == nil && b.State == payments.BlockNoMember {
+		b.Typed, b.State = true, payments.BlockEmpty
+		for _, key := range typedKeys(typedLast, typedFirst) {
+			if b.State, b.Import, people, err = s.campaign.NameLines(ctx, s.keys.Hash(key)); err != nil || b.State != payments.BlockEmpty {
+				break
+			}
+		}
+	}
+	if err != nil {
+		return campaignBlock{}, err
+	}
+	for _, p := range people {
+		v := campaignPerson{campaignRow: s.campaignRow(payments.Marked[campaign.Person]{Line: p}), Status: p.Status, Settlement: p.Settlement}
+		if p.Status == campaign.StatusValidated {
+			v.Validation = s.validation(p)
+		}
+		b.People = append(b.People, v)
+	}
+	return b, nil
+}
+
+// typedKeys are the name keys of a typed name in both orders; none when a
+// part is empty: never on half a name.
+func typedKeys(last, first string) []string {
+	if secure.NormalizeName(last) == "" || secure.NormalizeName(first) == "" {
+		return nil
+	}
+	keys := []string{secure.NameKey(last, first)}
+	if swapped := secure.NameKey(first, last); swapped != keys[0] {
+		keys = append(keys, swapped)
+	}
+	return keys
 }
