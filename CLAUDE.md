@@ -113,7 +113,7 @@ is ambiguous, ask.
   - `/annulations` links an outing to its calendar page when title and
     Paris day match one event, otherwise to the day view.
 - Committee assistant (design 2026-10-08, off by default): `/assistant` and the
-  « Analyser » panel of a request; streamed Messages API calls with eight
+  « Analyser » panel of a request; streamed Messages API calls with nine
   read-only tools (`internal/web/assistant_tools.go`), conversations in memory
   bound to the session (30 min idle, 2 h max), per-account daily quota, owner
   journal `/assistant/journal` without content. The model gets masked text
@@ -173,7 +173,12 @@ is ambiguous, ask.
   - A person known by the campaign only has no address: erasure goes through
     VPDive (the next import drops them, the 90-day purge covers a stop). The
     assistant offers them as `find_member` candidates `source: "campagne"`;
-    `member_requests` answers them « pas d'adresse ».
+    `member_requests` answers them « pas d'adresse ». A campaign match
+    hides partial member matches, as an exact one does in `members.Search`.
+    A name the campaign holds twice is one person with `Shared: 2`:
+    `member_payments` and `member_outings` answer `ambigu` without reading.
+  - `member_membership` (the ninth tool) reads a person's campaign line and
+    counts among the three people of an answer.
 
 ## Private material: `.local/` is gitignored
 

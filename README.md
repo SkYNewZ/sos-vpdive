@@ -281,14 +281,18 @@ Off by default: set `ASSISTANT_ENABLED=true`, with `ASSISTANT_API_KEY`. It adds
 an « Assistant » page to the committee site and an « Analyser » button on each
 request. A resolver pastes a member's message or asks a question, and the model
 answers from the club's data through read-only tools: the members list, VPDive
-and Mollie payments, the carnet cards and their history, the calendar, the requests filed in the tool, cancelled
+and Mollie payments, the carnet cards and their history, the calendar, the membership campaign, the requests filed in the tool, cancelled
 outings and the fiches. It changes nothing. The resolver acts in VPDive.
 
 The model provider receives the resolver's text, the request being analysed
 (with its requester's name, seasons and licence end) and what the tools
 return: member and participant names, seasons and licence end, payment lines and their comments, carnet cards with each debit and its author,
-outings and carts, summaries of past requests and the fiches. One answer reads
-the payments, outings and requests of three people at most. An outing it opens
+outings and carts, summaries of past requests and the fiches. For the
+membership campaign of a person, it receives the file status, when and by
+whom it was validated, and each membership and licence entry with its state,
+method and date; `find_member` also returns campaign people the members list
+does not name yet. One answer reads the payments, outings, requests and
+memberships of three people at most. An outing it opens
 lists every participant with their registration, role and cart (payment status
 and amount), and the names of those who unregistered, with the author of each
 unregistration. In all of it, email addresses, phone numbers and bank
