@@ -42,7 +42,7 @@ type Person struct {
 	NameHash []byte
 	Seasons  string
 	Licence  string
-	Shared   int // members bearing this name, this one included
+	Shared   int // members bearing this name, this one included; 2 for a name the campaign holds twice
 }
 
 // Source is a piece of data an answer read: an import with its date, or an

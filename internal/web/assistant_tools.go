@@ -328,6 +328,17 @@ func (t *toolbox) findMember(ctx context.Context, input json.RawMessage) (any, s
 	if err != nil {
 		return nil, "", err
 	}
+	var extra []assistant.Person
+	if !byEmail { // the campaign holds no address
+		if extra, err = t.campaignPeople(ctx, in.Query); err != nil {
+			return nil, "", err
+		}
+		// Search's rule across both sources: an exact match hides the partial
+		// ones, whose names then never reach the conversation.
+		if len(extra) > 0 && !slices.ContainsFunc(matches, func(m members.Match) bool { return m.Exact }) {
+			matches = nil
+		}
+	}
 	out := findMemberResult{Import: st, Correspondance: "aucune", Candidats: []candidate{}}
 	for _, m := range matches {
 		out.Correspondance = "partielle"
@@ -336,10 +347,10 @@ func (t *toolbox) findMember(ctx context.Context, input json.RawMessage) (any, s
 		}
 		out.Candidats = append(out.Candidats, candidateOf(t.c, m))
 	}
-	if !byEmail { // the campaign holds no address
-		if err := t.campaignCandidates(ctx, in.Query, &out); err != nil {
-			return nil, "", err
-		}
+	for _, p := range extra[:min(len(extra), maxCandidates-len(out.Candidats))] {
+		ref := t.c.AddPerson(p)
+		out.Candidats = append(out.Candidats, candidate{Ref: ref, Nom: p.Name, Source: sourceCampaign, Homonyme: p.Shared > 1})
+		out.Correspondance = "exacte"
 	}
 	return out, "Recherche « " + strings.TrimSpace(in.Query) + " » : " + plural(len(out.Candidats), "candidat", "candidats"), nil
 }
@@ -372,23 +383,25 @@ func candidateOf(c *assistant.Conversation, m members.Match) candidate {
 	return candidate{Ref: ref, Nom: name, Saisons: view.Seasons, Licence: view.Licence, Organisation: orgs, Homonyme: m.Shared > 1}
 }
 
-// campaignCandidates adds to out the people of the campaign whose name holds
-// every word of query and whom the members list does not name: a new
-// member, before the next members import. A name the campaign holds twice
-// is one candidate, a homonym (design 2026-10-20 « Assistant »).
-func (t *toolbox) campaignCandidates(ctx context.Context, query string, out *findMemberResult) error {
+// campaignPeople are the people of the campaign whose name holds every word
+// of query and whom the members list does not name: a new member, before
+// the next members import. A name the campaign holds twice is one person, a
+// homonym with Shared 2: the tools by name hash then read nothing (design
+// 2026-10-20 « Assistant »).
+func (t *toolbox) campaignPeople(ctx context.Context, query string) ([]assistant.Person, error) {
 	want := members.NameWords(query)
 	if len(want) == 0 {
-		return nil
+		return nil, nil
 	}
 	people, err := t.s.campaign.All(ctx) // a few hundred
 	if err != nil {
-		return err
+		return nil, err
 	}
+	var out []assistant.Person
 	seen := map[string]bool{}
 	for _, m := range people {
 		p := m.Line
-		if len(out.Candidats) == maxCandidates {
+		if len(out) == maxCandidates {
 			break
 		}
 		if !allIn(want, members.NameWords(p.LastName+" "+p.FirstName)) {
@@ -401,17 +414,18 @@ func (t *toolbox) campaignCandidates(ctx context.Context, query string, out *fin
 		seen[string(hash)] = true
 		n, err := t.s.members.NameCount(ctx, hash)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if n > 0 { // the member's candidate stands for them
 			continue
 		}
-		name := strings.TrimSpace(p.FirstName + " " + p.LastName)
-		ref := t.c.AddPerson(assistant.Person{Name: name, NameHash: hash})
-		out.Candidats = append(out.Candidats, candidate{Ref: ref, Nom: name, Source: sourceCampaign, Homonyme: m.Ambiguous})
-		out.Correspondance = "exacte"
+		shared := 0
+		if m.Ambiguous {
+			shared = 2
+		}
+		out = append(out, assistant.Person{Name: strings.TrimSpace(p.FirstName + " " + p.LastName), NameHash: hash, Shared: shared})
 	}
-	return nil
+	return out, nil
 }
 
 // allIn tells whether every word of want is in words.
@@ -577,6 +591,9 @@ func (t *toolbox) memberPayments(ctx context.Context, input json.RawMessage) (an
 	if problem != nil {
 		return *problem, "Lecture de paiements refusée", nil
 	}
+	if p.Shared > 1 { // a campaign homonym, whom no members count marks
+		return t.ambiguousPayments(ctx, p, from, to)
+	}
 	pay, mol, err := t.s.paymentBlocks(ctx, p.NameHash)
 	if err != nil {
 		return nil, "", err
@@ -621,6 +638,21 @@ mollie:
 	out.EtatCartes, out.Cartes = blockState[cards.State], make([]carteJSON, 0, len(cards.Cards))
 	for _, v := range cards.Cards {
 		out.Cartes = append(out.Cartes, t.s.carteJSON(v))
+	}
+	return out, "Paiements de " + p.Name + " lus", nil
+}
+
+// ambiguousPayments answers a homonym without reading any line.
+func (t *toolbox) ambiguousPayments(ctx context.Context, p assistant.Person, from, to time.Time) (any, string, error) {
+	amb := blockState[payments.BlockAmbiguous]
+	out := paymentsResult{Etat: amb, EtatMollie: amb, EtatCartes: amb, Periode: t.s.periodRead(from, to),
+		Soldes: []lineJSON{}, Lignes: []lineJSON{}, Mollie: []mollieJSON{}, Cartes: []carteJSON{}}
+	var err error
+	if out.Import, out.ImportMollie, err = t.paymentImports(ctx); err != nil {
+		return nil, "", err
+	}
+	if out.ImportCartes, err = t.importOf(ctx, imports.Carnets); err != nil {
+		return nil, "", err
 	}
 	return out, "Paiements de " + p.Name + " lus", nil
 }
@@ -756,16 +788,25 @@ func (s *Server) outingJSON(o outing) outingJSON {
 	return j
 }
 
+// outingsOf is the outings block of p; a campaign homonym, whom no members
+// count marks, reads nothing.
+func (t *toolbox) outingsOf(ctx context.Context, p assistant.Person) (outingsBlock, error) {
+	if p.Shared > 1 {
+		return outingsBlock{State: outingsAmbiguous}, nil
+	}
+	pay, mol, err := t.s.paymentBlocks(ctx, p.NameHash)
+	if err != nil {
+		return outingsBlock{}, err
+	}
+	return t.s.outingsBlock(ctx, t.s.now(), members.Profile{NameHash: p.NameHash}, true, pay, mol)
+}
+
 func (t *toolbox) memberOutings(ctx context.Context, input json.RawMessage) (any, string, error) {
 	p, from, to, problem := t.member(input, outingsBack)
 	if problem != nil {
 		return *problem, "Lecture de sorties refusée", nil
 	}
-	pay, mol, err := t.s.paymentBlocks(ctx, p.NameHash)
-	if err != nil {
-		return nil, "", err
-	}
-	b, err := t.s.outingsBlock(ctx, t.s.now(), members.Profile{NameHash: p.NameHash}, true, pay, mol)
+	b, err := t.outingsOf(ctx, p)
 	if err != nil {
 		return nil, "", err
 	}

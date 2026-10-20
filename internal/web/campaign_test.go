@@ -4,6 +4,7 @@ import (
 	"context"
 	"html"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +14,8 @@ import (
 
 	"github.com/SkYNewZ/sos-vpdive/internal/campaign"
 	"github.com/SkYNewZ/sos-vpdive/internal/imports"
+	"github.com/SkYNewZ/sos-vpdive/internal/members"
+	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 	"github.com/SkYNewZ/sos-vpdive/internal/tickets"
 	"github.com/SkYNewZ/sos-vpdive/internal/xlsx"
 	"github.com/SkYNewZ/sos-vpdive/internal/xlsx/xlsxtest"
@@ -307,4 +310,72 @@ func TestToolMemberRequestsOfACampaignPerson(t *testing.T) {
 	assert.Equal(t, "pas d'adresse : personne connue par la campagne seulement", got["note"])
 	assert.Empty(t, got["demandes"])
 	assert.Equal(t, "Demandes de Max Roux : pas d'adresse", step)
+}
+
+// importCampaignSheet stores a campaign export built from rows under the
+// usual header.
+func (e *testEnv) importCampaignSheet(t *testing.T, rows ...[]any) {
+	t.Helper()
+	sheet := append(xlsxtest.Sheet{{"Statut", "Nom", "Prénom", "Adhésion", "License"}}, rows...)
+	parsed, err := xlsx.ReadFirstSheet(xlsxtest.Build(t, sheet), imports.Limits())
+	require.NoError(t, err)
+	exp, err := campaign.Parse(parsed, e.srv.paris)
+	require.NoError(t, err)
+	require.NoError(t, e.deps.Campaign.Import(context.Background(), exp))
+}
+
+// Design 2026-10-20 « Une ligne ambiguous n'est jamais attribuée à une
+// personne »: a name the campaign holds twice, with no member, is a homonym
+// for the payments and the outings too, whose lines are stored by name hash.
+func TestToolCampaignHomonymReadsNoLines(t *testing.T) {
+	e, tb := toolEnv(t)
+	_, err := e.db.ExecContext(context.Background(), `DELETE FROM members WHERE name_hash = ?`,
+		e.srv.keys.Hash(secure.NameKey("Durand", "Noé")))
+	require.NoError(t, err)
+	e.importCampaignSheet(t, []any{"En cours", "Durand", "Noé", "", ""}, []any{"En cours", "Durand", "Noé", "", ""})
+
+	got, _ := tb.call(t, "find_member", `{"query":"Noé Durand"}`)
+	assert.Equal(t, true, got["candidats"].([]any)[0].(map[string]any)["homonyme"])
+	got, _ = tb.call(t, "member_payments", `{"ref":"m1","du":"2020-01-01"}`)
+	for _, k := range []string{"etat", "etat_mollie", "etat_cartes"} {
+		assert.Equal(t, "ambigu", got[k], k)
+	}
+	for _, k := range []string{"soldes", "lignes", "mollie", "cartes"} {
+		assert.Empty(t, got[k], k)
+	}
+	got, _ = tb.call(t, "member_outings", `{"ref":"m1","du":"2020-01-01"}`)
+	assert.Equal(t, "ambigu", got["etat"])
+	assert.Empty(t, got["sorties"])
+
+	html, err := e.srv.fragment("assistantDossier", dossierView{People: tb.c.People})
+	require.NoError(t, err)
+	assert.Contains(t, string(html), "Homonyme")
+	assert.Contains(t, string(html), "Connu par la campagne d'adhésion seulement")
+	assert.NotContains(t, string(html), "Saisons :")
+	assert.NotContains(t, string(html), "C'est cette personne", "one ref for both: picking it tells nothing")
+}
+
+// members.Search hides partial matches behind an exact one: a campaign
+// person holding every word of the query is an exact match too.
+func TestToolFindMemberCampaignHidesPartialMembers(t *testing.T) {
+	e, tb := toolEnv(t)
+	sheet := make(xlsxtest.Sheet, 0, 1+maxCandidates)
+	sheet = append(sheet, []any{"Nom", "Prénom", "Email"})
+	for i := range maxCandidates {
+		last := "Membre" + string(rune('A'+i)) // NameKey drops digits
+		sheet = append(sheet, []any{last, "Nicolas", "nicolas" + strconv.Itoa(i) + "@example.org"})
+	}
+	rows, err := xlsx.ReadFirstSheet(xlsxtest.Build(t, sheet), imports.Limits())
+	require.NoError(t, err)
+	exp, err := members.Parse(rows, time.UTC)
+	require.NoError(t, err)
+	require.NoError(t, e.deps.Members.Import(context.Background(), exp))
+	e.importCampaignSheet(t, []any{"En cours", "Nouveau", "Nicolas", "", ""})
+
+	got, _ := tb.call(t, "find_member", `{"query":"Nicolas Nouveau"}`)
+	assert.Equal(t, "exacte", got["correspondance"])
+	cands := got["candidats"].([]any)
+	require.Len(t, cands, 1, mustJSON(t, cands))
+	assert.Equal(t, map[string]any{"ref": "m1", "nom": "Nicolas Nouveau", "source": "campagne"}, cands[0])
+	assert.Len(t, tb.c.People, 1, "the partial members never reach the conversation")
 }
