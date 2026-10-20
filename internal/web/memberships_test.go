@@ -41,7 +41,7 @@ func TestMembershipsPage(t *testing.T) {
 	_, page = e.page(t, cookie, "/adhesions")
 	assert.Contains(t, page, "Export du fichier créé le 21/10/2026 (indicatif)")
 	assert.Contains(t, page, "Campagne d'adhésion</a>", "the VPDive link")
-	assert.Contains(t, page, "/f/campaign/users/OO2mtT1O0mAa_yIwb9uHGKUjEFuDTUbL_mVKy_l3KUk")
+	assert.Contains(t, page, "/f/campaign/users/", "the season token is club content: config/vpdive.yaml")
 
 	pending := section(t, page, "a-valider", "valides")
 	assert.Contains(t, pending, "Bernard Hugo")
