@@ -68,7 +68,7 @@ func TestRequestPageBlocks(t *testing.T) {
 	id := strconv.FormatInt(first.ID, 10)
 	for _, want := range []string{
 		first.Ref, "Léa Martin", "lea.martin@example.org", "Copier le nom", "31/12/2026", other.Ref,
-		"https://vpdive.example.org/app/admin/vpdive/%2Ff%2Fpayment%2Findex?route=/f/payment/index",
+		"https://vpdive.example.org/f/payment/index",
 		"Date de création", "01/01/2026 au 02/09/2026", "Je prends", "Prends la demande pour répondre",
 		"/demandes/" + id + "/captures/", "Supprimer cette demande", "/effacement?demande=" + id,
 		`data-ticket-page="` + id + `"`, "Demande envoyée", "Mon carnet affiche un montant",

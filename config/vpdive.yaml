@@ -3,13 +3,13 @@
 links:
   - key: paiements
     label: Paiements, et export des paiements
-    path: /app/admin/vpdive/%2Ff%2Fpayment%2Findex?route=/f/payment/index
+    path: /f/payment/index
   - key: vpaydive
     label: Encaissements Mollie (VPayDive), tentatives échouées comprises, et export
-    path: /app/admin/vpdive/%2Ff%2Fmollie%2Findex?route=/f/mollie/index
+    path: /f/mollie/index
   - key: membres
     label: Liste des membres, et export des membres
-    path: /app/admin/vpdive/%2Ff%2Fuser%2Findex?route=/f/user/index
+    path: /f/user/index
   - key: messagerie
     label: Messagerie
     path: /app/messages
