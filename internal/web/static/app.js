@@ -656,8 +656,13 @@ if (pushBox) {
   const show = (state) => {
     for (const el of pushBox.querySelectorAll("[data-push-state]")) el.hidden = el.dataset.pushState !== state;
   };
-  const failed = (on) => {
-    pushBox.querySelector("[data-push-error]").hidden = !on;
+  // Brave turns off its push service by default: subscribe then fails with
+  // an AbortError, which no retry fixes.
+  const failed = (on, error) => {
+    if (error) console.warn("push:", error);
+    const brave = Boolean(navigator.brave) && error?.name === "AbortError";
+    pushBox.querySelector("[data-push-error]").hidden = !on || brave;
+    pushBox.querySelector("[data-push-brave]").hidden = !on || !brave;
   };
   const csrf = document.querySelector('input[name="csrf"]')?.value ?? "";
   const post = async (path, fields) => {
@@ -682,9 +687,9 @@ if (pushBox) {
           const { p256dh, auth } = subscription.toJSON().keys;
           await post("/push/abonnement", { endpoint: subscription.endpoint, p256dh, auth });
           show("on");
-        } catch {
+        } catch (error) {
           if (Notification.permission === "denied") show("denied");
-          else failed(true);
+          else failed(true, error);
         }
       });
       pushBox.querySelector("[data-push-off]").addEventListener("click", async () => {
@@ -693,8 +698,8 @@ if (pushBox) {
           await post("/push/desabonnement", {});
           await (await registration.pushManager.getSubscription())?.unsubscribe();
           show("off");
-        } catch {
-          failed(true);
+        } catch (error) {
+          failed(true, error);
         }
       });
     }, () => show("unsupported"));
