@@ -352,6 +352,7 @@ func (s *Store) MemberClose(ctx context.Context, id int64) error {
 		}
 		after := t
 		after.status, after.closedAt = StatusDone, s.Now().Unix()
+		after.suggestedCategory, after.categorySuggestionResolved = nil, true
 		return s.transition(ctx, tx, t, after, ActorMember, eventClosedByMember, nil)
 	})
 	if err != nil {

@@ -180,7 +180,7 @@ func TestDismissCategorySuggestionRefusals(t *testing.T) {
 }
 
 func TestCategoryActionsResolveSuggestion(t *testing.T) {
-	for _, action := range []Action{ActionCategory, Action("dismiss_category_suggestion"), ActionClose, ActionReplyClose} {
+	for _, action := range []Action{ActionCategory, Action("dismiss_category_suggestion"), ActionClose, ActionReplyClose, Action("member_close")} {
 		t.Run(string(action), func(t *testing.T) {
 			e := newTestStore(t)
 			ctx := context.Background()
@@ -190,7 +190,11 @@ func TestCategoryActionsResolveSuggestion(t *testing.T) {
 			if action == ActionReplyClose {
 				require.NoError(t, e.apply(t, id, Command{Action: ActionTake}))
 			}
-			require.NoError(t, e.apply(t, id, Command{Action: action, Category: "paiement", Body: "Resolved"}))
+			if action == Action("member_close") {
+				require.NoError(t, e.store.MemberClose(ctx, id))
+			} else {
+				require.NoError(t, e.apply(t, id, Command{Action: action, Category: "paiement", Body: "Resolved"}))
+			}
 			detail, err := e.store.Detail(ctx, id)
 			require.NoError(t, err)
 			assert.Empty(t, detail.SuggestedCategory)
@@ -199,7 +203,7 @@ func TestCategoryActionsResolveSuggestion(t *testing.T) {
 				assert.Equal(t, "paiement", detail.Category)
 				assert.Equal(t, 1, e.count(t, `SELECT count(*) FROM events WHERE ticket_id=? AND type='category_changed'`, id))
 			}
-			if action == ActionClose || action == ActionReplyClose {
+			if action == ActionClose || action == ActionReplyClose || action == Action("member_close") {
 				require.NoError(t, e.store.MemberReply(ctx, id, "More information", nil))
 				detail, err = e.store.Detail(ctx, id)
 				require.NoError(t, err)
@@ -211,7 +215,7 @@ func TestCategoryActionsResolveSuggestion(t *testing.T) {
 }
 
 func TestResolvedCategorySuggestionNeverReturns(t *testing.T) {
-	for _, scenario := range []string{"round trip", "close", "reply close"} {
+	for _, scenario := range []string{"round trip", "close", "reply close", "member close"} {
 		t.Run(scenario, func(t *testing.T) {
 			e := newTestStore(t)
 			ctx := context.Background()
@@ -238,6 +242,9 @@ func TestResolvedCategorySuggestionNeverReturns(t *testing.T) {
 				require.NoError(t, e.apply(t, id, Command{Action: ActionCategory, Category: "carnet"}))
 			case "close":
 				require.NoError(t, e.apply(t, id, Command{Action: ActionClose}))
+			case "member close":
+				require.NoError(t, e.store.MemberClose(ctx, id))
+				require.NoError(t, e.store.MemberReply(ctx, id, "Reopened before the model answered", nil))
 			case "reply close":
 				require.NoError(t, e.apply(t, id, Command{Action: ActionTake}))
 				require.NoError(t, e.apply(t, id, Command{Action: ActionReplyClose, Body: "Resolved"}))
