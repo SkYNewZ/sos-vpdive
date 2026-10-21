@@ -182,3 +182,38 @@ func TestSummaryTimeoutAndCancellation(t *testing.T) {
 		require.ErrorIs(t, err, want)
 	}
 }
+
+func TestConversationTitleUsesDedicatedPrompt(t *testing.T) {
+	var prompt string
+	c := newSummaryTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		raw, err := io.ReadAll(r.Body)
+		assert.NoError(t, err)
+		var body struct {
+			System   string           `json:"system"`
+			Messages []summaryMessage `json:"messages"`
+		}
+		assert.NoError(t, json.Unmarshal(raw, &body))
+		prompt = body.System
+		if !assert.Len(t, body.Messages, 1) {
+			return
+		}
+		assert.Contains(t, body.Messages[0].Content, "Question masquée")
+		_, err = io.WriteString(w, `{"content":[{"type":"text","text":"<b>Règlement</b> [sortie](https://example.org)"}],"usage":{"input_tokens":33,"output_tokens":8}}`)
+		assert.NoError(t, err)
+	})
+	res, err := c.Title(t.Context(), "Question masquée")
+	require.NoError(t, err)
+	assert.Equal(t, "Règlement sortie", res.Summary)
+	assert.Equal(t, 33, res.InputTokens)
+	assert.Contains(t, prompt, "titre")
+	assert.Contains(t, prompt, "60")
+	assert.NotEqual(t, summarySystemPrompt, prompt)
+}
+func TestConversationTitleBoundsLength(t *testing.T) {
+	c := newSummaryTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		assert.NoError(t, json.NewEncoder(w).Encode(map[string]any{"content": []summaryContent{{Type: contentText, Text: strings.Repeat("é", 100)}}}))
+	})
+	res, err := c.Title(t.Context(), "Q")
+	require.NoError(t, err)
+	assert.LessOrEqual(t, len([]rune(res.Summary)), 60)
+}

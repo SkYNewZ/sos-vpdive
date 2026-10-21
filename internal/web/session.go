@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/admins"
+	"github.com/SkYNewZ/sos-vpdive/internal/assistant"
 	"github.com/SkYNewZ/sos-vpdive/internal/imports"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 	"github.com/SkYNewZ/sos-vpdive/internal/store"
@@ -70,7 +71,7 @@ func (s *Server) startSession(ctx context.Context, w http.ResponseWriter, a admi
 }
 
 // endSessions closes the event streams of sessions that ended and erases
-// their conversations, which stops their answers in flight.
+// their live answers. Saved history remains private to the account.
 func (s *Server) endSessions(hashes ...string) {
 	s.broker.disconnect(func(sub *subscriber) bool { return slices.Contains(hashes, sub.session) })
 	if s.convs != nil {
@@ -233,6 +234,9 @@ func (s *Server) Purge(ctx context.Context) error {
 		}
 	}
 	if err := imports.PurgeRuns(ctx, s.db, s.now()); err != nil {
+		return err
+	}
+	if err := assistant.PurgeHistory(ctx, s.db, s.now()); err != nil {
 		return err
 	}
 	return s.limiter.purge(ctx)

@@ -1,16 +1,19 @@
 {{define "main"}}{{$d := .Data}}{{$p := $d.Panel}}
 {{/* The chat column fills the screen: 11rem and 4.5rem are the committee header and main paddings of layout.html (phone, desktop). */}}
-<div class="lg:grid lg:grid-cols-[minmax(0,1fr)_19rem] lg:gap-8" data-assistant data-conversation="{{$p.Conversation}}">
+<div class="lg:grid lg:grid-cols-[13rem_minmax(0,1fr)] lg:gap-6 2xl:grid-cols-[13rem_minmax(0,1fr)_16rem]" data-assistant data-conversation="{{$p.Conversation}}" data-demande="{{$p.TicketID}}" data-deadline="{{$p.Deadline}}">
+<a class="sr-only focus:not-sr-only" href="#assistant-titre">Aller à la conversation</a>
+<aside class="hidden min-w-0 lg:block" aria-label="Historique des conversations"><div class="panel sticky top-6 p-3" data-assistant-history>{{template "assistantHistory" $d.History}}</div></aside>
 <section class="flex min-h-[calc(100dvh-11rem)] min-w-0 flex-col lg:min-h-[calc(100dvh-4.5rem)]" aria-labelledby="assistant-titre">
 <div class="flex flex-wrap items-center justify-between gap-3 pb-4">
 <h1 id="assistant-titre" class="text-2xl font-bold text-primary max-lg:sr-only">Assistant</h1>
 <div class="flex flex-wrap items-center gap-2">
 {{if $d.Owner}}<a class="link link-hover inline-flex min-h-11 items-center px-2 text-sm" href="/assistant/journal">Journal de l'assistant</a>{{end}}
-<a class="btn btn-ghost min-h-11" href="/assistant">Nouvelle conversation</a>
+<a class="btn btn-ghost min-h-11" href="/assistant?nouvelle=1">Nouvelle conversation</a>
 </div>
 </div>
-{{if $d.Gone}}<div role="status" class="alert alert-soft alert-info mb-4"><span>Cette conversation est effacée : elle disparaît 30 minutes après la dernière question.</span></div>{{end}}
-<details class="panel mb-4 lg:hidden"><summary class="flex min-h-11 cursor-pointer items-center px-4 font-semibold" data-assistant-dossier-summary>{{$d.Dossier.Summary}}</summary>
+<details class="panel mb-4 lg:hidden"><summary class="min-h-11 cursor-pointer px-4 py-3 font-semibold">Conversations récentes</summary><div class="px-3 pb-3" data-assistant-history>{{template "assistantHistory" $d.History}}</div></details>
+{{if $d.Gone}}<div role="status" class="alert alert-soft alert-info mb-4"><span>Cette conversation est effacée ou introuvable.</span></div>{{end}}
+<details class="panel mb-4 2xl:hidden"><summary class="flex min-h-11 cursor-pointer items-center px-4 font-semibold" data-assistant-dossier-summary>{{$d.Dossier.Summary}}</summary>
 <div class="px-4 pb-4" data-assistant-dossier>{{template "assistantDossier" $d.Dossier}}</div></details>
 <div class="flex flex-1 flex-col pb-4">
 {{if not $p.Exchanges}}<div class="flex flex-1 flex-col justify-center gap-4 py-6" data-assistant-empty>
@@ -19,11 +22,11 @@
 </div>{{end}}
 {{template "assistantThread" $p.Exchanges}}
 </div>
-<div class="sticky bottom-16 z-10 bg-base-200 pb-2 lg:bottom-0" data-assistant-sticky>{{template "assistantComposer" $p}}
+<div class="sticky bottom-16 z-10 bg-base-200 pb-2 lg:bottom-0" data-assistant-sticky>{{template "assistantInput" $p}}
 <p class="mt-2 text-sm text-base-content/80">Réponses automatiques, à vérifier dans VPDive avant d'agir.</p>
 </div>
 </section>
-<aside class="hidden lg:block" aria-labelledby="dossier-titre">
+<aside class="hidden 2xl:block" aria-labelledby="dossier-titre">
 <div class="panel sticky top-6 p-4"><h2 id="dossier-titre" class="text-lg font-semibold">Dossier</h2><div data-assistant-dossier>{{template "assistantDossier" $d.Dossier}}</div></div>
 </aside>
 <template data-assistant-new>{{template "assistantExchange" $p.Empty}}</template>

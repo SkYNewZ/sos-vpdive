@@ -41,6 +41,9 @@ func (s *Store) Purge(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if len(list) > 0 {
+		s.contentDeleted()
+	}
 	s.deleteObjects(ctx, keys)
 	for _, d := range list {
 		if d.status == StatusDone {
