@@ -832,6 +832,35 @@ function createCommitteeChat(root) {
   let expired = false;
   let posting = false;
   let checking = false;
+  let audio = null;
+  let lastSound = -Infinity;
+  const activateAudio = () => {
+    if (state.muted || expired || !wide.matches) return;
+    try {
+      if (!audio || audio.state === "closed") audio = new AudioContext();
+      if (audio.state === "suspended") audio.resume().catch(() => {});
+    } catch { /* Visual notifications remain available when audio is blocked. */ }
+  };
+  const playSound = () => {
+    if (state.muted || audio?.state !== "running" || performance.now() - lastSound < 2000) return;
+    try {
+      const tone = audio.createOscillator();
+      const volume = audio.createGain();
+      const start = audio.currentTime;
+      tone.frequency.setValueAtTime(740, start);
+      tone.frequency.exponentialRampToValueAtTime(880, start + .12);
+      volume.gain.setValueAtTime(.0001, start);
+      volume.gain.exponentialRampToValueAtTime(.06, start + .012);
+      volume.gain.exponentialRampToValueAtTime(.0001, start + .16);
+      tone.connect(volume).connect(audio.destination);
+      tone.onended = () => { tone.disconnect(); volume.disconnect(); };
+      tone.start(start);
+      tone.stop(start + .18);
+      lastSound = performance.now();
+    } catch { /* A muted device or blocked audio never interrupts the room. */ }
+  };
+  document.addEventListener("pointerdown", activateAudio);
+  document.addEventListener("keydown", activateAudio);
   const validMessage = (m) => m && ["id", "username", "name", "avatar", "text"].every((p) => typeof m[p] === "string") && Number.isSafeInteger(m.at) && m.at >= 0 && m.at <= 8640000000000;
   clearChatStorage(key);
   try {
@@ -981,7 +1010,7 @@ function createCommitteeChat(root) {
       status.textContent = "Envoi incertain : vérifie le salon avant de réessayer. Ton texte est conservé.";
     } finally { posting = false; sync(); }
   });
-  mute.addEventListener("click", () => { state.muted = !state.muted; persist(); sync(); });
+  mute.addEventListener("click", () => { state.muted = !state.muted; activateAudio(); persist(); sync(); });
   jump.addEventListener("click", scrollBottom);
   log.addEventListener("scroll", markRead);
   window.addEventListener("focus", markRead);
@@ -989,6 +1018,8 @@ function createCommitteeChat(root) {
   document.querySelectorAll('form[action="/deconnexion"]').forEach((form) => form.addEventListener("submit", clearChatStorage));
   window.addEventListener("pagehide", () => {
     persist();
+    audio?.close().catch(() => {});
+    audio = null;
     root.hidden = true;
     document.title = baseTitle;
     live?.close();
@@ -1016,6 +1047,7 @@ function createCommitteeChat(root) {
       state.unread++;
       announcement.textContent = `${state.unread} message${state.unread > 1 ? "s" : ""} non lu${state.unread > 1 ? "s" : ""} dans le chat comité`;
       if (!bottom) jump.hidden = false;
+      if (!replay) playSound();
     }
     if (!replay) status.textContent = "En ligne · salon éphémère";
     sync();
