@@ -45,24 +45,25 @@ type Event struct {
 
 // Detail is a request with its thread and journal.
 type Detail struct {
-	ID          int64
-	Ref         string
-	Status      Status
-	Assignee    string
-	Version     int64
-	Category    string
-	FirstName   string
-	LastName    string
-	Email       string
-	Fields      Fields
-	Description string
-	Summary     string   // written by the model for the committee, "" without one (spec §5.6)
-	KBIDs       []string // fiches chosen at submission, nil when the model did not answer (spec §5.3)
-	SubmittedAt time.Time
-	ClosedAt    time.Time    // zero while open
-	Captures    []Attachment // sent with the form
-	Messages    []Message    // oldest first, internal notes included
-	Events      []Event      // oldest first
+	SuggestedCategory string // committee-only, decrypted category advice
+	ID                int64
+	Ref               string
+	Status            Status
+	Assignee          string
+	Version           int64
+	Category          string
+	FirstName         string
+	LastName          string
+	Email             string
+	Fields            Fields
+	Description       string
+	Summary           string   // written by the model for the committee, "" without one (spec §5.6)
+	KBIDs             []string // fiches chosen at submission, nil when the model did not answer (spec §5.3)
+	SubmittedAt       time.Time
+	ClosedAt          time.Time    // zero while open
+	Captures          []Attachment // sent with the form
+	Messages          []Message    // oldest first, internal notes included
+	Events            []Event      // oldest first
 }
 
 // Public returns the messages without internal notes (tracking page, mails).
@@ -210,14 +211,14 @@ func (s *Store) Detail(ctx context.Context, id int64) (*Detail, error) {
 		assignee, kbIDs                      sql.NullString
 		submitted, closed                    sql.NullInt64
 		first, last, email, fields, describe []byte
-		summary                              []byte
+		summary, suggestedCategory           []byte
 	)
 	err := s.DB.QueryRowContext(ctx,
 		`SELECT id, ref, status, assignee, version, category, first_name, last_name, email, fields, description,
-		  summary, kb_ids, submitted_at, closed_at
+		  summary, kb_ids, suggested_category, submitted_at, closed_at
 		 FROM submitted_tickets WHERE id = ?`, id).
 		Scan(&d.ID, &d.Ref, &d.Status, &assignee, &d.Version, &d.Category, &first, &last, &email, &fields, &describe,
-			&summary, &kbIDs, &submitted, &closed)
+			&summary, &kbIDs, &suggestedCategory, &submitted, &closed)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -233,6 +234,9 @@ func (s *Store) Detail(ctx context.Context, id int64) (*Detail, error) {
 		return nil, fmt.Errorf("decode ticket fields: %w", err)
 	}
 	if err := s.openOptional(&d.Summary, summary); err != nil {
+		return nil, err
+	}
+	if err := s.openOptional(&d.SuggestedCategory, suggestedCategory); err != nil {
 		return nil, err
 	}
 	if d.KBIDs, err = decodeKBIDs(kbIDs); err != nil {
