@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/assistant"
+	"github.com/SkYNewZ/sos-vpdive/internal/config"
 	"github.com/SkYNewZ/sos-vpdive/internal/store"
 	"github.com/SkYNewZ/sos-vpdive/internal/suggest"
 )
@@ -57,21 +58,21 @@ func (s *Server) recordUsage(ctx context.Context, u usageEntry) {
 	}
 }
 
-// recordSuggestion writes a suggestion call, even after the member left; a
+// recordSuggestion writes a selection or summary call, even after the member left; a
 // failure is logged.
-func (s *Server) recordSuggestion(ctx context.Context, res suggest.Result, d time.Duration, callErr error) {
+func (s *Server) recordSuggestion(ctx context.Context, cfg *config.LLM, res suggest.Result, d time.Duration, callErr error) {
 	ctx = context.WithoutCancel(ctx)
 	outcome := outcomeOK
 	if callErr != nil {
 		outcome = suggest.Code(callErr)
 	}
 	var cost sql.NullInt64
-	if p := s.cfg.LLM.Prices; p.Set {
+	if p := cfg.Prices; p.Set {
 		u := assistant.Usage{Input: res.InputTokens, Output: res.OutputTokens}
 		cost = sql.NullInt64{Int64: u.CostMicro(p), Valid: true}
 	}
 	if _, err := s.db.ExecContext(ctx, `INSERT INTO suggest_usage (at, model, input_tokens, output_tokens, cost_micro_usd, duration_ms, outcome)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`, s.now().Unix(), s.cfg.LLM.Model, res.InputTokens, res.OutputTokens, cost, d.Milliseconds(),
+		VALUES (?, ?, ?, ?, ?, ?, ?)`, s.now().Unix(), cfg.Model, res.InputTokens, res.OutputTokens, cost, d.Milliseconds(),
 		outcome); err != nil {
 		s.logger.ErrorContext(ctx, "record suggestion usage", "error", err)
 	}

@@ -86,7 +86,7 @@ type S3 struct {
 
 // LLM holds the model provider settings (spec §5.4).
 type LLM struct {
-	BaseURL    *url.URL // the API root; the client appends /v1/messages
+	BaseURL    *url.URL // the API root; each client appends its endpoint
 	APIKey     string
 	Model      string
 	Timeout    time.Duration // the request leaves without suggestions past it
@@ -102,8 +102,7 @@ type Prices struct {
 }
 
 // Assistant holds the committee assistant settings (design 2026-10-08);
-// Config.Assistant is nil when it is off. Its provider is its own: LLM is
-// the suggestions'.
+// Config.Assistant is nil when it is off. Its provider is independent.
 type Assistant struct {
 	BaseURL        *url.URL // the API root; the client appends /v1/messages
 	APIKey         string
@@ -200,7 +199,8 @@ type Config struct {
 	AgeAlertAfter      time.Duration // and in red from this one
 	RetentionDays      int           // days a closed request is kept
 	FormRateLimit      int           // form submissions per hour and IP address
-	LLM                *LLM          // nil without LLM_API_KEY: no suggestions, no screen 2
+	Suggest            *LLM          // nil without SUGGEST_API_KEY: no fiche suggestions
+	Summary            *LLM          // nil without SUMMARY_API_KEY: no generated summary
 	Assistant          *Assistant    // nil unless ASSISTANT_ENABLED with ASSISTANT_API_KEY
 	PushoverToken      string        // "" turns Pushover off; each resolver sets a user key on « Notifications »
 	VAPID              *VAPID        // nil turns Web Push off
@@ -262,7 +262,8 @@ func Load(getenv func(string) string) (*Config, error) {
 	}
 	p.turnstile(c)
 	c.S3 = p.s3(c.Env)
-	c.LLM = p.llm(c.Env)
+	c.Suggest = p.llm("SUGGEST", "https://api.openai.com", "gpt-6-luna", "0.10", "0", c.Env)
+	c.Summary = p.llm("SUMMARY", "https://api.anthropic.com", "claude-haiku-5-5", "", "", c.Env)
 	c.Assistant = p.assistant(c.Env)
 	c.PushoverToken = p.pushoverToken()
 	c.VAPID = p.vapid()
@@ -507,19 +508,19 @@ func (p *parser) turnstile(c *Config) {
 	}
 }
 
-// llm reads the model variables. They are checked even without a key, so a
-// typo shows before the key is added; without a key suggestions are off.
-func (p *parser) llm(env Env) *LLM {
+// llm checks provider variables even without a key, so a typo shows before
+// the key is added; without a key the provider is off.
+func (p *parser) llm(prefix, base, model, inputPrice, outputPrice string, env Env) *LLM {
 	l := &LLM{
-		BaseURL:    p.baseURL("LLM_BASE_URL", env),
-		APIKey:     p.value("LLM_API_KEY"),
-		Model:      p.optional("LLM_MODEL", "claude-haiku-5-5"),
-		Timeout:    p.duration("LLM_TIMEOUT", "8s"),
-		DailyLimit: p.int("LLM_DAILY_LIMIT", "200", 1, 100000),
-		Prices:     p.prices("LLM"),
+		BaseURL:    p.baseURL(prefix+"_BASE_URL", base, env),
+		APIKey:     p.value(prefix + "_API_KEY"),
+		Model:      p.optional(prefix+"_MODEL", model),
+		Timeout:    p.duration(prefix+"_TIMEOUT", "8s"),
+		DailyLimit: p.int(prefix+"_DAILY_LIMIT", "200", 1, 100000),
+		Prices:     p.prices(prefix, inputPrice, outputPrice),
 	}
 	if l.Timeout > time.Minute {
-		p.fail("LLM_TIMEOUT", errors.New("must be 60s at most"))
+		p.fail(prefix+"_TIMEOUT", errors.New("must be 60s at most"))
 	}
 	if l.APIKey == "" {
 		return nil
@@ -529,14 +530,14 @@ func (p *parser) llm(env Env) *LLM {
 
 // assistant reads the committee assistant variables. It is off by default.
 // An invalid value warns and keeps its default, but an invalid
-// ASSISTANT_BASE_URL stops the start, as LLM_BASE_URL does; an assistant
+// ASSISTANT_BASE_URL stops the start, as other provider URLs do; an assistant
 // without ASSISTANT_API_KEY warns and stays off, like the other optional tools.
 func (p *parser) assistant(env Env) *Assistant {
 	if !p.flag("ASSISTANT_ENABLED", false) {
 		return nil
 	}
 	a := &Assistant{
-		BaseURL: p.baseURL("ASSISTANT_BASE_URL", env),
+		BaseURL: p.baseURL("ASSISTANT_BASE_URL", "https://api.anthropic.com", env),
 		APIKey:  p.value("ASSISTANT_API_KEY"),
 		Model:   p.optional("ASSISTANT_MODEL", "claude-sonnet-5-5"),
 	}
@@ -552,17 +553,17 @@ func (p *parser) assistant(env Env) *Assistant {
 	}
 	a.MaxTokens = p.optionalInt("ASSISTANT_MAX_TOKENS", maxTokens, minMaxTokens, maxMaxTokens)
 	a.DailyQuestions = p.optionalInt("ASSISTANT_DAILY_QUESTIONS", defaultDailyQuestions, 1, 10000)
-	a.Prices = p.prices("ASSISTANT")
-	if cached, set := p.price("ASSISTANT_PRICE_CACHED"); set {
+	a.Prices = p.prices("ASSISTANT", "", "")
+	if cached, set := p.price("ASSISTANT_PRICE_CACHED", ""); set {
 		a.Prices.Cached = cached
 	}
 	return a
 }
 
-// baseURL reads the API root of a model provider, Anthropic's by default;
+// baseURL reads the API root of a model provider;
 // the key goes there, so production wants https.
-func (p *parser) baseURL(name string, env Env) *url.URL {
-	u := p.endpoint(name, p.optional(name, "https://api.anthropic.com"))
+func (p *parser) baseURL(name, fallback string, env Env) *url.URL {
+	u := p.endpoint(name, p.optional(name, fallback))
 	if env == EnvProduction {
 		p.requireHTTPS(name, u)
 	}
@@ -619,16 +620,16 @@ func (p *parser) optionalInt(name string, def, minimum, maximum int) int {
 
 // prices reads prefix_PRICE_INPUT and prefix_PRICE_OUTPUT; a cache read
 // costs the input price.
-func (p *parser) prices(prefix string) Prices {
-	input, inputSet := p.price(prefix + "_PRICE_INPUT")
-	output, outputSet := p.price(prefix + "_PRICE_OUTPUT")
+func (p *parser) prices(prefix, inputDefault, outputDefault string) Prices {
+	input, inputSet := p.price(prefix+"_PRICE_INPUT", inputDefault)
+	output, outputSet := p.price(prefix+"_PRICE_OUTPUT", outputDefault)
 	return Prices{Set: inputSet && outputSet, Input: input, Output: output, Cached: input}
 }
 
 // price reads an optional price in dollars per million tokens, a comma
 // accepted, as micro-dollars. set is false when unset or invalid.
-func (p *parser) price(name string) (micro int64, set bool) {
-	raw := p.value(name)
+func (p *parser) price(name, fallback string) (micro int64, set bool) {
+	raw := p.optional(name, fallback)
 	if raw == "" {
 		return 0, false
 	}

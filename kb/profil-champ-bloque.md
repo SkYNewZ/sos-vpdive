@@ -1,6 +1,7 @@
 ---
 id: profil-champ-bloque
 titre: Mon profil est bloqué, un champ reste en rouge
+index: Profil impossible à modifier : champ obligatoire en rouge et impossible à remplir.
 categories: [compte]
 liens_vpdive: [membres]
 ---

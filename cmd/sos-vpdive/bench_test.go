@@ -9,16 +9,24 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/SkYNewZ/sos-vpdive/internal/store"
 )
 
 // provider answers every Messages call with reply, streamed when asked.
 func provider(t *testing.T, reply string) string {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(reply, "event:") {
+			w.Header().Set("Content-Type", "text/event-stream")
+		} else {
+			w.Header().Set("Content-Type", "application/json")
+		}
 		if _, err := io.Copy(io.Discard, r.Body); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -64,13 +72,28 @@ func TestAssistantBenchWritesMetrics(t *testing.T) {
 }
 
 func TestSuggestBenchWritesResults(t *testing.T) {
-	reply := `{"content":[{"type":"text","text":"{\"fiches\":[\"carnet-solde-negatif\"],\"resume\":\"Solde contesté.\"}"}],` +
-		`"usage":{"input_tokens":3100,"output_tokens":40}}`
+	reply := `{"answers":[{"type":"choice","name":"fiche","choice":"carnet-solde-negatif","confidence":0.95}],` +
+		`"usage":{"input_tokens":3100,"output_tokens":0,"total_tokens":3100}}`
 	env := devEnv(t, freePort(t))
-	env["LLM_API_KEY"], env["LLM_BASE_URL"], env["LLM_MODEL"] = "sk-test", provider(t, reply), "claude-haiku-5-5"
+	env["SUGGEST_API_KEY"], env["SUGGEST_BASE_URL"], env["SUGGEST_MODEL"] = "sk-test", provider(t, reply), "gpt-6-luna"
+	// A configured summarizer must never be contacted by the selector benchmark.
+	env["SUMMARY_API_KEY"] = "sk-test"
+	summary := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Error("selector benchmark must never request a summary")
+	}))
+	t.Cleanup(summary.Close)
+	env["SUMMARY_BASE_URL"] = summary.URL
 	dir, out := benchDirs(t, `{"category":"carnet","values":{"carnet":"10-n1n2"},"description":"Mon carnet est négatif."}`)
 	require.NoError(t, run(context.Background(), []string{"suggest-bench", "-messages", dir, "-out", out, "-runs", "2"}, getenv(env), io.Discard))
 
+	db, err := store.Open(context.Background(), filepath.Join(env["DATA_DIR"], store.FileName))
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, db.Close()) })
+	for _, table := range []string{"tickets", "suggest_usage", "counters"} {
+		var n int
+		require.NoError(t, db.QueryRowContext(context.Background(), "SELECT count(*) FROM "+table).Scan(&n))
+		assert.Zero(t, n, "benchmark leaves %s untouched", table)
+	}
 	data, err := os.ReadFile(filepath.Join(out, "suggestions.jsonl"))
 	require.NoError(t, err)
 	dec := json.NewDecoder(bytes.NewReader(data))
@@ -79,16 +102,25 @@ func TestSuggestBenchWritesResults(t *testing.T) {
 		require.NoError(t, dec.Decode(&line), "one line per run")
 		assert.Equal(t, "message1", line["message"])
 		assert.InDelta(t, run, line["run"], 0)
-		assert.Equal(t, "claude-haiku-5-5", line["model"])
+		assert.Equal(t, "gpt-6-luna", line["model"])
 		assert.Equal(t, "ok", line["outcome"])
 		assert.Equal(t, []any{"carnet-solde-negatif"}, line["fiches"])
-		assert.Equal(t, "Solde contesté.", line["summary"])
+		assert.InDelta(t, 0.95, line["confidence"], 0.0001)
+		assert.NotContains(t, line, "summary")
 		assert.InDelta(t, 3100, line["input_tokens"], 0)
-		assert.InDelta(t, 40, line["output_tokens"], 0)
+		assert.InDelta(t, 0, line["output_tokens"], 0)
 	}
 }
 
 func TestSuggestBenchUsage(t *testing.T) {
 	err := run(context.Background(), []string{"suggest-bench"}, func(string) string { return "" }, io.Discard)
 	assert.ErrorContains(t, err, "-messages")
+}
+
+func TestSuggestBenchRequiresItsOwnKey(t *testing.T) {
+	env := devEnv(t, freePort(t))
+	env["SUMMARY_API_KEY"] = "sk-test"
+	dir, out := benchDirs(t, `{}`)
+	err := run(context.Background(), []string{"suggest-bench", "-messages", dir, "-out", out}, getenv(env), io.Discard)
+	assert.ErrorContains(t, err, "suggest-bench needs SUGGEST_API_KEY")
 }

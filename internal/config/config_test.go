@@ -219,63 +219,82 @@ func TestLoadLot2Settings(t *testing.T) {
 	assert.Equal(t, 35, c.FormRateLimit)
 }
 
-func TestLoadLLM(t *testing.T) {
+func TestLoadModelProviders(t *testing.T) {
 	c, err := Load(getenv(validEnv()))
 	require.NoError(t, err)
-	assert.Nil(t, c.LLM, "no key: suggestions are off")
+	assert.Nil(t, c.Suggest)
+	assert.Nil(t, c.Summary)
 
 	m := validEnv()
-	m["LLM_API_KEY"] = "sk-test"
+	m["SUGGEST_API_KEY"], m["SUMMARY_API_KEY"] = "sk-selector", "sk-summary"
 	c, err = Load(getenv(m))
 	require.NoError(t, err)
-	require.NotNil(t, c.LLM)
-	assert.Equal(t, "https://api.anthropic.com", c.LLM.BaseURL.String())
-	assert.Equal(t, "claude-haiku-5-5", c.LLM.Model, "the suggestion bench of 2026-10-09")
-	assert.Equal(t, 8*time.Second, c.LLM.Timeout)
-	assert.Equal(t, 200, c.LLM.DailyLimit)
-	assert.Equal(t, Prices{}, c.LLM.Prices, "no price: no cost on the dashboard")
+	require.NotNil(t, c.Suggest)
+	require.NotNil(t, c.Summary)
+	assert.Equal(t, "https://api.openai.com", c.Suggest.BaseURL.String())
+	assert.Equal(t, "gpt-6-luna", c.Suggest.Model)
+	assert.Equal(t, Prices{Set: true, Input: 100_000, Cached: 100_000}, c.Suggest.Prices)
+	assert.Equal(t, "https://api.anthropic.com", c.Summary.BaseURL.String())
+	assert.Equal(t, "claude-haiku-5-5", c.Summary.Model)
+	assert.Equal(t, Prices{}, c.Summary.Prices)
+	for _, provider := range []*LLM{c.Suggest, c.Summary} {
+		assert.Equal(t, 8*time.Second, provider.Timeout)
+		assert.Equal(t, 200, provider.DailyLimit)
+	}
 
-	m["LLM_PRICE_INPUT"], m["LLM_PRICE_OUTPUT"] = "1", "5"
+	m["SUGGEST_BASE_URL"], m["SUGGEST_MODEL"] = "https://selector.example/v2", "selector"
+	m["SUGGEST_TIMEOUT"], m["SUGGEST_DAILY_LIMIT"] = "3s", "80"
+	m["SUGGEST_PRICE_INPUT"], m["SUGGEST_PRICE_OUTPUT"] = "1", "5"
+	m["SUMMARY_PRICE_INPUT"], m["SUMMARY_PRICE_OUTPUT"] = "0.3", "1,2"
 	c, err = Load(getenv(m))
 	require.NoError(t, err)
-	assert.Equal(t, Prices{Set: true, Input: 1_000_000, Output: 5_000_000, Cached: 1_000_000}, c.LLM.Prices)
+	assert.Equal(t, "https://selector.example/v2", c.Suggest.BaseURL.String())
+	assert.Equal(t, "selector", c.Suggest.Model)
+	assert.Equal(t, 3*time.Second, c.Suggest.Timeout)
+	assert.Equal(t, 80, c.Suggest.DailyLimit)
+	assert.Equal(t, Prices{Set: true, Input: 1_000_000, Output: 5_000_000, Cached: 1_000_000}, c.Suggest.Prices)
+	assert.Equal(t, Prices{Set: true, Input: 300_000, Output: 1_200_000, Cached: 300_000}, c.Summary.Prices)
+	assert.Equal(t, "claude-haiku-5-5", c.Summary.Model, "providers are independent")
 
-	m["LLM_PRICE_OUTPUT"] = "cher"
+	m["SUGGEST_PRICE_OUTPUT"] = "invalid"
 	c, err = Load(getenv(m))
-	require.NoError(t, err, "an optional price never stops the start")
-	assert.False(t, c.LLM.Prices.Set, "both prices or no cost")
+	require.NoError(t, err)
+	assert.False(t, c.Suggest.Prices.Set)
 	require.Len(t, c.Warnings, 1)
-	assert.Contains(t, c.Warnings[0].Error(), "LLM_PRICE_OUTPUT")
-	delete(m, "LLM_PRICE_INPUT")
-	delete(m, "LLM_PRICE_OUTPUT")
+	assert.Contains(t, c.Warnings[0].Error(), "SUGGEST_PRICE_OUTPUT")
+}
 
-	m["LLM_BASE_URL"] = "https://api.deepseek.com/anthropic"
-	c, err = Load(getenv(m))
+func TestLoadProviderValidation(t *testing.T) {
+	for _, prefix := range []string{"SUGGEST", "SUMMARY"} {
+		for suffix, value := range map[string]string{"BASE_URL": "http://llm.example", "TIMEOUT": "2m", "DAILY_LIMIT": "0"} {
+			t.Run(prefix+"_"+suffix, func(t *testing.T) {
+				m := validEnv()
+				m[prefix+"_"+suffix] = value
+				_, err := Load(getenv(m))
+				require.ErrorContains(t, err, prefix+"_"+suffix, "checked without a key")
+			})
+		}
+		m := validEnv()
+		m["APP_ENV"], m[prefix+"_API_KEY"], m[prefix+"_BASE_URL"] = "development", "sk-test", "http://127.0.0.1:9999/prefix/"
+		c, err := Load(getenv(m))
+		require.NoError(t, err)
+		provider := c.Suggest
+		if prefix == "SUMMARY" {
+			provider = c.Summary
+		}
+		require.NotNil(t, provider)
+		assert.Equal(t, "127.0.0.1:9999", provider.BaseURL.Host)
+		assert.Equal(t, "/prefix/", provider.BaseURL.Path)
+	}
+}
+
+func TestLoadDoesNotUseLegacyLLMVariables(t *testing.T) {
+	m := validEnv()
+	m["LLM_API_KEY"], m["LLM_BASE_URL"], m["LLM_MODEL"] = "sk-old", "invalid", "old"
+	c, err := Load(getenv(m))
 	require.NoError(t, err)
-	assert.Equal(t, "https://api.deepseek.com/anthropic", c.LLM.BaseURL.String(), "a provider prefix is kept")
-
-	tests := map[string]string{
-		"LLM_BASE_URL":    "http://llm.example.org",
-		"LLM_TIMEOUT":     "2m",
-		"LLM_DAILY_LIMIT": "0",
-	}
-	for name, value := range tests {
-		t.Run(name, func(t *testing.T) {
-			m := validEnv()
-			m[name] = value
-			_, err := Load(getenv(m))
-			require.Error(t, err, "checked even without a key")
-			assert.Contains(t, err.Error(), name)
-		})
-	}
-
-	m = validEnv()
-	m["APP_ENV"] = "development"
-	m["LLM_API_KEY"] = "sk-test"
-	m["LLM_BASE_URL"] = "http://127.0.0.1:9999"
-	c, err = Load(getenv(m))
-	require.NoError(t, err, "development may point at a local stub")
-	assert.Equal(t, "127.0.0.1:9999", c.LLM.BaseURL.Host)
+	assert.Nil(t, c.Suggest)
+	assert.Nil(t, c.Summary)
 }
 
 // vapidPair is a fixed P-256 key pair in the base64url form of .env.
@@ -517,24 +536,24 @@ func TestOwnerUsername(t *testing.T) {
 func TestLoadAssistant(t *testing.T) {
 	m := validEnv()
 	m["ASSISTANT_ENABLED"] = "true"
-	m["LLM_API_KEY"] = "sk-llm"
+	m["SUGGEST_API_KEY"] = "sk-selector"
 	c, err := Load(getenv(m))
 	require.NoError(t, err)
-	assert.Nil(t, c.Assistant, "no ASSISTANT_API_KEY: off, whatever LLM_API_KEY")
+	assert.Nil(t, c.Assistant, "no ASSISTANT_API_KEY: off, whatever SUGGEST_API_KEY")
 	require.Len(t, c.Warnings, 1)
 	assert.Contains(t, c.Warnings[0].Error(), "ASSISTANT_API_KEY")
 
-	delete(m, "LLM_API_KEY")
+	delete(m, "SUGGEST_API_KEY")
 	m["ASSISTANT_API_KEY"] = "sk-test"
-	m["LLM_MODEL"] = "deepseek-flash"
+	m["SUGGEST_MODEL"] = "selector-other"
 	c, err = Load(getenv(m))
 	require.NoError(t, err)
-	assert.Nil(t, c.LLM, "suggestions stay off")
+	assert.Nil(t, c.Suggest, "suggestions stay off")
 	anthropic, err := url.Parse("https://api.anthropic.com")
 	require.NoError(t, err)
 	assert.Equal(t, &Assistant{
 		BaseURL: anthropic, APIKey: "sk-test", Model: "claude-sonnet-5-5", Thinking: true, MaxTokens: 32000, DailyQuestions: 50,
-	}, c.Assistant, "its own provider, Claude Sonnet 5.5 with reasoning by default: LLM_* is the suggestions'")
+	}, c.Assistant, "its own provider, Claude Sonnet 5.5 with reasoning by default: SUGGEST_* is the suggestions'")
 
 	m["ASSISTANT_THINKING"] = "false"
 	c, err = Load(getenv(m))

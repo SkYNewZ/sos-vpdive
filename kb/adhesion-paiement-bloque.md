@@ -1,6 +1,7 @@
 ---
 id: adhesion-paiement-bloque
 titre: Pendant mon adhésion, le paiement ne s'ouvre pas
+index: Paiement d’adhésion inaccessible à l’étape Panier : dossier en attente de validation par le club.
 categories: [adhesion, paiement]
 liens_vpdive: [membres]
 ---

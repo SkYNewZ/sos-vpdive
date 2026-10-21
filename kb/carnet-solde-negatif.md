@@ -1,6 +1,7 @@
 ---
 id: carnet-solde-negatif
 titre: Mon carnet affiche un montant négatif en « reste à payer »
+index: Montant négatif en reste à payer sur un carnet : avoir disponible, pas une dette.
 categories: [carnet]
 liens_vpdive: [paiements]
 ---

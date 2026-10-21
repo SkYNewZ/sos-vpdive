@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode/utf8"
 )
 
 // Section headings of a fiche, in this order.
@@ -61,6 +62,7 @@ type Block struct {
 type Fiche struct {
 	ID         string
 	Title      string
+	Index      string
 	Categories []string // category ids
 	Links      []string // VPDive link keys, shown first on the request page
 	AnswerText string   // « Réponse adhérent » as written, without its diagram: sent to the model
@@ -100,6 +102,9 @@ func Load(content fs.FS, knownCategory, knownLink func(string) bool) (*Base, err
 		}
 		if _, dup := b.Get(f.ID); err == nil && dup {
 			err = fmt.Errorf("duplicate id %q", f.ID)
+		}
+		if err == nil && slices.ContainsFunc(b.Fiches, func(existing Fiche) bool { return existing.Index == f.Index }) {
+			err = fmt.Errorf("duplicate index %q", f.Index)
 		}
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", name, err))
@@ -160,14 +165,14 @@ func parse(text string) (Fiche, error) {
 		return Fiche{}, fmt.Errorf("« %s »: %w", procedureHeading, err)
 	}
 	return Fiche{
-		ID: fm.ID, Title: fm.Title, Categories: fm.Categories, Links: fm.Links,
+		ID: fm.ID, Title: fm.Title, Index: fm.Index, Categories: fm.Categories, Links: fm.Links,
 		AnswerText: withoutDiagram(sections[0]), Answer: answer, Procedure: procedure, ProcedureText: withoutDiagram(sections[1]),
 		Todo: strings.Count(text, todoMark),
 	}, nil
 }
 
 type frontMatter struct {
-	ID, Title         string
+	ID, Title, Index  string
 	Categories, Links []string
 }
 
@@ -193,12 +198,14 @@ func readFrontMatter(front string) (frontMatter, error) {
 			fm.ID = value
 		case "titre":
 			fm.Title = value
+		case "index":
+			fm.Index = value
 		case "categories":
 			fm.Categories, err = list(value)
 		case "liens_vpdive":
 			fm.Links, err = list(value)
 		default:
-			err = errors.New("unknown key: id, titre, categories and liens_vpdive only")
+			err = errors.New("unknown key: id, titre, index, categories and liens_vpdive only")
 		}
 		if err != nil {
 			return fm, fmt.Errorf("front matter %s: %w", key, err)
@@ -259,6 +266,15 @@ func splitSections(body string) ([2]string, error) {
 func (f Fiche) check(knownCategory, knownLink func(string) bool) error {
 	if !idPattern.MatchString(f.ID) {
 		return fmt.Errorf("id %q must match %s", f.ID, idPattern)
+	}
+	if f.ID == "autre" {
+		return errors.New("id autre is reserved for no article")
+	}
+	if f.Index == "" {
+		return errors.New("empty index")
+	}
+	if utf8.RuneCountInString(f.Index) > 120 {
+		return errors.New("index exceeds 120 characters")
 	}
 	if f.Title == "" {
 		return errors.New("empty titre")

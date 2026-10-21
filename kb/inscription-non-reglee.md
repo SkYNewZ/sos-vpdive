@@ -1,6 +1,7 @@
 ---
 id: inscription-non-reglee
 titre: Je me suis inscrit mais mon inscription n'est pas validée
+index: Inscription à une sortie non validée : panier non réglé ou paiement en échec, même avec un carnet.
 categories: [inscription, paiement]
 liens_vpdive: [paiements]
 ---
