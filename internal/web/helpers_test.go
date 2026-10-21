@@ -24,7 +24,6 @@ import (
 	"time"
 
 	"github.com/getsentry/sentry-go"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	sosvpdive "github.com/SkYNewZ/sos-vpdive"
@@ -134,9 +133,7 @@ func newTestEnv(t *testing.T, opts ...func(*Deps)) *testEnv {
 	t.Helper()
 	ctx := context.Background()
 	dir := t.TempDir()
-	db, err := store.Open(ctx, filepath.Join(dir, store.FileName))
-	require.NoError(t, err)
-	t.Cleanup(func() { assert.NoError(t, db.Close()) })
+	db := newTestDB(ctx, t, filepath.Join(dir, store.FileName))
 	keys, err := secure.NewKeys(bytes.Repeat([]byte{9}, 32))
 	require.NoError(t, err)
 	require.NoError(t, store.CheckKey(ctx, db, keys))

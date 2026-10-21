@@ -52,6 +52,11 @@ jobs:
         uses: actions/setup-go@v7.0.0
         with:
           go-version-file: go.mod
+          # Keep race build artifacts out of the cache saved first by lint.
+          cache-dependency-path: |
+            go.mod
+            go.sum
+            .github/workflows/ci.yml
       - name: go test
         run: go test -race ./...
 
