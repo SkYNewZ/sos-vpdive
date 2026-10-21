@@ -104,6 +104,13 @@ func TestTakeAssignsAndMailsTheMember(t *testing.T) {
 	after := e.openTicket(t, cookie, tk.ID)
 	assert.Contains(t, after.body, "Répondre à l'adhérent")
 	assert.Contains(t, after.body, "Note interne")
+	sections := regexp.MustCompile(`<section[^>]+aria-labelledby="([^"]+)"`).FindAllStringSubmatch(after.body, -1)
+	require.GreaterOrEqual(t, len(sections), 4)
+	firstSections := make([]string, 0, 4)
+	for _, section := range sections[:4] {
+		firstSections = append(firstSections, section[1])
+	}
+	assert.Equal(t, []string{"demande", "note", "repondre", "fil"}, firstSections)
 }
 
 func TestTakeRaceNamesWhoTookIt(t *testing.T) {

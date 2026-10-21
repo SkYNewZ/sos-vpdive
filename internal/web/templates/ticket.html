@@ -70,6 +70,53 @@
 </li>{{end}}</ul>
 {{end}}
 </section>
+{{if $d.Can.reply}}
+<section class="rounded-box border border-warning bg-warning/10 p-4 lg:p-5" aria-labelledby="note">
+<h2 id="note" class="text-xl font-semibold">Note interne</h2>
+<p class="text-sm font-semibold">Visible du comité seulement : l'adhérent ne la voit jamais et ne reçoit aucun mail.</p>
+<form method="post" action="/demandes/{{$t.ID}}/actions" class="mt-3 flex flex-col gap-3">{{template "actionFields" $}}
+<label class="font-semibold" for="note-texte">Note</label>
+<textarea class="textarea w-full" id="note-texte" name="note" rows="4" maxlength="4000" required{{if $d.NoteError}} aria-invalid="true" aria-describedby="note-erreur"{{end}}>{{$d.Note}}</textarea>
+{{with $d.NoteError}}<p id="note-erreur" class="font-semibold text-error">{{.}}</p>{{end}}
+<button class="btn btn-outline min-h-11 self-start" name="action" value="note">Ajouter la note</button>
+</form>
+</section>
+<section class="panel p-4 lg:p-5" aria-labelledby="repondre">
+<h2 id="repondre" class="text-xl font-semibold">Répondre à l'adhérent</h2>
+<p class="text-sm">Ta réponse est visible de l'adhérent et lui part par mail.</p>
+<form method="post" action="/demandes/{{$t.ID}}/actions" class="mt-3 flex flex-col gap-3">{{template "actionFields" $}}
+<label class="font-semibold" for="message">Réponse</label>
+<textarea class="textarea w-full" id="message" name="message" rows="6" maxlength="4000" required{{if $d.ReplyError}} aria-invalid="true" aria-describedby="message-erreur"{{end}}>{{$d.Reply}}</textarea>
+{{with $d.ReplyError}}<p id="message-erreur" class="font-semibold text-error">{{.}}</p>{{end}}
+<div class="flex flex-wrap gap-3">
+<button class="btn btn-primary min-h-11" name="action" value="reply">Envoyer</button>
+<button class="btn btn-outline min-h-11" name="action" value="reply_wait">Envoyer et attendre sa réponse</button>
+<button class="btn btn-outline min-h-11" name="action" value="reply_close">Envoyer et clore</button>
+</div>
+</form>
+</section>
+{{else}}
+{{if or $d.Reply $d.Note}}<section class="rounded-box border border-warning bg-warning/10 p-4 lg:p-5" aria-labelledby="texte-perdu" data-unsent><h2 id="texte-perdu" class="text-xl font-semibold">Ton texte</h2>
+{{with $d.Reply}}<p class="mt-2 whitespace-pre-line break-words">{{.}}</p>{{end}}{{with $d.Note}}<p class="mt-2 whitespace-pre-line break-words">{{.}}</p>{{end}}</section>{{end}}
+{{if $d.Can.take}}
+<p class="panel p-4">Prends la demande pour répondre à l'adhérent ou écrire une note interne.</p>
+{{end}}
+{{end}}
+<section class="panel p-4 lg:p-5" aria-labelledby="fil">
+<h2 id="fil" class="text-xl font-semibold">Fil de la demande</h2>
+{{with $t.Messages}}<ol class="mt-3 flex flex-col gap-4">{{range .}}
+<li class="rounded-box border p-4 {{if .Internal}}border-warning bg-warning/10{{else if .FromMember}}border-base-300{{else}}border-primary{{end}}">
+<p class="text-sm">{{if .Internal}}<span class="font-semibold">Note interne, visible du comité seulement</span> · {{author .Author}}{{else if .FromMember}}<span class="font-semibold">{{$t.FirstName}} {{$t.LastName}}</span> (adhérent){{else}}<span class="font-semibold">Réponse à l'adhérent</span> · {{author .Author}}{{end}} · {{formatTime .CreatedAt}}</p>
+<p class="mt-2 whitespace-pre-line break-words">{{.Body}}</p>
+{{with .Captures}}<ul class="mt-3 flex flex-wrap gap-3">{{range .}}<li><a href="/demandes/{{$t.ID}}/captures/{{.ID}}" target="_blank" rel="noopener"><img src="/demandes/{{$t.ID}}/captures/{{.ID}}" alt="Capture jointe au message" class="h-32 w-auto border border-base-300" loading="lazy"></a></li>{{end}}</ul>{{end}}
+<details class="mt-2"><summary class="link inline-flex min-h-11 items-center">Supprimer ce message</summary>
+<form method="post" action="/demandes/{{$t.ID}}/actions" class="mt-2 flex flex-col gap-2">{{template "actionFields" $}}<input type="hidden" name="message_id" value="{{.ID}}">
+<p class="text-sm">Le message et ses captures seront effacés. Un mail déjà remis à l'adhérent ne peut pas être rappelé.</p>
+<button class="btn btn-error btn-outline min-h-11 self-start" name="action" value="delete_message">Confirmer la suppression</button>
+</form>
+</details>
+</li>{{end}}</ol>{{else}}<p class="mt-3">Aucun message pour l'instant.</p>{{end}}
+</section>
 <section class="panel p-4 lg:p-5" aria-labelledby="campagne">
 <h2 id="campagne" class="text-xl font-semibold">Campagne d'adhésion</h2>
 {{with $d.Campaign}}{{if or (eq .State "no_lines") (eq .State "purged")}}
@@ -178,53 +225,6 @@
 <p class="mt-2"><a class="btn btn-outline min-h-11" href="{{$d.MollieLink.URL}}" target="_blank" rel="noopener">{{$d.MollieLink.Label}}</a></p>
 {{end}}{{end}}
 </section>
-<section class="panel p-4 lg:p-5" aria-labelledby="fil">
-<h2 id="fil" class="text-xl font-semibold">Fil de la demande</h2>
-{{with $t.Messages}}<ol class="mt-3 flex flex-col gap-4">{{range .}}
-<li class="rounded-box border p-4 {{if .Internal}}border-warning bg-warning/10{{else if .FromMember}}border-base-300{{else}}border-primary{{end}}">
-<p class="text-sm">{{if .Internal}}<span class="font-semibold">Note interne, visible du comité seulement</span> · {{author .Author}}{{else if .FromMember}}<span class="font-semibold">{{$t.FirstName}} {{$t.LastName}}</span> (adhérent){{else}}<span class="font-semibold">Réponse à l'adhérent</span> · {{author .Author}}{{end}} · {{formatTime .CreatedAt}}</p>
-<p class="mt-2 whitespace-pre-line break-words">{{.Body}}</p>
-{{with .Captures}}<ul class="mt-3 flex flex-wrap gap-3">{{range .}}<li><a href="/demandes/{{$t.ID}}/captures/{{.ID}}" target="_blank" rel="noopener"><img src="/demandes/{{$t.ID}}/captures/{{.ID}}" alt="Capture jointe au message" class="h-32 w-auto border border-base-300" loading="lazy"></a></li>{{end}}</ul>{{end}}
-<details class="mt-2"><summary class="link inline-flex min-h-11 items-center">Supprimer ce message</summary>
-<form method="post" action="/demandes/{{$t.ID}}/actions" class="mt-2 flex flex-col gap-2">{{template "actionFields" $}}<input type="hidden" name="message_id" value="{{.ID}}">
-<p class="text-sm">Le message et ses captures seront effacés. Un mail déjà remis à l'adhérent ne peut pas être rappelé.</p>
-<button class="btn btn-error btn-outline min-h-11 self-start" name="action" value="delete_message">Confirmer la suppression</button>
-</form>
-</details>
-</li>{{end}}</ol>{{else}}<p class="mt-3">Aucun message pour l'instant.</p>{{end}}
-</section>
-{{if $d.Can.reply}}
-<section class="panel p-4 lg:p-5" aria-labelledby="repondre">
-<h2 id="repondre" class="text-xl font-semibold">Répondre à l'adhérent</h2>
-<p class="text-sm">Ta réponse est visible de l'adhérent et lui part par mail.</p>
-<form method="post" action="/demandes/{{$t.ID}}/actions" class="mt-3 flex flex-col gap-3">{{template "actionFields" $}}
-<label class="font-semibold" for="message">Réponse</label>
-<textarea class="textarea w-full" id="message" name="message" rows="6" maxlength="4000" required{{if $d.ReplyError}} aria-invalid="true" aria-describedby="message-erreur"{{end}}>{{$d.Reply}}</textarea>
-{{with $d.ReplyError}}<p id="message-erreur" class="font-semibold text-error">{{.}}</p>{{end}}
-<div class="flex flex-wrap gap-3">
-<button class="btn btn-primary min-h-11" name="action" value="reply">Envoyer</button>
-<button class="btn btn-outline min-h-11" name="action" value="reply_wait">Envoyer et attendre sa réponse</button>
-<button class="btn btn-outline min-h-11" name="action" value="reply_close">Envoyer et clore</button>
-</div>
-</form>
-</section>
-<section class="rounded-box border border-warning bg-warning/10 p-4 lg:p-5" aria-labelledby="note">
-<h2 id="note" class="text-xl font-semibold">Note interne</h2>
-<p class="text-sm font-semibold">Visible du comité seulement : l'adhérent ne la voit jamais et ne reçoit aucun mail.</p>
-<form method="post" action="/demandes/{{$t.ID}}/actions" class="mt-3 flex flex-col gap-3">{{template "actionFields" $}}
-<label class="font-semibold" for="note-texte">Note</label>
-<textarea class="textarea w-full" id="note-texte" name="note" rows="4" maxlength="4000" required{{if $d.NoteError}} aria-invalid="true" aria-describedby="note-erreur"{{end}}>{{$d.Note}}</textarea>
-{{with $d.NoteError}}<p id="note-erreur" class="font-semibold text-error">{{.}}</p>{{end}}
-<button class="btn btn-outline min-h-11 self-start" name="action" value="note">Ajouter la note</button>
-</form>
-</section>
-{{else}}
-{{if or $d.Reply $d.Note}}<section class="rounded-box border border-warning bg-warning/10 p-4 lg:p-5" aria-labelledby="texte-perdu" data-unsent><h2 id="texte-perdu" class="text-xl font-semibold">Ton texte</h2>
-{{with $d.Reply}}<p class="mt-2 whitespace-pre-line break-words">{{.}}</p>{{end}}{{with $d.Note}}<p class="mt-2 whitespace-pre-line break-words">{{.}}</p>{{end}}</section>{{end}}
-{{if $d.Can.take}}
-<p class="panel p-4">Prends la demande pour répondre à l'adhérent ou écrire une note interne.</p>
-{{end}}
-{{end}}
 <section class="panel p-4 lg:p-5" aria-labelledby="journal">
 <h2 id="journal" class="text-xl font-semibold">Journal</h2>
 <ol class="mt-3 flex flex-col gap-1 text-sm">{{range $t.Events}}<li>{{formatTime .CreatedAt}} · {{describe .}} · {{actor .Actor}}</li>{{end}}</ol>
