@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -36,10 +37,10 @@ func (s *Server) chooser(sub tickets.Submission) tickets.Chooser {
 		var selection, summary suggest.Result
 		var selected, summarized bool
 		var calls sync.WaitGroup
-		if s.suggest != nil && len(s.kb.Fiches) > 0 {
+		if s.suggest != nil && (len(s.kb.Fiches) > 0 || len(s.tickets.Catalog.Public()) > 0) {
 			calls.Go(func() {
 				selection, selected = s.formModelCall(ctx, formModelSuggest, s.cfg.Suggest, func() (suggest.Result, error) {
-					return s.suggest.Choose(ctx, req, s.suggestionFiches())
+					return s.suggest.Choose(ctx, req, s.suggestionFiches(), s.suggestionCategories())
 				})
 			})
 		}
@@ -73,6 +74,9 @@ func (s *Server) formModelCall(ctx context.Context, purpose formModel, cfg *conf
 	s.recordSuggestion(ctx, cfg, res, time.Since(start), err)
 	if err != nil {
 		s.logger.WarnContext(ctx, "form model call failed", "provider", string(purpose), "error", err)
+		if purpose == formModelSuggest && errors.Is(err, suggest.ErrInvalid) && res.ValidDecisions {
+			return res, true
+		}
 		return suggest.Result{}, false
 	}
 	return res, true
@@ -81,7 +85,7 @@ func (s *Server) formModelCall(ctx context.Context, purpose formModel, cfg *conf
 // suggestRequest is what the model reads: category, dedicated fields and
 // description, never the identity fields (spec §5.2).
 func (s *Server) suggestRequest(sub tickets.Submission) suggest.Request {
-	req := suggest.Request{Category: s.tickets.Catalog.CategoryLabel(sub.Fields.Category), Description: sub.Description}
+	req := suggest.Request{CategoryID: sub.Fields.Category, Category: s.tickets.Catalog.CategoryLabel(sub.Fields.Category), Description: sub.Description}
 	for _, f := range s.tickets.Catalog.Display(sub.Fields) {
 		req.Fields = append(req.Fields, suggest.Field{Label: f.Label, Value: f.Value})
 	}
@@ -228,4 +232,18 @@ func (s *Server) suggestionFiches() []suggest.Fiche {
 		fiches[i] = suggest.Fiche{ID: f.ID, Index: f.Index}
 	}
 	return fiches
+}
+
+// suggestionCategories describes only public categories using the current catalog.
+func (s *Server) suggestionCategories() []suggest.Category {
+	categories := s.tickets.Catalog.Public()
+	out := make([]suggest.Category, 0, len(categories))
+	for _, c := range categories {
+		labels := []string{c.Label}
+		for _, field := range c.Fields {
+			labels = append(labels, field.Label)
+		}
+		out = append(out, suggest.Category{ID: c.ID, Description: strings.Join(labels, " ; ")})
+	}
+	return out
 }

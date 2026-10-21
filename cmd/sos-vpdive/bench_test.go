@@ -72,7 +72,7 @@ func TestAssistantBenchWritesMetrics(t *testing.T) {
 }
 
 func TestSuggestBenchWritesResults(t *testing.T) {
-	reply := `{"answers":[{"type":"choice","name":"fiche","choice":"carnet-solde-negatif","confidence":0.95}],` +
+	reply := `{"answers":[{"type":"choice","name":"fiche","choice":"carnet-solde-negatif","confidence":0.95},{"type":"choice","name":"categorie","choice":"inscription","confidence":0.96}],` +
 		`"usage":{"input_tokens":3100,"output_tokens":0,"total_tokens":3100}}`
 	env := devEnv(t, freePort(t))
 	env["SUGGEST_API_KEY"], env["SUGGEST_BASE_URL"], env["SUGGEST_MODEL"] = "sk-test", provider(t, reply), "gpt-6-luna"
@@ -106,6 +106,8 @@ func TestSuggestBenchWritesResults(t *testing.T) {
 		assert.Equal(t, "ok", line["outcome"])
 		assert.Equal(t, []any{"carnet-solde-negatif"}, line["fiches"])
 		assert.InDelta(t, 0.95, line["confidence"], 0.0001)
+		assert.Equal(t, "inscription", line["category"])
+		assert.InDelta(t, 0.96, line["category_confidence"], 0.0001)
 		assert.NotContains(t, line, "summary")
 		assert.InDelta(t, 3100, line["input_tokens"], 0)
 		assert.InDelta(t, 0, line["output_tokens"], 0)
