@@ -52,7 +52,7 @@ func (s *Server) chooser(sub tickets.Submission) tickets.Chooser {
 			})
 		}
 		calls.Wait()
-		return tickets.Suggestion{KBIDs: selection.IDs, Summary: summary.Summary}, selected || summarized
+		return tickets.Suggestion{KBIDs: selection.IDs, Summary: summary.Summary, SuggestedCategory: selection.CategoryID, CategorySource: sub.Fields.Category}, selected || summarized
 	}
 }
 

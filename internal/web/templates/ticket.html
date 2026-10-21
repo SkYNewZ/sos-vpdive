@@ -46,6 +46,17 @@
 <dt class="font-semibold">Envoyée le</dt><dd class="mb-2 sm:mb-0">{{formatTime $t.SubmittedAt}}</dd>
 {{range $d.Fields}}<dt class="font-semibold">{{.Label}}</dt><dd class="mb-2 break-words sm:mb-0">{{.Value}}{{if .Removed}} <span class="badge badge-soft">retiré</span>{{end}}</dd>
 {{end}}</dl>
+{{with $d.SuggestedCategory}}
+<div class="mt-4 rounded-box border-l-4 border-info bg-info/10 p-4" data-category-suggestion role="region" aria-labelledby="category-suggestion-title">
+<p id="category-suggestion-title" class="inline-flex items-center gap-2 font-semibold">{{template "icon" "sparkles"}}Catégorie suggérée par l'IA</p>
+<p class="mt-1 font-semibold">{{.Label}}</p>
+<p class="mt-1 text-sm">À vérifier à la lecture de la demande.</p>
+<div class="mt-3 flex flex-wrap gap-2">
+<form method="post" action="/demandes/{{$t.ID}}/actions">{{template "actionFields" $}}<input type="hidden" name="categorie" value="{{.Value}}"><button class="btn btn-primary min-h-11" name="action" value="category">Appliquer cette catégorie</button></form>
+<form method="post" action="/demandes/{{$t.ID}}/actions">{{template "actionFields" $}}<button class="btn btn-outline min-h-11" name="action" value="dismiss_category_suggestion">Garder « {{categoryLabel $t.Category}} »</button></form>
+</div>
+</div>
+{{end}}
 {{if $d.Can.category}}
 <form method="post" action="/demandes/{{$t.ID}}/actions" class="mt-3 flex flex-wrap items-end gap-2">{{template "actionFields" $}}
 <div class="flex flex-col gap-1">
