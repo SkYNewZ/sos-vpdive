@@ -25,9 +25,6 @@ var ticketLinks = []string{"paiements", "membres", "messagerie", "support"}
 // replyActions send a reply to the member, alone or with a status change.
 var replyActions = []tickets.Action{tickets.ActionReply, tickets.ActionReplyWait, tickets.ActionReplyClose}
 
-// deleteActions remove what an assistant conversation may have read.
-var deleteActions = []tickets.Action{tickets.ActionDelete, tickets.ActionDeleteMessage, tickets.ActionDeleteCapture}
-
 // ticketMessage is what an action leaves on a page shown again: a notice,
 // and the text typed in the reply or note field with its problem.
 type ticketMessage struct {
@@ -242,9 +239,6 @@ func (s *Server) ticketAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	err := s.tickets.Apply(r.Context(), cmd)
-	if err == nil && slices.Contains(deleteActions, cmd.Action) {
-		s.forgetConversations()
-	}
 	switch {
 	case err == nil && cmd.Action == tickets.ActionDelete:
 		http.Redirect(w, r, "/?supprimee=1", http.StatusSeeOther)

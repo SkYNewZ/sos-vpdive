@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/SkYNewZ/sos-vpdive/internal/admins"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 	"github.com/SkYNewZ/sos-vpdive/internal/store"
 )
@@ -29,12 +30,16 @@ func newTestStore(t *testing.T) (*Store, *clock) {
 		require.NoError(t, err)
 	}
 	clk := &clock{time.Date(2026, 10, 21, 10, 0, 0, 0, time.UTC)}
+	for token, account := range map[string]string{"s1": "alice", "s2": "bob", "s3": "alice", "new-session": "alice", "alice:s1": "alice", "bob:s1": "bob"} {
+		_, err = db.ExecContext(t.Context(), `INSERT INTO sessions(token_hash,username,credential_hash,created_at,expires_at) VALUES(?,?,?,?,?)`, []byte(token), account, (admins.Account{PasswordHash: "test"}).CredentialHash(), clk.t.Unix(), clk.t.Add(30*24*time.Hour).Unix())
+		require.NoError(t, err)
+	}
 	return NewStore(db, keys, clk.now), clk
 }
 func nop(error) {}
 func saved(t *testing.T, s *Store, account string, ticket int64) Conversation {
 	t.Helper()
-	c, err := s.Begin(t.Context(), "s1", account, "", ticket, nop)
+	c, err := s.Begin(t.Context(), account+":s1", account, "", ticket, nop)
 	require.NoError(t, err)
 	c.Exchanges = []Exchange{{Question: "Question privée", Answer: "Réponse privée"}}
 	msg, err := UserText("Contexte privé")
@@ -278,4 +283,30 @@ func TestHistoryAccountDeletionAndRetention(t *testing.T) {
 	var count int
 	require.NoError(t, s.db.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM assistant_conversations`).Scan(&count))
 	assert.Equal(t, 1, count)
+}
+
+func TestHistoryFinishRejectsInvalidSessionBeforeDrop(t *testing.T) {
+	for _, invalidate := range []string{"logout", "password", "expired"} {
+		t.Run(invalidate, func(t *testing.T) {
+			s, clk := newTestStore(t)
+			c := saved(t, s, "alice", 0)
+			next, err := s.Begin(t.Context(), "s1", "alice", c.ID, 0, nop)
+			require.NoError(t, err)
+			switch invalidate {
+			case "logout":
+				_, err = s.db.ExecContext(t.Context(), `DELETE FROM sessions WHERE token_hash=?`, []byte("s1"))
+			case "password":
+				_, err = s.db.ExecContext(t.Context(), `UPDATE accounts SET password_hash='changed' WHERE username='alice'`)
+			case "expired":
+				_, err = s.db.ExecContext(t.Context(), `UPDATE sessions SET expires_at=? WHERE token_hash=?`, clk.t.Unix(), []byte("s1"))
+			}
+			require.NoError(t, err)
+			next.Exchanges = append(next.Exchanges, Exchange{Question: "Late question", Answer: "Must not be saved"})
+			_, err = s.Finish(t.Context(), next)
+			require.ErrorIs(t, err, ErrSessionEnded)
+			got, err := s.Find(t.Context(), "alice", c.ID)
+			require.NoError(t, err)
+			assert.Len(t, got.Exchanges, 1)
+		})
+	}
 }

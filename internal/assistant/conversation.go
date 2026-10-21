@@ -196,7 +196,7 @@ func (s *Store) Finish(ctx context.Context, c Conversation) (Conversation, error
 		return Conversation{}, a.err
 	}
 	c.Seen = s.now()
-	if err := s.save(ctx, c); err != nil {
+	if err := s.save(ctx, c, a.session); err != nil {
 		return Conversation{}, err
 	}
 	c.revision++

@@ -89,7 +89,7 @@ func TestAssistantHistorySaveFailureIsExplicit(t *testing.T) {
 func TestAssistantHistoryRetentionWhenAssistantIsDisabled(t *testing.T) {
 	e := newTestEnv(t)
 	archives := assistant.NewStore(e.db, e.deps.Keys, e.clock.now)
-	c, err := archives.Begin(t.Context(), "synthetic-session", "alice", "", 0, nil)
+	c, err := archives.Begin(t.Context(), sessionOf(e.login(t)), "alice", "", 0, nil)
 	require.NoError(t, err)
 	c.Exchanges = []assistant.Exchange{{Question: "Question", Answer: "Réponse"}}
 	_, err = archives.Finish(t.Context(), c)
@@ -97,4 +97,19 @@ func TestAssistantHistoryRetentionWhenAssistantIsDisabled(t *testing.T) {
 	e.clock.advance(7 * 24 * time.Hour)
 	require.NoError(t, e.srv.Purge(t.Context()))
 	assert.Equal(t, 0, e.count(t, "assistant_conversations"))
+}
+
+func TestAssistantTicketRetentionStopsLiveAnswer(t *testing.T) {
+	stub := &streamStub{replies: []string{sseText(t, "R")}}
+	e, cookie := assistantEnv(t, stub, 50)
+	ticket := e.submitTicket(t, "hugo.bernard@example.org")
+	require.Equal(t, http.StatusSeeOther, e.act(t, cookie, ticket.ID, e.openTicket(t, cookie, ticket.ID), url.Values{"action": {"take"}}).Code)
+	require.Equal(t, http.StatusSeeOther, e.act(t, cookie, ticket.ID, e.openTicket(t, cookie, ticket.ID), url.Values{"action": {"close"}}).Code)
+	e.clock.advance(366 * 24 * time.Hour)
+	cookie = e.login(t)
+	done := e.answerInFlight(t, stub, cookie)
+	require.NoError(t, e.deps.Tickets.Purge(t.Context()))
+	stream := e.stoppedAnswer(t, stub, done)
+	assert.Contains(t, stream, `"message":"Réponse arrêtée."`)
+	assert.NotContains(t, stream, `"type":"done"`)
 }

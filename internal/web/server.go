@@ -151,6 +151,7 @@ func New(d Deps) (*Server, error) {
 		s.convs = assistant.NewStore(d.DB, d.Keys, d.Now)
 		s.assistantPrompt = assistantSystem(d.KB)
 	}
+	s.tickets.OnContentDeleted = s.forgetConversations
 	funcs := template.FuncMap{
 		"static": s.assets.URL, "formatTime": s.formatTime, "formatDate": s.formatDate, "shortPeriod": payments.ShortPeriod, "author": s.tickets.AccountName,
 		"age": s.age, "accountOf": s.accountOf, "actor": s.actorName, "isoDate": isoDate,

@@ -78,8 +78,9 @@ type Command struct {
 
 // outcome is what an action leaves to do once committed.
 type outcome struct {
-	change  ChangeType
-	objects []string // stored captures to delete
+	change         ChangeType
+	objects        []string // stored captures to delete
+	contentDeleted bool
 }
 
 // Apply runs one committee action in one transaction (ticket, journal,
@@ -107,6 +108,9 @@ func (s *Store) Apply(ctx context.Context, cmd Command) error {
 	})
 	if err != nil {
 		return err
+	}
+	if res.contentDeleted {
+		s.contentDeleted()
 	}
 	s.deleteObjects(ctx, res.objects)
 	if cmd.Action == ActionDelete {

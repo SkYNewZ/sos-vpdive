@@ -466,6 +466,11 @@ const assistantBox = (box) => {
       summary.textContent = n === 0 ? "Aucune donnée consultée" : n === 1 ? "1 donnée consultée" : `${n} données consultées`;
     };
     const fail = (message) => {
+      if (firstQuestion) {
+        delete box.dataset.conversation;
+        deadline = 0;
+        if (!Number(box.dataset.demande)) history.replaceState(null, "", "/assistant?nouvelle=1");
+      }
       ended = true;
       error.textContent = message;
       error.hidden = false;
@@ -520,11 +525,6 @@ const assistantBox = (box) => {
           for (const label of document.querySelectorAll("[data-assistant-open-label]")) label.textContent = "Voir l'analyse";
           break;
         case "error":
-          if (firstQuestion) {
-            delete box.dataset.conversation;
-            deadline = 0;
-            if (!Number(box.dataset.demande)) history.replaceState(null, "", "/assistant?nouvelle=1");
-          }
           fail(event.message);
           setRemaining(event.remaining);
           break;

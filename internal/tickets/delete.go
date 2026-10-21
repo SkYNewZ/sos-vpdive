@@ -51,7 +51,7 @@ func (s *Store) deleteCapture(ctx context.Context, tx *sql.Tx, t ticketRow, cmd 
 	if err := assistant.EraseAllTx(ctx, tx); err != nil {
 		return outcome{}, err
 	}
-	return outcome{change: ChangeUpdated, objects: []string{key}}, nil
+	return outcome{change: ChangeUpdated, objects: []string{key}, contentDeleted: true}, nil
 }
 
 // deleteMessage removes one message; its captures and the mails citing it
@@ -75,7 +75,7 @@ func (s *Store) deleteMessage(ctx context.Context, tx *sql.Tx, t ticketRow, cmd 
 	if err := assistant.EraseAllTx(ctx, tx); err != nil {
 		return outcome{}, err
 	}
-	return outcome{change: ChangeUpdated, objects: keys}, nil
+	return outcome{change: ChangeUpdated, objects: keys, contentDeleted: true}, nil
 }
 
 // deleteTicket removes a whole request: messages, captures, journal and mails
@@ -85,7 +85,7 @@ func (s *Store) deleteTicket(ctx context.Context, tx *sql.Tx, t ticketRow) (outc
 	if err != nil {
 		return outcome{}, err
 	}
-	return outcome{change: ChangeDeleted, objects: keys}, nil
+	return outcome{change: ChangeDeleted, objects: keys, contentDeleted: true}, nil
 }
 
 // drop deletes requests and returns their object keys. A done request is
@@ -214,6 +214,7 @@ func (s *Store) Erase(ctx context.Context, email, actor string) (Erasure, error)
 	if err != nil {
 		return Erasure{}, err
 	}
+	s.contentDeleted()
 	e.Tickets = len(list)
 	s.deleteObjects(ctx, keys)
 	for _, d := range list {

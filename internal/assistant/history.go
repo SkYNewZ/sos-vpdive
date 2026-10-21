@@ -1,12 +1,16 @@
 package assistant
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/SkYNewZ/sos-vpdive/internal/admins"
+	"github.com/SkYNewZ/sos-vpdive/internal/store"
 )
 
 const historyLife = 7 * 24 * time.Hour
@@ -90,23 +94,37 @@ func (s *Store) read(ctx context.Context, account, id string, resume bool) (Conv
 	}
 	return c, nil
 }
-func (s *Store) save(ctx context.Context, c Conversation) error {
+func (s *Store) save(ctx context.Context, c Conversation, session string) error {
 	visible, model, err := s.encode(c)
 	if err != nil {
 		return err
 	}
-	res, err := s.db.ExecContext(ctx, `UPDATE assistant_conversations SET seen_at=?,question_count=?,history_bytes=?,transcript=?,context=?,revision=revision+1 WHERE id=? AND account=? AND revision=? AND created_at>?`, c.Seen.UnixNano(), len(c.Exchanges), historySize(c.History), visible, model, c.ID, c.Account, c.revision, s.now().Add(-historyLife).UnixNano())
-	if err != nil {
-		return fmt.Errorf("save conversation: %w", err)
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if n != 1 {
-		return ErrNotFound
-	}
-	return nil
+	return store.Tx(ctx, s.db, "assistant.finish", func(ctx context.Context, tx *sql.Tx) error {
+		var credential []byte
+		var account admins.Account
+		err := tx.QueryRowContext(ctx, `SELECT sessions.credential_hash,accounts.password_hash FROM sessions JOIN accounts ON accounts.username=sessions.username WHERE sessions.token_hash=? AND sessions.username=? AND sessions.expires_at>?`, []byte(session), c.Account, s.now().Unix()).Scan(&credential, &account.PasswordHash)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrSessionEnded
+		}
+		if err != nil {
+			return fmt.Errorf("check answer session: %w", err)
+		}
+		if !bytes.Equal(credential, account.CredentialHash()) {
+			return ErrSessionEnded
+		}
+		res, err := tx.ExecContext(ctx, `UPDATE assistant_conversations SET seen_at=?,question_count=?,history_bytes=?,transcript=?,context=?,revision=revision+1 WHERE id=? AND account=? AND revision=? AND created_at>?`, c.Seen.UnixNano(), len(c.Exchanges), historySize(c.History), visible, model, c.ID, c.Account, c.revision, s.now().Add(-historyLife).UnixNano())
+		if err != nil {
+			return fmt.Errorf("save conversation: %w", err)
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if n != 1 {
+			return ErrNotFound
+		}
+		return nil
+	})
 }
 
 // EraseAllTx removes every archive in the same transaction as content erasure.

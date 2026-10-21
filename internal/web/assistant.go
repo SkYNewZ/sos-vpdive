@@ -25,6 +25,7 @@ const (
 	answerEvery   = 150 * time.Millisecond // between two renders of a streamed answer
 	streamSlack   = 30 * time.Second       // write deadline beyond the answer's own limit
 	assistantPath = "/assistant"
+	streamError   = "error"
 )
 
 // starter fills the composer of an empty page; an Open one ends on a word
@@ -460,7 +461,7 @@ func (s *Server) streamAnswer(ctx context.Context, out *ndjson, c assistant.Conv
 		if code == outcomeCanceled && errors.Is(context.Cause(ctx), assistant.ErrSessionEnded) {
 			msg = "Session terminée : reconnecte-toi." // logged out in another tab, or revoked
 		}
-		out.send(streamEvent{Type: "error", Message: msg, Remaining: left})
+		out.send(streamEvent{Type: streamError, Message: msg, Remaining: left})
 	}
 	allowed, err := s.limiter.allow(ctx, s.quotaKey(account), s.cfg.Assistant.DailyQuestions, counterRetention)
 	if err != nil {
@@ -534,13 +535,18 @@ func (s *Server) streamAnswer(ctx context.Context, out *ndjson, c assistant.Conv
 	c.Exchanges = append(c.Exchanges, ex)
 	stored, err := s.convs.Finish(ctx, c)
 	if err != nil {
+		if errors.Is(err, assistant.ErrSessionEnded) {
+			entry.Outcome = outcomeCanceled
+			out.send(streamEvent{Type: streamError, Message: "Session terminée : reconnecte-toi.", Remaining: left})
+			return
+		}
 		if ctx.Err() != nil {
 			fail(outcomeCanceled)
 			return
 		}
 		s.logger.ErrorContext(ctx, "save assistant answer", "error", err)
 		entry.Outcome = outcomeInternal
-		out.send(streamEvent{Type: "error", Message: "La réponse n’a pas pu être enregistrée. Ouvre une nouvelle conversation ou réessaie.", Remaining: left})
+		out.send(streamEvent{Type: streamError, Message: "La réponse n’a pas pu être enregistrée. Ouvre une nouvelle conversation ou réessaie.", Remaining: left})
 		return
 	}
 	c = stored

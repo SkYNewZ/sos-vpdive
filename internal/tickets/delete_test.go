@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/SkYNewZ/sos-vpdive/internal/admins"
 	"github.com/SkYNewZ/sos-vpdive/internal/assistant"
 	"github.com/SkYNewZ/sos-vpdive/internal/blobs"
 	"github.com/SkYNewZ/sos-vpdive/internal/campaign"
@@ -322,6 +323,8 @@ func TestDeletionErasesDurableAssistantHistory(t *testing.T) {
 func (e *env) seedHistory(t *testing.T) {
 	t.Helper()
 	_, err := e.db.ExecContext(t.Context(), `INSERT OR IGNORE INTO accounts(username,name,role,password_hash,must_change_password,created_at) VALUES('history-test',?,'committee','test',0,0)`, e.keys.SealString("Synthetic"))
+	require.NoError(t, err)
+	_, err = e.db.ExecContext(t.Context(), `INSERT OR IGNORE INTO sessions(token_hash,username,credential_hash,created_at,expires_at) VALUES(?,'history-test',?,?,?)`, []byte("test-session"), (admins.Account{PasswordHash: "test"}).CredentialHash(), e.clock.now().Unix(), e.clock.now().Add(30*24*time.Hour).Unix())
 	require.NoError(t, err)
 	a := assistant.NewStore(e.db, e.keys, e.clock.now)
 	c, err := a.Begin(t.Context(), "test-session", "history-test", "", 0, nil)
