@@ -641,5 +641,5 @@ func (s *Server) BenchAnswer(ctx context.Context, account, text string) (BenchRe
 // BenchSuggest asks for the suggestions of sub as the member form does,
 // without the daily cap (cmd suggest-bench, which needs SUGGEST_API_KEY).
 func (s *Server) BenchSuggest(ctx context.Context, sub tickets.Submission) (suggest.Result, error) {
-	return s.suggest.Choose(ctx, s.suggestRequest(sub), s.suggestionFiches())
+	return s.suggest.Choose(ctx, s.suggestRequest(sub), s.suggestionFiches(), s.suggestionCategories())
 }

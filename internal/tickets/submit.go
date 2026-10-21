@@ -44,8 +44,10 @@ type Outcome struct {
 // Suggestion is the model's answer: fiches to show and a summary for the
 // committee (spec §5.2, §5.6).
 type Suggestion struct {
-	KBIDs   []string
-	Summary string
+	SuggestedCategory string
+	CategorySource    string
+	KBIDs             []string
+	Summary           string
 }
 
 // Chooser asks the model about the stored draft; ok is false when it did not

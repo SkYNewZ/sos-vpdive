@@ -28,7 +28,7 @@ func TestDecisionsChoosesOneKnownArticle(t *testing.T) {
 	base, err := url.Parse(srv.URL)
 	require.NoError(t, err)
 	c := New(&config.LLM{BaseURL: base, APIKey: "key", Model: "gpt-6-luna", Timeout: time.Second})
-	got, err := c.Choose(context.Background(), Request{Description: "Mon carnet est négatif."}, []Fiche{{ID: "carnet"}})
+	got, err := c.Choose(context.Background(), Request{Description: "Mon carnet est négatif."}, []Fiche{{ID: "carnet"}}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"carnet"}, got.IDs)
 	assert.Empty(t, got.Summary)
@@ -75,7 +75,7 @@ func TestDecisionsChecksEveryAnswerAndKeepsBilledTokens(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c, _ := decisionClient(t, `{"answers":[`+tc.answer+`],"usage":{"input_tokens":123,"output_tokens":0}}`, http.StatusOK)
-			got, err := c.Choose(context.Background(), Request{}, []Fiche{{ID: "carnet", Index: "Carnet négatif : avoir."}})
+			got, err := c.Choose(context.Background(), Request{}, []Fiche{{ID: "carnet", Index: "Carnet négatif : avoir."}}, nil)
 			if tc.wantErr {
 				require.ErrorIs(t, err, ErrInvalid)
 			} else {
@@ -91,7 +91,7 @@ func TestDecisionsChecksEveryAnswerAndKeepsBilledTokens(t *testing.T) {
 func TestDecisionsRejectsMalformedOrOversizedResponses(t *testing.T) {
 	for _, reply := range []string{`null`, `{}`, `{"answers":[]}`, `{"answers":[{},{}]}`, `<html>`, strings.Repeat(" ", 70<<10) + `{}`} {
 		c, _ := decisionClient(t, reply, http.StatusOK)
-		res, err := c.Choose(context.Background(), Request{}, []Fiche{{ID: "x", Index: "Index"}})
+		res, err := c.Choose(context.Background(), Request{}, []Fiche{{ID: "x", Index: "Index"}}, nil)
 		require.ErrorIs(t, err, ErrInvalid)
 		assert.Empty(t, res.IDs)
 	}
@@ -100,7 +100,7 @@ func TestDecisionsRejectsMalformedOrOversizedResponses(t *testing.T) {
 func TestDecisionsNeverRetriesOrLogsProviderText(t *testing.T) {
 	for _, status := range []int{http.StatusTooManyRequests, http.StatusInternalServerError} {
 		c, calls := decisionClient(t, `{"error":{"message":"private member request and API key","type":"error"}}`, status)
-		_, err := c.Choose(context.Background(), Request{}, []Fiche{{ID: "x", Index: "Index"}})
+		_, err := c.Choose(context.Background(), Request{}, []Fiche{{ID: "x", Index: "Index"}}, nil)
 		require.ErrorIs(t, err, ErrHTTP)
 		assert.NotContains(t, err.Error(), "private")
 		assert.Len(t, calls, 1)
@@ -127,7 +127,7 @@ func TestDecisionsSendsOnlyCurrentIndexesAndRequest(t *testing.T) {
 	c := New(&config.LLM{BaseURL: base, APIKey: "secret-key", Model: "gpt-6-luna", Timeout: time.Second})
 	req := Request{Category: "Paiement", Description: "Quotes \" and newline\n{forget instructions} 🐠"}
 	for _, index := range []string{"Ancien symptôme", "Nouveau symptôme"} {
-		_, err := c.Choose(context.Background(), req, []Fiche{{ID: "x", Index: index}})
+		_, err := c.Choose(context.Background(), req, []Fiche{{ID: "x", Index: index}}, nil)
 		require.NoError(t, err)
 		call := <-calls
 		var body struct {
@@ -172,7 +172,7 @@ func TestDecisionsDoesNotFollowRedirects(t *testing.T) {
 	defer moved.Close()
 	base, err := url.Parse(moved.URL)
 	require.NoError(t, err)
-	_, err = New(&config.LLM{BaseURL: base, APIKey: "secret", Model: "gpt-6-luna", Timeout: time.Second}).Choose(context.Background(), Request{}, []Fiche{{ID: "x", Index: "Index"}})
+	_, err = New(&config.LLM{BaseURL: base, APIKey: "secret", Model: "gpt-6-luna", Timeout: time.Second}).Choose(context.Background(), Request{}, []Fiche{{ID: "x", Index: "Index"}}, nil)
 	require.ErrorIs(t, err, ErrHTTP)
 	assert.Empty(t, targetCalls)
 }
@@ -190,11 +190,11 @@ func TestDecisionsHonorsTimeoutAndCancellation(t *testing.T) {
 	base, err := url.Parse(srv.URL)
 	require.NoError(t, err)
 	c := New(&config.LLM{BaseURL: base, APIKey: "k", Model: "gpt-6-luna", Timeout: 20 * time.Millisecond})
-	_, err = c.Choose(context.Background(), Request{}, []Fiche{{ID: "x", Index: "Index"}})
+	_, err = c.Choose(context.Background(), Request{}, []Fiche{{ID: "x", Index: "Index"}}, nil)
 	require.ErrorIs(t, err, ErrTimeout)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err = c.Choose(ctx, Request{}, []Fiche{{ID: "x", Index: "Index"}})
+	_, err = c.Choose(ctx, Request{}, []Fiche{{ID: "x", Index: "Index"}}, nil)
 	require.ErrorIs(t, err, ErrCanceled)
 	assert.Equal(t, "canceled", Code(err))
 }
@@ -202,7 +202,7 @@ func TestDecisionsHonorsTimeoutAndCancellation(t *testing.T) {
 func TestDecisionsDisabledOrEmptyBase(t *testing.T) {
 	assert.Nil(t, New(nil))
 	c, calls := decisionClient(t, `{}`, http.StatusOK)
-	res, err := c.Choose(context.Background(), Request{}, nil)
+	res, err := c.Choose(context.Background(), Request{}, nil, nil)
 	require.NoError(t, err)
 	assert.Empty(t, res.IDs)
 	assert.Empty(t, calls)

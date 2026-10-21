@@ -252,17 +252,36 @@ copy, and push nothing when a download fails.
 An invalid Umami or Sentry setting turns that tool off with a warning at
 startup, and the service starts anyway.
 
-### Fiche suggestions
+### Fiche and category suggestions
 
-With `SUGGEST_API_KEY` set, OpenAI Decisions selects one fiche or none.
+With `SUGGEST_API_KEY` set, one OpenAI Decisions call selects a fiche and suggests
+a category independently. Either decision can abstain.
 The model receives only each fiche's `id` and manually written `index`, plus
 the request's category, extra fields and description. Article bodies and
-resolver procedures are not sent. `SUGGEST_BASE_URL` defaults to
+resolver procedures are not sent. Public category IDs, labels and field labels
+are also sent as choices. `SUGGEST_BASE_URL` defaults to
 `https://api.openai.com`, and `SUGGEST_MODEL` to `gpt-6-luna`. An explicit
-`autre` choice means no article fits; a refusal or invalid answer also leaves
-the request without suggestions. Only known ids can select an article. A confidence below `0.80` yields no
+`autre` choice means no article fits. A refusal or invalid answer discards only
+that decision; the other valid decision is retained. A transport or document
+error loses both decisions. Only known ids can select an article. A confidence below `0.80` yields no
 article. This conservative cutoff comes from a small real-ticket pilot; it
 needs recalibration on a larger labeled corpus.
+
+Category suggestions require confidence of at least `0.90`, a provisional,
+uncalibrated cutoff. The current category produces no suggestion; `autre` is a
+valid category and `__none__` means abstention. Committee-only categories are not
+choices. Advice is encrypted and appears only on open committee ticket pages.
+The committee can apply it, keep the current category, or reclassify manually.
+Manual classification and closing permanently resolve the suggestion, including
+when a model answer arrives late or the request reopens. Opening a page never
+recalculates advice, and historical requests are not backfilled.
+
+The combined call uses the existing `SUGGEST_*` settings and counts once toward
+its quota and usage journal. A partially invalid answer is journaled as
+`invalid_output` while its valid decision is retained. Token cost and latency
+may increase with the extra question; one call does not mean an unchanged cost.
+The `suggest-bench` output includes `category` and `category_confidence` alongside
+the existing article result; it never calls the summarizer.
 
 Each fiche must have a unique, nonempty `index` of at most 120 Unicode
 characters. Duplicate ids or indexes and the reserved id `autre` refuse

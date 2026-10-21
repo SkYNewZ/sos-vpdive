@@ -4,8 +4,7 @@ package suggest
 type decisionKind string
 
 const (
-	decisionChoice  decisionKind = "choice"
-	decisionRefusal decisionKind = "refusal"
+	decisionChoice decisionKind = "choice"
 )
 
 type messageRole string

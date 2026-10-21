@@ -38,15 +38,17 @@ type benchMetrics struct {
 
 // suggestMetrics is one line of suggestions.jsonl.
 type suggestMetrics struct {
-	Message    string   `json:"message"`
-	Run        int      `json:"run"`
-	Model      string   `json:"model"`
-	Outcome    string   `json:"outcome"`
-	Fiches     []string `json:"fiches"`
-	Confidence float64  `json:"confidence"`
-	Input      int      `json:"input_tokens"`
-	Output     int      `json:"output_tokens"`
-	DurationMS int64    `json:"duration_ms"`
+	Category           string   `json:"category"`
+	CategoryConfidence float64  `json:"category_confidence"`
+	Message            string   `json:"message"`
+	Run                int      `json:"run"`
+	Model              string   `json:"model"`
+	Outcome            string   `json:"outcome"`
+	Fiches             []string `json:"fiches"`
+	Confidence         float64  `json:"confidence"`
+	Input              int      `json:"input_tokens"`
+	Output             int      `json:"output_tokens"`
+	DurationMS         int64    `json:"duration_ms"`
 }
 
 // bench is what both benches share: the app against the configured
@@ -226,7 +228,7 @@ func suggestBench(ctx context.Context, getenv func(string) string, args []string
 				outcome = suggest.Code(err)
 			}
 			if err := b.enc.Encode(suggestMetrics{Message: name, Run: run, Model: cfg.Suggest.Model, Outcome: outcome,
-				Fiches: r.IDs, Confidence: r.Confidence, Input: r.InputTokens, Output: r.OutputTokens,
+				Fiches: r.IDs, Confidence: r.Confidence, Category: r.CategoryID, CategoryConfidence: r.CategoryConfidence, Input: r.InputTokens, Output: r.OutputTokens,
 				DurationMS: took.Milliseconds()}); err != nil {
 				return err
 			}

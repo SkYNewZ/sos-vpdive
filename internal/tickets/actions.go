@@ -17,17 +17,18 @@ type Action string
 
 // Committee actions.
 const (
-	ActionTake       Action = "take"
-	ActionReassign   Action = "reassign"
-	ActionUnassign   Action = "unassign"
-	ActionWait       Action = "wait"
-	ActionResume     Action = "resume"
-	ActionReply      Action = "reply"
-	ActionReplyWait  Action = "reply_wait"
-	ActionReplyClose Action = "reply_close"
-	ActionNote       Action = "note"
-	ActionCategory   Action = "category"
-	ActionClose      Action = "close"
+	ActionTake                      Action = "take"
+	ActionReassign                  Action = "reassign"
+	ActionUnassign                  Action = "unassign"
+	ActionWait                      Action = "wait"
+	ActionResume                    Action = "resume"
+	ActionReply                     Action = "reply"
+	ActionReplyWait                 Action = "reply_wait"
+	ActionReplyClose                Action = "reply_close"
+	ActionNote                      Action = "note"
+	ActionCategory                  Action = "category"
+	ActionDismissCategorySuggestion Action = "dismiss_category_suggestion"
+	ActionClose                     Action = "close"
 )
 
 // Status sets the matrix is built from.
@@ -40,17 +41,18 @@ var (
 // allowedFrom is the matrix of spec §8.1: the statuses each committee action
 // starts from. An action absent from this table is refused.
 var allowedFrom = map[Action][]Status{
-	ActionTake:       {StatusTodo},
-	ActionReassign:   assignedStatuses,
-	ActionUnassign:   assignedStatuses,
-	ActionWait:       {StatusInProgress},
-	ActionResume:     {StatusWaiting},
-	ActionReply:      assignedStatuses,
-	ActionReplyWait:  assignedStatuses,
-	ActionReplyClose: assignedStatuses,
-	ActionNote:       assignedStatuses,
-	ActionCategory:   openStatuses,
-	ActionClose:      openStatuses,
+	ActionTake:                      {StatusTodo},
+	ActionReassign:                  assignedStatuses,
+	ActionUnassign:                  assignedStatuses,
+	ActionWait:                      {StatusInProgress},
+	ActionResume:                    {StatusWaiting},
+	ActionReply:                     assignedStatuses,
+	ActionReplyWait:                 assignedStatuses,
+	ActionReplyClose:                assignedStatuses,
+	ActionNote:                      assignedStatuses,
+	ActionCategory:                  openStatuses,
+	ActionDismissCategorySuggestion: openStatuses,
+	ActionClose:                     openStatuses,
 
 	ActionDeleteCapture: anyStatuses,
 	ActionDeleteMessage: anyStatuses,
@@ -165,8 +167,15 @@ func (s *Store) apply(ctx context.Context, tx *sql.Tx, t ticketRow, cmd Command)
 			return outcome{}, ErrInvalid
 		}
 		after.category = cmd.Category
+		after.suggestedCategory, after.categorySuggestionResolved = nil, true
 		return updated, s.transition(ctx, tx, t, after, cmd.Actor, eventCategoryChanged,
 			map[string]string{dataFrom: t.category, dataTo: cmd.Category})
+	case ActionDismissCategorySuggestion:
+		if len(t.suggestedCategory) == 0 || t.categorySuggestionResolved {
+			return outcome{}, ErrInvalid
+		}
+		after.suggestedCategory, after.categorySuggestionResolved = nil, true
+		return updated, s.save(ctx, tx, t, after)
 	case ActionClose:
 		after = s.closed(t, cmd.Actor)
 		if err := s.transition(ctx, tx, t, after, cmd.Actor, eventClosed, nil); err != nil {
@@ -195,6 +204,7 @@ func (s *Store) transition(ctx context.Context, tx *sql.Tx, before, after ticket
 // closed is t once closed by actor, who becomes its resolver if it had none.
 func (s *Store) closed(t ticketRow, actor string) ticketRow {
 	t.status, t.closedAt = StatusDone, s.Now().Unix()
+	t.suggestedCategory, t.categorySuggestionResolved = nil, true
 	if t.assignee == "" {
 		t.assignee = actor
 	}
@@ -346,6 +356,7 @@ func (s *Store) MemberClose(ctx context.Context, id int64) error {
 		}
 		after := t
 		after.status, after.closedAt = StatusDone, s.Now().Unix()
+		after.suggestedCategory, after.categorySuggestionResolved = nil, true
 		return s.transition(ctx, tx, t, after, ActorMember, eventClosedByMember, nil)
 	})
 	if err != nil {
