@@ -25,6 +25,7 @@ const (
 	answerEvery   = 150 * time.Millisecond // between two renders of a streamed answer
 	streamSlack   = 30 * time.Second       // write deadline beyond the answer's own limit
 	assistantPath = "/assistant"
+	streamError   = "error"
 )
 
 // starter fills the composer of an empty page; an Open one ends on a word
@@ -55,6 +56,8 @@ type assistantPanel struct {
 	TicketID     int64
 	Exchanges    []exchangeView
 	Remaining    string
+	ReadOnly     string
+	Deadline     int64
 	Empty        exchangeView // the shape app.js clones for a new exchange
 }
 
@@ -69,6 +72,7 @@ type dossierView struct {
 }
 
 type assistantPageData struct {
+	History  assistantHistory
 	Panel    assistantPanel
 	Dossier  dossierView
 	Starters []starter
@@ -125,22 +129,42 @@ func (s *Server) dossier(c assistant.Conversation, current []assistant.Source, r
 	}
 	d.Summary = strings.Join(parts, " · ")
 	if !c.Created.IsZero() {
-		d.Expires = "S'efface à " + c.Expires().In(s.paris).Format("15:04") + " sans nouvelle question."
+		d.Expires = "Reprise possible jusqu’à " + c.Expires().In(s.paris).Format("15:04") + ". Historique conservé 7 jours."
 	}
 	return d
 }
 
-// assistantPage is an empty /assistant.
+// assistantPage restores the latest private chat, unless a blank chat was explicitly requested.
 func (s *Server) assistantPage(w http.ResponseWriter, r *http.Request) {
-	s.renderAssistant(w, r, http.StatusOK, assistant.Conversation{}, false)
+	sess, _ := sessionFrom(r.Context())
+	var c assistant.Conversation
+	if r.URL.Query().Get("nouvelle") != "1" {
+		items, _, err := s.convs.List(r.Context(), sess.account.Username, 0)
+		if err != nil {
+			s.serverError(w, r, err)
+			return
+		}
+		if len(items) > 0 {
+			c, err = s.convs.Find(r.Context(), sess.account.Username, items[0].ID)
+			if err != nil && !errors.Is(err, assistant.ErrNotFound) {
+				s.serverError(w, r, err)
+				return
+			}
+		}
+	}
+	s.renderAssistant(w, r, http.StatusOK, c, false)
 }
 
 // assistantConversation is /assistant/{id}: a conversation still in memory.
 func (s *Server) assistantConversation(w http.ResponseWriter, r *http.Request) {
 	sess, _ := sessionFrom(r.Context())
-	c, ok := s.convs.Find(string(sess.hash), r.PathValue("id"))
-	if !ok {
+	c, err := s.convs.Find(r.Context(), sess.account.Username, r.PathValue("id"))
+	if errors.Is(err, assistant.ErrNotFound) {
 		s.renderAssistant(w, r, http.StatusNotFound, assistant.Conversation{}, true)
+		return
+	}
+	if err != nil {
+		s.serverError(w, r, err)
 		return
 	}
 	s.renderAssistant(w, r, http.StatusOK, c, false)
@@ -158,8 +182,19 @@ func (s *Server) renderAssistant(w http.ResponseWriter, r *http.Request, status 
 		s.serverError(w, r, err)
 		return
 	}
+	history, err := s.history(r, c.ID)
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	panel, err := s.conversationPanel(r, c, p.CSRF, left)
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
 	p.Data = assistantPageData{
-		Panel:    assistantPanel{CSRF: p.CSRF, Conversation: c.ID, Exchanges: views(c.Exchanges), Remaining: left},
+		History:  history,
+		Panel:    panel,
 		Dossier:  s.dossier(c, nil, left),
 		Starters: assistantStarters, Gone: gone, Owner: s.isOwner(sess.account.Username),
 	}
@@ -177,8 +212,16 @@ func (s *Server) ticketAssistant(r *http.Request, ticketID int64, csrf string) (
 		return nil, err
 	}
 	p := &assistantPanel{CSRF: csrf, TicketID: ticketID, Remaining: left}
-	if c, ok := s.convs.ForTicket(string(sess.hash), ticketID); ok {
-		p.Conversation, p.Exchanges = c.ID, views(c.Exchanges)
+	if r.URL.Query().Get("analyse") == "nouvelle" {
+		return p, nil
+	}
+	if c, err := s.convs.ForTicket(r.Context(), sess.account.Username, ticketID); err == nil {
+		*p, err = s.conversationPanel(r, c, csrf, left)
+		if err != nil {
+			return nil, err
+		}
+	} else if !errors.Is(err, assistant.ErrNotFound) {
+		return nil, err
 	}
 	return p, nil
 }
@@ -188,14 +231,6 @@ func (s *Server) ticketAssistant(r *http.Request, ticketID int64, csrf string) (
 func (s *Server) forgetConversations() {
 	if s.convs != nil {
 		s.convs.DropAll()
-	}
-}
-
-// SweepConversations erases the expired conversations every minute until
-// ctx ends, when the assistant is on (a background job of serve).
-func (s *Server) SweepConversations(ctx context.Context) {
-	if s.convs != nil {
-		s.convs.Run(ctx, time.Minute)
 	}
 }
 
@@ -211,6 +246,8 @@ type streamEvent struct {
 	Sources      template.HTML `json:"sources,omitempty"`
 	Remaining    string        `json:"remaining,omitempty"`
 	Message      string        `json:"message,omitempty"`
+	Deadline     int64         `json:"deadline,omitempty"`
+	ReadOnly     bool          `json:"readOnly,omitempty"`
 }
 
 // ndjson writes one event per line and flushes it at once. The first write
@@ -309,7 +346,7 @@ func (s *Server) assistantAsk(w http.ResponseWriter, r *http.Request) {
 	// (Store.Drop, with assistant.ErrSessionEnded) end this answer.
 	ctx, stop := context.WithCancelCause(ctx)
 	defer stop(nil)
-	c, err := s.convs.Begin(string(sess.hash), sess.account.Username, r.PostForm.Get("conversation"), ticketID, stop)
+	c, err := s.convs.Begin(ctx, string(sess.hash), sess.account.Username, r.PostForm.Get("conversation"), ticketID, stop)
 	// On a 404 or a 410, app.js forgets the conversation: the next question
 	// starts a new one, with the request on a request page.
 	again := " Ta prochaine question en ouvrira une nouvelle.\n"
@@ -318,10 +355,13 @@ func (s *Server) assistantAsk(w http.ResponseWriter, r *http.Request) {
 	}
 	switch {
 	case errors.Is(err, assistant.ErrNotFound):
-		s.writeText(w, r, http.StatusNotFound, "Conversation effacée : elle disparaît 30 minutes après la dernière question."+again)
+		s.writeText(w, r, http.StatusNotFound, "Conversation effacée ou introuvable."+again)
 		return
 	case errors.Is(err, assistant.ErrBusy):
 		s.writeText(w, r, http.StatusConflict, "Une réponse est déjà en cours.\n")
+		return
+	case errors.Is(err, assistant.ErrExpired):
+		s.writeText(w, r, http.StatusGone, "Cette conversation est terminée. Ouvre une nouvelle conversation.\n")
 		return
 	case errors.Is(err, assistant.ErrFull):
 		s.writeText(w, r, http.StatusGone, "Conversation trop longue."+again)
@@ -332,7 +372,11 @@ func (s *Server) assistantAsk(w http.ResponseWriter, r *http.Request) {
 	}
 	// Frees the slot whatever happens, a recovered panic included; after
 	// Finish it frees nothing, not even a newer answer's slot.
-	defer s.convs.Abort(c)
+	defer func() {
+		if err := s.convs.Abort(context.WithoutCancel(ctx), c); err != nil {
+			s.logger.ErrorContext(ctx, "abort assistant answer", "error", err)
+		}
+	}()
 	// The session may have ended between signedIn and Begin: its row goes
 	// before endSessions, which then found no answer to stop. Drop what Begin
 	// registered, as endSessions would have.
@@ -417,7 +461,7 @@ func (s *Server) streamAnswer(ctx context.Context, out *ndjson, c assistant.Conv
 		if code == outcomeCanceled && errors.Is(context.Cause(ctx), assistant.ErrSessionEnded) {
 			msg = "Session terminée : reconnecte-toi." // logged out in another tab, or revoked
 		}
-		out.send(streamEvent{Type: "error", Message: msg, Remaining: left})
+		out.send(streamEvent{Type: streamError, Message: msg, Remaining: left})
 	}
 	allowed, err := s.limiter.allow(ctx, s.quotaKey(account), s.cfg.Assistant.DailyQuestions, counterRetention)
 	if err != nil {
@@ -434,7 +478,7 @@ func (s *Server) streamAnswer(ctx context.Context, out *ndjson, c assistant.Conv
 		fail(outcomeLimit)
 		return
 	}
-	first := streamEvent{Type: "start", Conversation: c.ID, Remaining: left}
+	first := streamEvent{Type: "start", Conversation: c.ID, Remaining: left, Deadline: c.Expires().UnixMilli()}
 	if text == "" {
 		first.Question = questionOf(text, ticket)
 	}
@@ -489,15 +533,39 @@ func (s *Server) streamAnswer(ctx context.Context, out *ndjson, c assistant.Conv
 		return
 	}
 	c.Exchanges = append(c.Exchanges, ex)
-	c = s.convs.Finish(c) // the Dossier shows the stored expiry
+	stored, err := s.convs.Finish(ctx, c)
+	if err != nil {
+		if errors.Is(err, assistant.ErrSessionEnded) {
+			entry.Outcome = outcomeCanceled
+			out.send(streamEvent{Type: streamError, Message: "Session terminée : reconnecte-toi.", Remaining: left})
+			return
+		}
+		if ctx.Err() != nil {
+			fail(outcomeCanceled)
+			return
+		}
+		s.logger.ErrorContext(ctx, "save assistant answer", "error", err)
+		entry.Outcome = outcomeInternal
+		out.send(streamEvent{Type: streamError, Message: "La réponse n’a pas pu être enregistrée. Ouvre une nouvelle conversation ou réessaie.", Remaining: left})
+		return
+	}
+	c = stored
 	entry.Outcome = outcomeOK
 	sources, err := s.fragment("assistantSources", ex.Sources)
 	if err != nil {
 		s.logger.ErrorContext(ctx, "render assistant sources", "error", err)
 	}
-	out.send(streamEvent{Type: "done", HTML: assistant.Render(ex.Answer), Sources: sources, Remaining: left})
+	out.send(streamEvent{Type: "done", HTML: assistant.Render(ex.Answer), Sources: sources, Remaining: left, Deadline: c.Expires().UnixMilli(), ReadOnly: !c.CanResume(s.now())})
+	s.generateAssistantTitle(ctx, c)
 	if standalone {
 		s.sendDossier(ctx, out, s.dossier(c, nil, left))
+		items, _, listErr := s.convs.List(ctx, account, 0)
+		if listErr == nil {
+			html, renderErr := s.fragment("assistantHistory", assistantHistory{Items: items, Selected: c.ID})
+			if renderErr == nil {
+				out.send(streamEvent{Type: "history", HTML: html})
+			}
+		}
 	}
 }
 

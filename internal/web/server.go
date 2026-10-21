@@ -88,6 +88,7 @@ type Server struct {
 	assistant       *assistant.Client // nil when the assistant is off
 	convs           *assistant.Store
 	assistantPrompt string
+	titleJobs       sync.WaitGroup
 
 	turnstile *Turnstile
 	limiter   *limiter
@@ -147,9 +148,10 @@ func New(d Deps) (*Server, error) {
 	}
 	if a := d.Config.Assistant; a != nil {
 		s.assistant = assistant.NewClient(a)
-		s.convs = assistant.NewStore(d.Now)
+		s.convs = assistant.NewStore(d.DB, d.Keys, d.Now)
 		s.assistantPrompt = assistantSystem(d.KB)
 	}
+	s.tickets.OnContentDeleted = s.forgetConversations
 	funcs := template.FuncMap{
 		"static": s.assets.URL, "formatTime": s.formatTime, "formatDate": s.formatDate, "shortPeriod": payments.ShortPeriod, "author": s.tickets.AccountName,
 		"age": s.age, "accountOf": s.accountOf, "actor": s.actorName, "isoDate": isoDate,

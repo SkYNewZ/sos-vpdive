@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/SkYNewZ/sos-vpdive/internal/assistant"
 	"github.com/SkYNewZ/sos-vpdive/internal/mail"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 	"github.com/SkYNewZ/sos-vpdive/internal/store"
@@ -47,7 +48,10 @@ func (s *Store) deleteCapture(ctx context.Context, tx *sql.Tx, t ticketRow, cmd 
 	if err := s.transition(ctx, tx, t, t, cmd.Actor, eventCaptureDeleted, nil); err != nil {
 		return outcome{}, err
 	}
-	return outcome{change: ChangeUpdated, objects: []string{key}}, nil
+	if err := assistant.EraseAllTx(ctx, tx); err != nil {
+		return outcome{}, err
+	}
+	return outcome{change: ChangeUpdated, objects: []string{key}, contentDeleted: true}, nil
 }
 
 // deleteMessage removes one message; its captures and the mails citing it
@@ -68,7 +72,10 @@ func (s *Store) deleteMessage(ctx context.Context, tx *sql.Tx, t ticketRow, cmd 
 	if err := s.transition(ctx, tx, t, t, cmd.Actor, eventMessageDeleted, nil); err != nil {
 		return outcome{}, err
 	}
-	return outcome{change: ChangeUpdated, objects: keys}, nil
+	if err := assistant.EraseAllTx(ctx, tx); err != nil {
+		return outcome{}, err
+	}
+	return outcome{change: ChangeUpdated, objects: keys, contentDeleted: true}, nil
 }
 
 // deleteTicket removes a whole request: messages, captures, journal and mails
@@ -78,7 +85,7 @@ func (s *Store) deleteTicket(ctx context.Context, tx *sql.Tx, t ticketRow) (outc
 	if err != nil {
 		return outcome{}, err
 	}
-	return outcome{change: ChangeDeleted, objects: keys}, nil
+	return outcome{change: ChangeDeleted, objects: keys, contentDeleted: true}, nil
 }
 
 // drop deletes requests and returns their object keys. A done request is
@@ -98,6 +105,11 @@ func (s *Store) drop(ctx context.Context, tx *sql.Tx, list []ticketRow) ([]strin
 		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM tickets WHERE id = ?`, d.id); err != nil {
 			return nil, fmt.Errorf("delete ticket: %w", err)
+		}
+	}
+	if len(list) > 0 {
+		if err := assistant.EraseAllTx(ctx, tx); err != nil {
+			return nil, err
 		}
 	}
 	return keys, nil
@@ -194,11 +206,15 @@ func (s *Store) Erase(ctx context.Context, email, actor string) (Erasure, error)
 		if e.CampaignLines, err = s.Campaign.EraseTx(ctx, tx, p.NameHash, p.LastName, p.FirstName); err != nil {
 			return err
 		}
+		if err := assistant.EraseAllTx(ctx, tx); err != nil {
+			return err
+		}
 		return s.Outbox.DeleteRecipient(ctx, tx, normalized)
 	})
 	if err != nil {
 		return Erasure{}, err
 	}
+	s.contentDeleted()
 	e.Tickets = len(list)
 	s.deleteObjects(ctx, keys)
 	for _, d := range list {

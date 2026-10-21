@@ -392,12 +392,32 @@ for (const button of document.querySelectorAll("[data-reload]")) {
 // texts) is set as text.
 const assistantBox = (box) => {
   const form = box.querySelector("[data-assistant-form]");
+  if (!form) return { ask: () => {}, field: null, isRunning: () => false };
   const field = form.elements.text;
   const thread = box.querySelector("[data-assistant-thread]");
   const shape = box.querySelector("template[data-assistant-new]");
   const send = form.querySelector("[data-assistant-send]");
   const sticky = box.querySelector("[data-assistant-sticky]"); // the composer of /assistant, over the page
   let running = null; // AbortController of the answer in flight
+  let deadline = Number(box.dataset.deadline) || 0;
+  let expired = false;
+  let expiryTimer;
+  const input = box.querySelector("[data-assistant-input]");
+  const expire = () => {
+    if (running || expired) return;
+    expired = true;
+    input.replaceChildren(box.querySelector("template[data-assistant-expired]").content.cloneNode(true));
+  };
+  const checkExpiry = () => {
+    clearTimeout(expiryTimer);
+    if (!deadline || expired) return;
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) expire();
+    else expiryTimer = setTimeout(checkExpiry, remaining);
+  };
+  window.addEventListener("focus", checkExpiry);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) checkExpiry(); });
+  checkExpiry();
 
   const busy = (on) => {
     send.querySelector("[data-label-send]").hidden = on;
@@ -421,7 +441,8 @@ const assistantBox = (box) => {
   };
 
   const ask = async (question) => {
-    if (running) return;
+    if (running || expired) return;
+    const firstQuestion = !box.dataset.conversation;
     const node = shape.content.firstElementChild.cloneNode(true);
     const asked = node.querySelector("[data-question]");
     if (question) asked.textContent = question;
@@ -445,6 +466,11 @@ const assistantBox = (box) => {
       summary.textContent = n === 0 ? "Aucune donnée consultée" : n === 1 ? "1 donnée consultée" : `${n} données consultées`;
     };
     const fail = (message) => {
+      if (firstQuestion) {
+        delete box.dataset.conversation;
+        deadline = 0;
+        if (!Number(box.dataset.demande)) history.replaceState(null, "", "/assistant?nouvelle=1");
+      }
       ended = true;
       error.textContent = message;
       error.hidden = false;
@@ -459,6 +485,7 @@ const assistantBox = (box) => {
       switch (event.type) {
         case "start":
           box.dataset.conversation = event.conversation;
+          if (event.deadline) deadline = event.deadline;
           setRemaining(event.remaining); // counted from now on, even if the answer stops
           if (event.question) {
             asked.textContent = event.question;
@@ -483,7 +510,12 @@ const assistantBox = (box) => {
           for (const d of document.querySelectorAll("[data-assistant-dossier]")) d.innerHTML = event.html;
           for (const d of document.querySelectorAll("[data-assistant-dossier-summary]")) d.textContent = event.summary;
           break;
+        case "history":
+          for (const list of box.querySelectorAll("[data-assistant-history]")) list.innerHTML = event.html;
+          break;
         case "done":
+          if (event.deadline) deadline = event.deadline;
+          if (event.readOnly) deadline = Date.now();
           ended = true;
           answer.innerHTML = event.html;
           node.querySelector("[data-sources]").innerHTML = event.sources ?? "";
@@ -510,8 +542,8 @@ const assistantBox = (box) => {
     try {
       const response = await fetch(form.action, { method: "POST", body, signal: running.signal });
       if (!response.ok) {
-        // Erased (404) or full (410): the next question starts a new conversation.
-        if (response.status === 404 || response.status === 410) delete box.dataset.conversation;
+        // A stale form cannot silently start a different chat.
+        if (response.status === 404 || response.status === 410) deadline = Date.now();
         const message = (await response.text()).trim() || "Erreur : réessaie.";
         grow(() => fail(message));
         return;
@@ -539,6 +571,7 @@ const assistantBox = (box) => {
     } finally {
       running = null;
       busy(false);
+      checkExpiry();
     }
   };
 
@@ -588,6 +621,10 @@ const assistantBox = (box) => {
     if (running) return;
     for (const ex of thread.querySelectorAll("[data-exchange]")) ex.remove();
     delete box.dataset.conversation;
+    clearTimeout(expiryTimer);
+    deadline = 0;
+    expired = false;
+    input.replaceChildren(form);
     ask("");
   });
   return { ask, field, isRunning: () => running !== null };
@@ -635,7 +672,7 @@ if (panel && opener) {
     // An answer counts when it ended without an error; partial text before an error or a stop does not.
     const answered = (ex) => ex.querySelector("[data-error]").hidden && ex.querySelector("[data-answer]").hasChildNodes();
     if (box.isRunning() || exchanges.some(answered)) {
-      if (wide.matches) box.field.focus(); // a phone's keyboard would cover the answer
+      if (wide.matches) box.field?.focus(); // a phone's keyboard would cover the answer
       return;
     }
     // Never run or failed: start again, without the old error or partial answer above.

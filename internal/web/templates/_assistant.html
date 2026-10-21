@@ -44,3 +44,18 @@
 <button class="btn btn-primary min-h-11" type="submit" data-assistant-send><span data-label-send>Envoyer</span><span data-label-stop hidden>Arrêter</span></button>
 </div>
 </form>{{end}}
+
+{{define "assistantInput"}}<div data-assistant-input>
+{{if .ReadOnly}}{{template "assistantReadOnly" .ReadOnly}}{{else}}{{template "assistantComposer" .}}{{end}}
+</div><template data-assistant-expired>{{template "assistantReadOnly" "Cette conversation est terminée. Ouvre une nouvelle conversation pour poursuivre."}}</template>{{end}}
+
+{{define "assistantReadOnly"}}<div class="rounded-box border border-base-300 bg-base-300/40 p-4" role="status">
+<p class="text-sm text-base-content/80">{{.}}</p><a class="btn btn-outline mt-3 min-h-11" href="/assistant?nouvelle=1">Ouvrir une nouvelle conversation</a>
+</div>{{end}}
+
+{{define "assistantHistory"}}<nav aria-label="Conversations récentes">
+<h2 class="px-2 text-sm font-semibold text-primary">Conversations récentes</h2>
+<p class="px-2 pt-1 pb-3 text-xs text-base-content/70">Historique privé · 7 jours</p>
+<ol class="flex max-h-[60dvh] flex-col gap-1 overflow-y-auto">{{range .Items}}<li><a class="block min-h-11 rounded-box px-2 py-3 hover:bg-base-200 focus-visible:outline-2 focus-visible:outline-primary {{if eq .ID $.Selected}}bg-base-200 font-semibold{{end}}" href="/assistant/{{.ID}}" {{if eq .ID $.Selected}}aria-current="page"{{end}} title="{{.Title}}"><span class="block truncate text-sm">{{.Title}}</span><span class="block pt-1 text-xs font-normal text-base-content/70">{{formatTime .Seen}}{{if not .CanResume}} · Lecture seule{{end}}</span></a></li>{{else}}<li class="px-2 py-3 text-sm text-base-content/70">Tes conversations apparaîtront ici.</li>{{end}}</ol>
+{{if or .Previous .Next}}<div class="mt-2 flex flex-wrap justify-between gap-2 border-t border-base-300 pt-2">{{with .Previous}}<a class="link min-h-11 py-3 text-sm" href="{{.}}">Plus récentes</a>{{end}}{{with .Next}}<a class="link min-h-11 py-3 text-sm" href="{{.}}">Plus anciennes</a>{{end}}</div>{{end}}
+</nav>{{end}}

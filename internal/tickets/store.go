@@ -180,6 +180,8 @@ type Deps struct {
 	Now            func() time.Time
 	Logger         *slog.Logger
 	OnChange       func(Change) // after each commit; nil allowed
+
+	OnContentDeleted func() // after committed content erasure, including retention; nil allowed
 }
 
 // Store reads and changes requests.
@@ -371,4 +373,11 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return string([]rune(s)[:n]) + "…"
+}
+
+// contentDeleted cancels any live consumer of content removed by the transaction.
+func (s *Store) contentDeleted() {
+	if s.OnContentDeleted != nil {
+		s.OnContentDeleted()
+	}
 }
