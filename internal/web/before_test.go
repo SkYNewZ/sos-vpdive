@@ -134,10 +134,10 @@ func withModel(t *testing.T, m *modelStub, limit int) func(*Deps) {
 	}
 }
 
-const choice = `{"answers":[{"type":"choice","name":"fiche","choice":"carnet-solde-negatif","confidence":0.95}],"usage":{"input_tokens":1200,"output_tokens":0}}`
+const choice = `{"answers":[{"type":"choice","name":"fiche","choice":"carnet-solde-negatif","confidence":0.95},{"type":"choice","name":"categorie","choice":"__none__","confidence":0.95}],"usage":{"input_tokens":1200,"output_tokens":0}}`
 
 func decisionAnswer(id string) string {
-	return fmt.Sprintf(`{"answers":[{"type":"choice","name":"fiche","choice":%q,"confidence":0.95}]}`, id)
+	return fmt.Sprintf(`{"answers":[{"type":"choice","name":"fiche","choice":%q,"confidence":0.95},{"type":"choice","name":"categorie","choice":"__none__","confidence":0.95}]}`, id)
 }
 
 // withSummary keeps summary generation separate from article selection.
@@ -537,6 +537,9 @@ func TestDecisionAndSummaryRequestsKeepIdentityPrivate(t *testing.T) {
 		}
 	}
 	assert.Contains(t, selector.calls()[0], "SHORT_INDEX_MARKER")
+	assert.Contains(t, selector.calls()[0], `"name":"categorie"`)
+	assert.NotContains(t, selector.calls()[0], `"value":"bug"`)
+	assert.NotContains(t, selector.calls()[0], `"CategoryID"`)
 	assert.NotContains(t, summary.calls()[0], "SHORT_INDEX_MARKER", "summary generation has no reason to read article indexes")
 }
 
@@ -632,19 +635,20 @@ func TestDecisionAndSummaryCallsCancelWithSubmission(t *testing.T) {
 	assert.Equal(t, 2, canceled, "both actual calls are journaled even after cancellation")
 }
 
-func TestNoArticlesSkipsSelectionWithoutChargingUsage(t *testing.T) {
-	selector := &modelStub{answer: choice}
+func TestNoArticlesStillClassifiesCategory(t *testing.T) {
+	selector := &modelStub{answer: `{"answers":[{"type":"choice","name":"categorie","choice":"inscription","confidence":0.95}]}`}
 	summary := &modelStub{answer: "Résumé conservé."}
 	e := newTestEnv(t, withModel(t, selector, 200), withSummary(t, summary, 200))
 	e.importMembers(t, "members_valid.xlsx")
 	e.deps.KB.Fiches = nil
 	require.Equal(t, http.StatusSeeOther, e.sendRequest(t, validRequest(e.formKey(t))).Code)
-	assert.Empty(t, selector.calls())
+	assert.Len(t, selector.calls(), 1)
+	assert.NotContains(t, selector.calls()[0], `"name":"fiche"`)
 	assert.Len(t, summary.calls(), 1)
 	assert.Equal(t, "Résumé conservé.", e.detail(t, e.firstID(t)).Summary)
 	var calls, counters int
 	require.NoError(t, e.db.QueryRowContext(context.Background(), `SELECT count(*) FROM suggest_usage WHERE model = 'test-model'`).Scan(&calls))
 	require.NoError(t, e.db.QueryRowContext(context.Background(), `SELECT count(*) FROM counters WHERE key LIKE 'suggest-day:%'`).Scan(&counters))
-	assert.Zero(t, calls, "an empty knowledge base makes no billed selector call")
-	assert.Zero(t, counters, "no selector call consumes no daily allowance")
+	assert.Equal(t, 1, calls, "classification still uses the selector")
+	assert.Equal(t, 1, counters, "one decision call uses the daily allowance")
 }

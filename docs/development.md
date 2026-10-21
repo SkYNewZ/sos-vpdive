@@ -118,7 +118,8 @@ icons belong in committee navigation; follow explicit user requests for UX chang
 ## Model Services
 
 Current configuration is in `.env.example` and `internal/config/config.go`:
-`SUGGEST_*` selects one known fiche or none through OpenAI Decisions;
+`SUGGEST_*` selects one known fiche or none and suggests a public category in
+one OpenAI Decisions call;
 `SUMMARY_*` independently generates a committee summary; `ASSISTANT_*` configures
 the committee assistant. `LLM_*` is obsolete. Avoid duplicating model names,
 prices or provider-specific settings here; README covers the current contracts.
@@ -126,6 +127,14 @@ prices or provider-specific settings here; README covers the current contracts.
 Suggestions send article IDs/indexes and request category, values and description,
 never article bodies, resolver procedures, identity fields or screenshots.
 Suggestion and summary descriptions are unmasked; do not claim otherwise.
+Public category IDs, labels and field labels are also supplied as choices.
+Validate fiche and category answers independently; keep a valid answer when the
+other is invalid, but journal the combined call as invalid_output. The category
+cutoff is provisionally 0.90; fiche selection retains its own cutoff. Persist
+category advice sealed, committee-only, and resolve it durably on manual
+classification, dismissal or closing. A late answer must not revive resolved
+advice; adding late advice bumps the ticket version and notifies after commit.
+Never recalculate advice on page loads or backfill historical tickets.
 Failures, refusals or quotas must never prevent submitting a request. Members see
 authored fiche text only; generated summaries and assistant output stay committee-only.
 

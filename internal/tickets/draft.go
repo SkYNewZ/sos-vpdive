@@ -59,6 +59,11 @@ func (s *Store) suggested(ctx context.Context, id int64, sg Suggestion) (Outcome
 			return nil
 		case err != nil:
 			return fmt.Errorf("store suggestion: %w", err)
+		}
+		if err := s.storeCategorySuggestion(ctx, tx, id, sg); err != nil {
+			return err
+		}
+		switch {
 		case status != StatusDraft:
 			late = true
 			return nil
@@ -242,4 +247,21 @@ func (s *Store) DeflectionCounts(ctx context.Context) (map[string]int, error) {
 		out[c.id] = c.n
 	}
 	return out, nil
+}
+
+// storeCategorySuggestion leaves human decisions and the original category untouched.
+func (s *Store) storeCategorySuggestion(ctx context.Context, tx *sql.Tx, id int64, sg Suggestion) error {
+	category, known := s.Catalog.Category(sg.SuggestedCategory)
+	if !known || category.CommitteeOnly || sg.SuggestedCategory == sg.CategorySource {
+		return nil
+	}
+	_, err := tx.ExecContext(ctx, `UPDATE tickets SET suggested_category = ?,
+   version = version + CASE WHEN status = 'draft' THEN 0 ELSE 1 END
+   WHERE id = ? AND category = ? AND suggested_category IS NULL AND category_suggestion_resolved = 0
+   AND status IN ('draft', 'todo', 'in_progress', 'waiting')`,
+		s.Keys.SealString(sg.SuggestedCategory), id, sg.CategorySource)
+	if err != nil {
+		return fmt.Errorf("store category suggestion: %w", err)
+	}
+	return nil
 }

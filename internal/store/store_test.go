@@ -511,3 +511,28 @@ func TestMigration16KeepsImportsAndEveryTablePointingAtThem(t *testing.T) {
 		`SELECT (SELECT COUNT(*) FROM calendar_participants) + (SELECT COUNT(*) FROM calendar_unregistrations)`).Scan(&left))
 	assert.Zero(t, left, "participants and unregistrations still go with their event")
 }
+
+func TestMigration17PreservesTickets(t *testing.T) {
+	ctx := context.Background()
+	path := dbAtVersion(t, 16, `
+ INSERT INTO tickets (id,ref,token_hash,token,form_key_hash,email_hash,category,status,created_at,submitted_at,updated_at,first_name,last_name,email,fields,description)
+ VALUES (7,'CPP-0007',x'01',x'02',x'03',x'04','carnet','todo',1,1,1,x'05',x'06',x'07',x'08',x'09');
+ INSERT INTO messages (id,ticket_id,author_type,created_at,body) VALUES (9,7,'member',1,x'0a');`)
+	db, err := Open(ctx, path)
+	require.NoError(t, err)
+	var category string
+	var raw []byte
+	var resolved int
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT category,suggested_category,category_suggestion_resolved FROM submitted_tickets WHERE id=7`).Scan(&category, &raw, &resolved))
+	assert.Equal(t, "carnet", category)
+	assert.Nil(t, raw)
+	assert.Zero(t, resolved)
+	var count int
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM messages WHERE id=9 AND ticket_id=7 AND body=x'0a'`).Scan(&count))
+	assert.Equal(t, 1, count)
+	assert.Empty(t, foreignKeyViolations(t, db))
+	require.NoError(t, db.Close())
+	again, err := Open(ctx, path)
+	require.NoError(t, err)
+	require.NoError(t, again.Close())
+}

@@ -210,18 +210,20 @@ func (s *Store) AccountName(username string) string {
 
 // ticketRow is a request as actions see it, personal columns decrypted.
 type ticketRow struct {
-	id          int64
-	ref         string
-	status      Status
-	assignee    string
-	version     int64
-	category    string
-	firstName   string
-	lastName    string
-	email       string
-	token       string
-	submittedAt int64
-	closedAt    int64
+	suggestedCategory          []byte
+	categorySuggestionResolved bool
+	id                         int64
+	ref                        string
+	status                     Status
+	assignee                   string
+	version                    int64
+	category                   string
+	firstName                  string
+	lastName                   string
+	email                      string
+	token                      string
+	submittedAt                int64
+	closedAt                   int64
 }
 
 // tx runs fn in a transaction traced as "db tickets.<name>". It owns the
@@ -243,9 +245,9 @@ func (s *Store) load(ctx context.Context, q store.Querier, id int64) (ticketRow,
 		first, last, email, token []byte
 	)
 	err := q.QueryRowContext(ctx,
-		`SELECT id, ref, status, assignee, version, category, first_name, last_name, email, token, submitted_at, closed_at
+		`SELECT id, ref, status, assignee, version, category, first_name, last_name, email, token, submitted_at, closed_at, suggested_category, category_suggestion_resolved
 		 FROM tickets WHERE id = ?`, id).
-		Scan(&t.id, &ref, &t.status, &assignee, &t.version, &t.category, &first, &last, &email, &token, &submitted, &closed)
+		Scan(&t.id, &ref, &t.status, &assignee, &t.version, &t.category, &first, &last, &email, &token, &submitted, &closed, &t.suggestedCategory, &t.categorySuggestionResolved)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ticketRow{}, ErrNotFound
 	}
@@ -327,9 +329,9 @@ func (s *Store) adminLink(id int64) string {
 // means another action changed the request since before was read.
 func (s *Store) save(ctx context.Context, tx *sql.Tx, before, after ticketRow) error {
 	res, err := tx.ExecContext(ctx,
-		`UPDATE tickets SET status = ?, assignee = ?, category = ?, closed_at = ?, version = version + 1, updated_at = ?
+		`UPDATE tickets SET status = ?, assignee = ?, category = ?, closed_at = ?, suggested_category = ?, category_suggestion_resolved = ?, version = version + 1, updated_at = ?
 		 WHERE id = ? AND version = ?`,
-		after.status, store.NullIfZero(after.assignee), after.category, store.NullIfZero(after.closedAt), s.Now().Unix(),
+		after.status, store.NullIfZero(after.assignee), after.category, store.NullIfZero(after.closedAt), after.suggestedCategory, after.categorySuggestionResolved, s.Now().Unix(),
 		before.id, before.version)
 	if err != nil {
 		return fmt.Errorf("update ticket: %w", err)

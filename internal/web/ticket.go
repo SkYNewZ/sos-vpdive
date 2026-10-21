@@ -40,6 +40,8 @@ type ticketMessage struct {
 type ticketData struct {
 	ticketMessage
 
+	SuggestedCategory *option
+
 	Ticket       *tickets.Detail
 	Can          map[string]bool // action name -> the status allows it (templates cannot index by tickets.Action)
 	Assignee     *admins.Account
@@ -130,7 +132,7 @@ func (s *Server) renderTicket(w http.ResponseWriter, r *http.Request, status int
 // pageActions are the actions whose forms the ticket page shows or hides by status.
 var pageActions = []tickets.Action{
 	tickets.ActionTake, tickets.ActionWait, tickets.ActionResume,
-	tickets.ActionReply, tickets.ActionCategory, tickets.ActionClose,
+	tickets.ActionReply, tickets.ActionCategory, tickets.ActionDismissCategorySuggestion, tickets.ActionClose,
 }
 
 // canDo maps pageActions to whether st allows them.
@@ -154,6 +156,11 @@ func (s *Server) ticketView(ctx context.Context, t *tickets.Detail) (ticketData,
 	d := ticketData{
 		Ticket: t, Can: canDo(t.Status), Assignee: s.accountOf(t.Assignee), Accounts: s.admins.Accounts(), Others: others,
 		Fields: s.tickets.Catalog.Display(t.Fields), Categories: s.categoryOptions(t.Category),
+	}
+	if t.Status.Open() && t.SuggestedCategory != t.Category {
+		if category, ok := s.tickets.Catalog.Category(t.SuggestedCategory); ok && !category.CommitteeOnly {
+			d.SuggestedCategory = &option{Value: category.ID, Label: category.Label}
+		}
 	}
 	d.Fiches, d.Removed = s.suggestedFiches(t.KBIDs)
 	for _, key := range ticketButtons(d.Fiches) {
