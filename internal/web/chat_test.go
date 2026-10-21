@@ -189,3 +189,44 @@ func TestChatSSEIsolationAndShutdown(t *testing.T) {
 	assert.NotContains(t, string(boardRest), "chat-private-content")
 	assert.NotContains(t, e.logs.String(), "chat-private-content")
 }
+
+func TestChatSessionLookupFailurePreservesHistory(t *testing.T) {
+	e := newTestEnv(t)
+	e.srv.keepAlive = 10 * time.Millisecond
+	cookie := e.login(t)
+	stream := e.openChat(t, cookie, "")
+	var ready chatSnapshot
+	decodeChatEvent(t, stream, "chat-ready", &ready)
+	require.NoError(t, e.db.Close())
+	for _, path := range []string{"/chat/session", "/evenements?chat=1"} {
+		response := e.do(t, http.MethodGet, adminHost, path, nil, withCookie(cookie))
+		assert.Equal(t, http.StatusServiceUnavailable, response.Code, path)
+	}
+	response := e.do(t, http.MethodPost, adminHost, "/chat/messages", strings.NewReader(`{}`), chatJSON, withCookie(cookie))
+	assert.Equal(t, http.StatusServiceUnavailable, response.Code)
+	remaining, err := io.ReadAll(stream)
+	require.NoError(t, err)
+	assert.NotContains(t, string(remaining), "chat-session-ended", "a database outage does not prove revocation")
+}
+
+func TestChatSessionIdentity(t *testing.T) {
+	e := newTestEnv(t)
+	first := e.login(t)
+	second := e.login(t)
+	firstToken := e.csrf(t, first, "/")
+	secondToken := e.csrf(t, second, "/")
+	require.NotEqual(t, firstToken, secondToken, "even replacement sessions of the same account have different identities")
+	for _, pair := range []struct {
+		cookie *http.Cookie
+		token  string
+	}{{first, firstToken}, {second, secondToken}} {
+		response := e.do(t, http.MethodGet, adminHost, "/chat/session", nil, withCookie(pair.cookie))
+		require.Equal(t, http.StatusNoContent, response.Code)
+		assert.Equal(t, pair.token, response.Header().Get("X-Chat-Session"))
+		var ready struct {
+			Session string `json:"session"`
+		}
+		decodeChatEvent(t, e.openChat(t, pair.cookie, ""), "chat-ready", &ready)
+		assert.Equal(t, pair.token, ready.Session)
+	}
+}

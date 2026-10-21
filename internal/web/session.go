@@ -85,9 +85,15 @@ func (s *Server) endSessions(hashes ...string) {
 // sessionOf returns the request's session. A session that expired, whose
 // account is gone, or whose password changed is deleted.
 func (s *Server) sessionOf(r *http.Request) (session, bool) {
-	c, err := r.Cookie(sessionCookieName)
-	if err != nil || c.Value == "" {
-		return session{}, false
+	sess, ok, _ := s.lookupSession(r)
+	return sess, ok
+}
+
+// lookupSession distinguishes a confirmed invalid session from an unavailable store.
+func (s *Server) lookupSession(r *http.Request) (session, bool, error) {
+	c, _ := r.Cookie(sessionCookieName)
+	if c == nil || c.Value == "" {
+		return session{}, false, nil
 	}
 	ctx := r.Context()
 	hash := secure.TokenHash(c.Value)
@@ -96,22 +102,23 @@ func (s *Server) sessionOf(r *http.Request) (session, bool) {
 		credential []byte
 		expires    int64
 	)
-	err = s.db.QueryRowContext(ctx, `SELECT username, credential_hash, expires_at FROM sessions WHERE token_hash = ?`, hash).
+	err := s.db.QueryRowContext(ctx, `SELECT username, credential_hash, expires_at FROM sessions WHERE token_hash = ?`, hash).
 		Scan(&username, &credential, &expires)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			s.logger.ErrorContext(ctx, "read session", "error", err)
+			return session{}, false, err
 		}
-		return session{}, false
+		return session{}, false, nil
 	}
 	a, ok := s.admins.Current(username, credential)
 	if !ok || s.now().Unix() >= expires {
 		if _, err := deleteStaleSession(ctx, s.db, hash, credential); err != nil {
 			s.logger.ErrorContext(ctx, "delete session", "error", err)
 		}
-		return session{}, false
+		return session{}, false, nil
 	}
-	return session{account: a, hash: hash}, true
+	return session{account: a, hash: hash}, true, nil
 }
 
 // deleteStaleSession deletes a session found stale or expired, only while it

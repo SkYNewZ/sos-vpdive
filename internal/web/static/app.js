@@ -937,7 +937,8 @@ function createCommitteeChat(root) {
   const ended = () => {
     expired = true;
     connected = false;
-    clearChatStorage();
+    root.hidden = false;
+    try { sessionStorage.removeItem(key); } catch { /* Only this document’s session is being ended. */ }
     state.messages = [];
     state.draft = "";
     state.unread = 0;
@@ -962,7 +963,7 @@ function createCommitteeChat(root) {
     checking = true;
     try {
       const response = await fetch("/chat/session", { cache: "no-store", redirect: "error" });
-      if (response.status === 403) ended();
+      if (response.status === 403 || (response.ok && response.headers.get("X-Chat-Session") !== root.dataset.chatSession)) ended();
       else if (response.ok) root.hidden = false;
     } catch { /* A network failure must not erase an authenticated tab's history. */ }
     finally { checking = false; sync(); }
@@ -1000,14 +1001,16 @@ function createCommitteeChat(root) {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ csrf: root.dataset.chatSession, text }),
       });
+      if (expired) return;
       if (response.status === 403) { ended(); return; }
       if (!response.ok) { status.textContent = await response.text(); return; }
       const accepted = await response.json();
+      if (expired) return;
       // Only SSE advances the receive cursor; a POST can overtake an older event.
       status.textContent = known.has(accepted.id) ? "En ligne · salon éphémère" : "Envoyé, réception en cours…";
       if (input.value === draft) { input.value = ""; state.draft = ""; persist(); }
     } catch {
-      status.textContent = "Envoi incertain : vérifie le salon avant de réessayer. Ton texte est conservé.";
+      if (!expired) status.textContent = "Envoi incertain : vérifie le salon avant de réessayer. Ton texte est conservé.";
     } finally { posting = false; sync(); }
   });
   mute.addEventListener("click", () => { state.muted = !state.muted; activateAudio(); persist(); sync(); });
@@ -1015,7 +1018,7 @@ function createCommitteeChat(root) {
   log.addEventListener("scroll", markRead);
   window.addEventListener("focus", markRead);
   document.addEventListener("visibilitychange", markRead);
-  document.querySelectorAll('form[action="/deconnexion"]').forEach((form) => form.addEventListener("submit", clearChatStorage));
+  document.querySelectorAll('form[action="/deconnexion"]').forEach((form) => form.addEventListener("submit", ended));
   window.addEventListener("pagehide", () => {
     persist();
     audio?.close().catch(() => {});
@@ -1077,6 +1080,7 @@ function createCommitteeChat(root) {
     message, people, ended,
     receive: (snapshot) => {
       if (expired) return;
+      if (snapshot.session !== root.dataset.chatSession) { ended(); return; }
       connected = true;
       root.hidden = false;
       people(snapshot.people);

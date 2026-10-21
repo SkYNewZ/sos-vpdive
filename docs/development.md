@@ -57,6 +57,9 @@ plus 256 messages pendant 60 secondes pour reprendre une réception interrompue.
 Un nouvel arrivant sans curseur ne reçoit pas de passé. Les onglets possèdent
 leur historique en clair dans `sessionStorage`, lié à la session authentifiée :
 masquer le panneau ou naviguer le conserve ; terminer la session le retire.
+La reprise vérifie l’identité exacte de la session du document, y compris après
+un retour arrière. Une erreur de lecture de session produit 503 et ne doit
+jamais être assimilée à une révocation confirmée.
 La duplication/restauration native d’onglet peut recopier ce stockage. Un
 stockage indisponible fait basculer en mémoire avec un avertissement.
 
@@ -186,6 +189,11 @@ Never send screenshots or internal notes. Usage journals contain metadata, never
 conversation or request text; show monetary totals only when every call is priced.
 
 ## Verification and Tooling
+
+Avec Node disponible, `go test` exécute aussi le contrôle déterministe du cycle
+de vie du client chat, sans paquet tiers. Ce contrôle est ignoré si Node est
+absent ; les builds restent indépendants de Node et l’acceptance UI utilise
+toujours le véritable navigateur et son EventSource.
 
 CI runs the forbidden-files guard, gofmt, vet, golangci-lint v2, `validate-kb` and
 `go test -race ./...`. Image builds run after checks on `develop` and version tags,

@@ -15,15 +15,32 @@ func chatIdentity(a admins.Account) chatPerson {
 	return chatPerson{Username: a.Username, Name: a.Name, Avatar: string(a.Avatar)}
 }
 
-func (s *Server) chatStatus(w http.ResponseWriter, r *http.Request) {
-	if sess, ok := s.sessionOf(r); !ok || sess.account.MustChangePassword {
+func (s *Server) requireChatSession(w http.ResponseWriter, r *http.Request) (session, bool) {
+	sess, ok, err := s.lookupSession(r)
+	if err != nil {
+		s.writeText(w, r, http.StatusServiceUnavailable, "Session momentanément indisponible : réessaie.\n")
+		return session{}, false
+	}
+	if !ok || sess.account.MustChangePassword {
 		s.writeText(w, r, http.StatusForbidden, "Session expirée : reconnecte-toi.\n")
+		return session{}, false
+	}
+	return sess, true
+}
+
+func (s *Server) chatStatus(w http.ResponseWriter, r *http.Request) {
+	sess, ok := s.requireChatSession(w, r)
+	if !ok {
 		return
 	}
+	w.Header().Set("X-Chat-Session", s.keys.CSRFToken(sess.hash))
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) chatSend(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.requireChatSession(w, r); !ok {
+		return
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, 16*1024)
 	raw, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -42,19 +59,18 @@ func (s *Server) chatSend(w http.ResponseWriter, r *http.Request) {
 		s.writeText(w, r, http.StatusUnprocessableEntity, "Message illisible.\n")
 		return
 	}
-	if !s.csrfValid(r, input.CSRF) {
+	// Recheck after reading the body: an ended session must not send a message.
+	sess, ok := s.requireChatSession(w, r)
+	if !ok {
+		return
+	}
+	if !s.keys.CheckCSRF(sess.hash, input.CSRF) {
 		s.forbidCSRF(w, r)
 		return
 	}
 	text := strings.TrimSpace(input.Text)
 	if text == "" || utf8.RuneCountInString(text) > 2000 {
 		s.writeText(w, r, http.StatusUnprocessableEntity, "Écris un message de 1 à 2 000 caractères.\n")
-		return
-	}
-	// Recheck after reading the body: the session may have ended meanwhile.
-	sess, ok := s.sessionOf(r)
-	if !ok || sess.account.MustChangePassword {
-		s.writeText(w, r, http.StatusForbidden, "Session expirée : reconnecte-toi.\n")
 		return
 	}
 	msg, err := s.chat.send(string(sess.hash), chatIdentity(sess.account), text)

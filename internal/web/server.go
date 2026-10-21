@@ -270,7 +270,7 @@ func (s *Server) adminRoutes() *http.ServeMux {
 	s.handle(mux, "POST /envois/{id}/relancer", s.signedIn(s.retryMail))
 	// The event stream is neither traced nor logged (spec §9.9).
 	mux.HandleFunc("GET /evenements", s.events)
-	s.handle(mux, "POST /chat/messages", s.signedIn(s.chatSend))
+	s.handle(mux, "POST /chat/messages", s.chatSend)
 	s.handle(mux, "GET /chat/session", s.chatStatus)
 	if s.assistant != nil {
 		s.handle(mux, "GET /assistant", s.signedIn(s.assistantPage))

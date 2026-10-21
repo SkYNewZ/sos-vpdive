@@ -24,9 +24,8 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 		s.writeText(w, r, http.StatusForbidden, "Requête refusée : origine non valide.\n")
 		return
 	}
-	sess, ok := s.sessionOf(r)
-	if !ok || sess.account.MustChangePassword {
-		s.writeText(w, r, http.StatusForbidden, "Session expirée : reconnecte-toi.\n")
+	sess, ok := s.requireChatSession(w, r)
+	if !ok {
 		return
 	}
 	sub, ok := s.broker.subscribe(sess.hash, sess.account.Username)
@@ -65,13 +64,17 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 		if _, ok := s.sessionOf(r); !ok {
 			return
 		}
-		if err := writeChatEvent(w, "chat-ready", snapshot.Cursor, snapshot); err != nil || rc.Flush() != nil {
+		if err := writeChatEvent(w, "chat-ready", snapshot.Cursor, struct {
+			chatSnapshot
+
+			Session string `json:"session"`
+		}{snapshot, s.keys.CSRFToken(sess.hash)}); err != nil || rc.Flush() != nil {
 			return
 		}
 	}
 	endChat := func() {
 		if chatSub != nil {
-			if _, ok := s.sessionOf(r); !ok {
+			if _, ok, err := s.lookupSession(r); err == nil && !ok {
 				s.chat.revoke(string(sess.hash))
 				_ = writeChatEvent(w, "chat-session-ended", "", struct{}{})
 				_ = rc.Flush()
