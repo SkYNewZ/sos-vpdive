@@ -59,6 +59,7 @@ type ticketData struct {
 	Outings      outingsBlock
 	MollieLink   vpdiveLink      // VPayDive in VPDive: failed attempts show there only
 	Assistant    *assistantPanel // nil when the assistant is off
+	Visuals      ticketVisuals
 }
 
 // profileView is the requester as the last members import knows them.
@@ -195,6 +196,7 @@ func (s *Server) ticketView(ctx context.Context, t *tickets.Detail) (ticketData,
 		From: time.Date(today.Year(), time.January, 1, 0, 0, 0, 0, s.paris).Format(dateFormat),
 		To:   today.Format(dateFormat),
 	}
+	d.Visuals = s.ticketVisuals(d)
 	return d, nil
 }
 

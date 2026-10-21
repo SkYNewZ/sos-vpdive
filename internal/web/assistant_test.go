@@ -40,6 +40,26 @@ func (m *streamStub) script(replies ...string) {
 // sessionOf is the store's key of cookie's session.
 func sessionOf(cookie *http.Cookie) string { return string(secure.TokenHash(cookie.Value)) }
 
+func TestAssistantStreamsAndRestoresVisualBlocks(t *testing.T) {
+	stub := &streamStub{replies: []string{sseText(t,
+		"Voici les mouvements utiles.\n\n```bloc:cartes\n",
+		`{"titre":"Carte synthétique","source":"Cartes VPDive · 02/09/2026","indicateurs":[{"libelle":"Avoir restant","valeur":"80,00 €"}]}`,
+		"\n```\n\nÀ vérifier dans VPDive.")}}
+	e, cookie := assistantEnv(t, stub, 50)
+	status, events, _ := e.ask(t, cookie, url.Values{"text": {"Montre les mouvements utiles."}})
+	require.Equal(t, http.StatusOK, status)
+	require.Empty(t, events.of("error"))
+	done := events.of("done")
+	require.Len(t, done, 1)
+	assert.Contains(t, done[0]["html"], "viz-block viz-cartes")
+	assert.Contains(t, done[0]["html"], "80,00 €")
+	id := events.of("start")[0]["conversation"].(string)
+	_, page := e.page(t, cookie, "/assistant/"+id)
+	assert.Contains(t, page, "viz-block viz-cartes")
+	assert.Contains(t, page, "À vérifier dans VPDive.")
+	assert.NotContains(t, page, "{&#34;titre&#34;")
+}
+
 func TestAssistantOffByDefault(t *testing.T) {
 	e := newTestEnv(t)
 	e.importMembers(t, "members_valid.xlsx")

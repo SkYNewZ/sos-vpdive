@@ -1,0 +1,41 @@
+<section class="viz-block viz-{{.Kind}}">
+  <h3 class="viz-heading">{{.Title}}</h3>
+  <p class="viz-meta">Source : {{.Source}}{{with .Period}} · {{.}}{{end}}</p>
+  {{if .Partial}}<p class="viz-note">Données partielles : ce bloc ne couvre pas toutes les données.</p>{{end}}
+  {{with .Note}}<p class="viz-note">{{.}}</p>{{end}}
+  {{with .Metrics}}
+  <dl class="viz-metrics">
+    {{range .}}<div class="viz-metric{{with .State}} viz-{{.}}{{end}}"><dt>{{.Label}}</dt><dd class="viz-value">{{.Value}}</dd></div>{{end}}
+  </dl>
+  {{end}}
+  {{if .Months}}
+  <div class="viz-chart">
+    {{range .Months}}
+    <div>
+      <span>{{.Label}}</span>
+      <svg role="img" aria-label="{{.Label}} : {{.Count}}" viewBox="0 0 100 12" preserveAspectRatio="none">
+        <title>{{.Label}} : {{.Count}}</title>
+        <rect class="viz-bar" x="0" y="0" width="{{barWidth .Count $.Maximum}}" height="12" />
+      </svg>
+      <strong>{{.Count}}</strong>
+    </div>
+    {{end}}
+  </div>
+  {{else}}
+    {{if eq .Kind "sorties"}}<p class="viz-note">Aucune donnée mensuelle disponible.</p>{{end}}
+  {{end}}
+  {{if .Headers}}
+    {{if gt (len .Rows) 5}}
+    <details class="viz-details"><summary>Afficher les {{len .Rows}} lignes</summary>{{template "table" .}}</details>
+    {{else}}{{template "table" .}}{{end}}
+  {{end}}
+</section>
+{{define "table"}}
+<table class="viz-table" role="table">
+  <caption>{{.Title}} — Détail</caption>
+  <thead role="rowgroup"><tr role="row">{{range .Headers}}<th role="columnheader" scope="col">{{.}}</th>{{end}}</tr></thead>
+  <tbody role="rowgroup">
+    {{range .Rows}}<tr role="row">{{range $i, $cell := .}}<td role="cell" data-label="{{index $.Headers $i}}">{{$cell}}</td>{{end}}</tr>{{end}}
+  </tbody>
+</table>
+{{end}}

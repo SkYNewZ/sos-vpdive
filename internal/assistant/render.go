@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/SkYNewZ/sos-vpdive/internal/visual"
+
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
@@ -24,11 +26,10 @@ const draftLanguage = "brouillon"
 var markdown = goldmark.New(
 	goldmark.WithExtensions(extension.NewTable(extension.WithTableCellAlignMethod(extension.TableCellAlignAttribute)),
 		extension.Strikethrough),
-	goldmark.WithRendererOptions(html.WithHardWraps(), renderer.WithNodeRenderers(util.Prioritized(safeNodes{}, 100))),
+	goldmark.WithRendererOptions(html.WithHardWraps(), html.WithWriter(unitWriter{html.NewWriter()}), renderer.WithNodeRenderers(util.Prioritized(safeNodes{}, 100))),
 )
 
-// unitSpace is the space between a number and its € or %: Render makes it
-// non-breaking, so a narrow table cell never leaves the unit on a line alone.
+// unitSpace keeps units with their number in Markdown text, after fence decoding.
 var unitSpace = regexp.MustCompile(`(\d) ([€%])`)
 
 // Render turns the model's Markdown into the HTML a resolver reads. Links
@@ -37,11 +38,16 @@ var unitSpace = regexp.MustCompile(`(\d) ([€%])`)
 // labelled and copyable.
 func Render(md string) template.HTML {
 	var buf bytes.Buffer
-	md = unitSpace.ReplaceAllString(md, "$1\u00a0$2")
 	if err := markdown.Convert([]byte(md), &buf); err != nil {
 		return template.HTML("<p>" + template.HTMLEscapeString(md) + "</p>") //nolint:gosec // escaped above
 	}
 	return template.HTML(buf.String()) //nolint:gosec // goldmark escapes text and drops raw HTML
+}
+
+type unitWriter struct{ html.Writer }
+
+func (u unitWriter) Write(w util.BufWriter, source []byte) {
+	u.Writer.Write(w, unitSpace.ReplaceAll(source, []byte("$1\u00a0$2")))
 }
 
 type safeNodes struct{}
@@ -77,6 +83,12 @@ func renderFence(w util.BufWriter, source []byte, n ast.Node, entering bool) (as
 	if !entering || !ok {
 		return ast.WalkContinue, nil
 	}
+	if kind, visualFence := strings.CutPrefix(string(fence.Language(source)), "bloc:"); visualFence && closedFence(fence, source) {
+		if block, valid := visual.Decode(kind, fence.Lines().Value(source)); valid {
+			_, err := w.WriteString(string(block))
+			return ast.WalkSkipChildren, err
+		}
+	}
 	text := template.HTMLEscapeString(string(fence.Lines().Value(source)))
 	out := "<pre><code>" + text + "</code></pre>"
 	if string(fence.Language(source)) == draftLanguage {
@@ -85,6 +97,26 @@ func renderFence(w util.BufWriter, source []byte, n ast.Node, entering bool) (as
 	}
 	_, err := w.WriteString(out)
 	return ast.WalkSkipChildren, err
+}
+
+// Goldmark accepts an unclosed fence; streamed JSON must wait for its closing fence.
+func closedFence(fence *ast.FencedCodeBlock, source []byte) bool {
+	if fence.Info == nil || fence.Lines().Len() == 0 {
+		return false
+	}
+	end := fence.Lines().At(fence.Lines().Len() - 1).Stop
+	if end >= len(source) {
+		return false
+	}
+	opening := bytes.TrimSpace(source[:fence.Info.Segment.Start])
+	if len(opening) == 0 {
+		return false
+	}
+	marker := opening[len(opening)-1]
+	length := len(opening) - len(bytes.TrimRight(opening, string(marker)))
+	closing, _, _ := bytes.Cut(source[end:], []byte("\n"))
+	closing = bytes.Trim(closing, "> \t\r")
+	return length >= 3 && len(closing) >= length && bytes.Count(closing, []byte{marker}) == len(closing)
 }
 
 // plainText is the text under n, such as an image's alt text.

@@ -164,7 +164,7 @@ func TestRequestPageCarnetsBlock(t *testing.T) {
 	got := block(hugo.ID)
 	for _, want := range []string{
 		"Cartes reçues le 02/09/2026 à 12:00 : vérifie dans VPDive avant d'agir.",
-		"Carte 10 plongées niveau 1 et 2", "avoir restant 120,00\u00a0€", "4 débits, net 42,00\u00a0€", "montant inhabituel",
+		"Carte 10 plongées niveau 1 et 2", "Avoir restant", "120,00\u00a0€", "4 débits, net 42,00\u00a0€", "montant inhabituel",
 		"Sortie Épave (N2) · 29/08/2026", "répartie sur deux cartes, 25,00\u00a0€ en tout",
 		"Prix : -300,00\u00a0€ → -270,00\u00a0€", "Commentaire : Débit de la plongée de nuit à revoir avec le trésorier",
 		"+30,00\u00a0€", "Ajout au panier", "Léa MARTIN",
