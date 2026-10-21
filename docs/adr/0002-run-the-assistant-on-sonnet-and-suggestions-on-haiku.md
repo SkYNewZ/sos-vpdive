@@ -1,5 +1,9 @@
 # 0002. Run the assistant on Claude Sonnet 5.5 at effort high, suggestions on Claude Haiku 5.5
 
+> Article selection was superseded by Decisions in issue #35. Haiku now
+> generates only the independent committee summary (`SUMMARY_*`);
+> `SUGGEST_*` configures Decisions. The measurements below describe the old combined call.
+
 | Field    | Value                                                        |
 |----------|--------------------------------------------------------------|
 | Date     | 2026-10-09                                                   |

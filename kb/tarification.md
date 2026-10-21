@@ -1,6 +1,7 @@
 ---
 id: tarification
 titre: Fonctionnement de la tarification au Centre de plongée du Pradet
+index: Prix d’une plongée ou d’un carnet, crédit et débits en euros, tarifs des membres actifs et de leurs invités.
 categories: [carnet, paiement]
 liens_vpdive: [paiements, tarifs]
 ---

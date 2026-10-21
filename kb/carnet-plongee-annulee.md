@@ -1,6 +1,7 @@
 ---
 id: carnet-plongee-annulee
 titre: Une plongée annulée a été décomptée de mon carnet
+index: Sortie annulée par le club mais plongée encore débitée du carnet : recrédit après suppression de la sortie.
 categories: [carnet, remboursement]
 liens_vpdive: [paiements]
 ---

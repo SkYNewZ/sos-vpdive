@@ -1,6 +1,7 @@
 ---
 id: inscription-impossible
 titre: Je n'arrive pas à m'inscrire à une sortie
+index: Inscription à une sortie refusée : adhésion, CACI ou niveaux manquants, ou conditions de la sortie non remplies.
 categories: [inscription]
 liens_vpdive: [membres]
 ---

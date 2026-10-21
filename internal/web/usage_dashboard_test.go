@@ -91,7 +91,7 @@ func TestBuildDashboardWithPartialPrices(t *testing.T) {
 	now := time.Date(2026, 10, 9, 10, 0, 0, 0, time.UTC)
 	calls := []usageCall{
 		{Account: "alice", At: now, Cost: micro(80_000)},
-		{At: now}, // LLM_PRICE_* unset
+		{At: now}, // form model prices unset
 		{At: now.AddDate(0, 0, -35), Cost: micro(1_000)}, // 4 September
 	}
 	d := buildDashboard(calls, now, paris)

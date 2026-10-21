@@ -1,6 +1,7 @@
 ---
 id: caci-redemande
 titre: VPDive me redemande mon certificat médical
+index: CACI redemandé : certificat médical expiré ou date absente, malgré un document déjà déposé.
 categories: [adhesion, compte]
 liens_vpdive: [membres]
 ---

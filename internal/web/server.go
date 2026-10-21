@@ -77,9 +77,9 @@ type Server struct {
 	pushTest  func(ctx context.Context, sessionHash []byte) error
 	broker    *Broker
 	kb        *kb.Base
-	suggest   *suggest.Client // nil without LLM_API_KEY: no screen 2
-	fiches    []suggest.Fiche // what the model reads of the knowledge base
-	keepAlive time.Duration   // event stream keepalive and session check, shortened by tests
+	suggest   *suggest.Client        // nil without SUGGEST_API_KEY: no screen 2
+	summary   *suggest.SummaryClient // nil without SUMMARY_API_KEY: no generated summary
+	keepAlive time.Duration          // event stream keepalive and session check, shortened by tests
 	logger    *slog.Logger
 	now       func() time.Time
 	paris     *time.Location
@@ -132,7 +132,7 @@ func New(d Deps) (*Server, error) {
 	s := &Server{
 		cfg: d.Config, db: d.DB, keys: d.Keys, members: d.Members, payments: d.Payments, mollie: d.Mollie, calendar: d.Calendar, carnets: d.Carnets, campaign: d.Campaign,
 		checks: payments.NewCheckStore(d.DB, d.Keys, d.Members, d.Now), admins: d.Admins,
-		tickets: d.Tickets, outbox: d.Outbox, push: d.Push, pushTest: d.PushTest, broker: d.Broker, kb: d.KB, suggest: suggest.New(d.Config.LLM),
+		tickets: d.Tickets, outbox: d.Outbox, push: d.Push, pushTest: d.PushTest, broker: d.Broker, kb: d.KB, suggest: suggest.New(d.Config.Suggest), summary: suggest.NewSummary(d.Config.Summary),
 		keepAlive: keepAliveInterval,
 		logger:    d.Logger, now: d.Now, paris: paris, tracer: otel.Tracer(tracerName),
 		turnstile: d.Turnstile,
@@ -144,9 +144,6 @@ func New(d Deps) (*Server, error) {
 	}
 	if s.apps, err = newInstallables(static); err != nil {
 		return nil, err
-	}
-	for _, f := range d.KB.Fiches {
-		s.fiches = append(s.fiches, suggest.Fiche{ID: f.ID, Title: f.Title, Answer: f.AnswerText})
 	}
 	if a := d.Config.Assistant; a != nil {
 		s.assistant = assistant.NewClient(a)

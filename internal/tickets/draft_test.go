@@ -255,3 +255,18 @@ func TestDraftKnowsAnOpenRequestOfItsAddress(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, d.OpenRequest, "a done request is not in progress")
 }
+
+func TestSuccessfulSummarySurvivesPeerCancellation(t *testing.T) {
+	e := newTestStore(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	out, err := e.store.Submit(ctx, submission(t), func(context.Context) (Suggestion, bool) {
+		cancel() // The selector was still waiting after the summary succeeded.
+		return Suggestion{Summary: "Résumé déjà disponible."}, true
+	})
+	require.NoError(t, err)
+	require.Equal(t, "CPP-0001", out.Ref)
+	detail, err := e.store.Detail(context.Background(), e.idOf(t, out.Ref))
+	require.NoError(t, err)
+	assert.Equal(t, "Résumé déjà disponible.", detail.Summary)
+}

@@ -15,6 +15,7 @@ import (
 const validFiche = `---
 id: carnet-test
 titre: Mon carnet : un montant négatif
+index: Carnet affiché en négatif : comprendre l'avoir restant.
 categories: [carnet]
 liens_vpdive: [paiements]
 ---
@@ -122,7 +123,7 @@ func TestLoadRefusesDuplicateIDs(t *testing.T) {
 const diagramSource = "flowchart TD\n  accTitle: Prix\n  accDescr: Le prix dépend de la carte.\n  A --> B\n"
 
 func ficheWith(answer string) string {
-	return "---\nid: tarif-test\ntitre: Tarifs\ncategories: [carnet]\nliens_vpdive: [paiements]\n---\n\n## Réponse adhérent\n\n" +
+	return "---\nid: tarif-test\ntitre: Tarifs\nindex: Prix des plongées et carnets.\ncategories: [carnet]\nliens_vpdive: [paiements]\n---\n\n## Réponse adhérent\n\n" +
 		answer + "\n\n## Procédure résolveur\n\n1. Vérifier.\n"
 }
 
@@ -175,4 +176,27 @@ func TestLoadRefusesBadTablesAndDiagrams(t *testing.T) {
 		assert.Contains(t, err.Error(), tc.want, tc.name)
 		assert.Contains(t, err.Error(), "kb/tarif-test.md", tc.name)
 	}
+}
+
+func TestLoadRequiresADiscriminatingIndex(t *testing.T) {
+	_, err := load(map[string]string{"carnet-test.md": strings.ReplaceAll(validFiche, "index: Carnet affiché en négatif : comprendre l'avoir restant.\n", "")})
+	require.ErrorContains(t, err, "empty index")
+}
+
+func TestLoadRejectsAmbiguousOrLongIndexes(t *testing.T) {
+	const index = "Carnet affiché en négatif : comprendre l'avoir restant."
+	for _, tc := range []struct{ name, text, want string }{
+		{"empty", strings.Replace(validFiche, index, "", 1), "empty index"},
+		{"too long", strings.Replace(validFiche, index, strings.Repeat("é", 121), 1), "120 characters"},
+		{"reserved fallback", strings.Replace(validFiche, "id: carnet-test", "id: autre", 1), "reserved"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := load(map[string]string{"a.md": tc.text})
+			require.ErrorContains(t, err, tc.want)
+		})
+	}
+	_, err := load(map[string]string{"a.md": validFiche, "b.md": strings.Replace(validFiche, "id: carnet-test", "id: another", 1)})
+	require.ErrorContains(t, err, "duplicate index")
+	_, err = load(map[string]string{"a.md": strings.Replace(validFiche, index, strings.Repeat("é", 120), 1)})
+	require.NoError(t, err, "the bound counts Unicode characters, not bytes")
 }

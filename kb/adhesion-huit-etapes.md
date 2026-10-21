@@ -1,6 +1,7 @@
 ---
 id: adhesion-huit-etapes
 titre: Renouveler mon adhésion : les huit étapes
+index: Renouvellement d’adhésion : étapes, licence datée, ajout des souscriptions au panier, bouton passer à la suite grisé.
 categories: [adhesion]
 liens_vpdive: [membres]
 ---

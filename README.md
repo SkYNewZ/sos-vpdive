@@ -128,6 +128,7 @@ member and a procedure for the committee:
 ---
 id: carnet-plongee-annulee
 titre: Une plongée annulée a été décomptée de mon carnet
+index: Sortie annulée par le club mais plongée encore débitée du carnet.
 categories: [carnet, remboursement]
 liens_vpdive: [paiements]
 ---
@@ -253,27 +254,52 @@ startup, and the service starts anyway.
 
 ### Fiche suggestions
 
-With `LLM_API_KEY` set, a model picks up to three fiches to show the member
-before sending, and writes a short summary for the committee. Members only
-ever read fiches, never model output. The model receives the category, the
-extra fields and the description as typed, unmasked. The requester's name and
-email address and the screenshots are not sent. Without a key, or when the
-model fails or takes longer than `LLM_TIMEOUT` (8 s), the request leaves at
-once. `LLM_DAILY_LIMIT` (200 by default) caps the calls per day. The usage
-journal records each call (when, which model, tokens, and a cost once
-`LLM_PRICE_INPUT` and `LLM_PRICE_OUTPUT` are set) but not the request.
+With `SUGGEST_API_KEY` set, OpenAI Decisions selects one fiche or none.
+The model receives only each fiche's `id` and manually written `index`, plus
+the request's category, extra fields and description. Article bodies and
+resolver procedures are not sent. `SUGGEST_BASE_URL` defaults to
+`https://api.openai.com`, and `SUGGEST_MODEL` to `gpt-6-luna`. An explicit
+`autre` choice means no article fits; a refusal or invalid answer also leaves
+the request without suggestions. Only known ids can select an article. A confidence below `0.80` yields no
+article. This conservative cutoff comes from a small real-ticket pilot; it
+needs recalibration on a larger labeled corpus.
 
-Any provider that speaks Anthropic's Messages API works:
+Each fiche must have a unique, nonempty `index` of at most 120 Unicode
+characters. Duplicate ids or indexes and the reserved id `autre` refuse
+startup. Write the symptom that distinguishes the article from its neighbors,
+not its full answer. The choices are built from the loaded KB for each call.
+The KB is embedded: changed files take effect after rebuilding and restarting.
 
-| Provider | `LLM_BASE_URL` | `LLM_MODEL` |
-| --- | --- | --- |
-| Anthropic (default) | `https://api.anthropic.com` | `claude-haiku-5-5` |
-| DeepSeek | `https://api.deepseek.com/anthropic` | `deepseek-v4-pro` |
+`SUMMARY_API_KEY` independently enables a short committee summary through a
+Messages API provider. `SUMMARY_BASE_URL` defaults to
+`https://api.anthropic.com` and `SUMMARY_MODEL` to `claude-haiku-5-5`.
+Providers such as DeepSeek can use their Messages-compatible endpoint instead.
+Summary calls turn reasoning off and accept at most 400 output tokens.
+Historical summaries are kept, including when summary generation is disabled.
 
-Every suggestion call turns reasoning off. DeepSeek reasons by default and
-would otherwise spend the 400-token answer budget before writing anything.
-Both were as accurate in our tests; Claude Haiku 5.5 keeps one provider for
-the suggestions and the assistant.
+Both services receive the description as typed, unmasked; the requester's
+identity fields and screenshots are not sent. Members only read the fiche's
+written answer. A generated summary is shown to the committee only.
+The calls run in parallel, each with its own `*_TIMEOUT` (8 s) and
+`*_DAILY_LIMIT` (200 per Paris day). Either service works when the other is
+disabled, capped or fails. A request can always be submitted without either.
+The form usage journal records each actual call's model, tokens, duration and
+cost, never the request text. `SUGGEST_PRICE_INPUT` and `SUGGEST_PRICE_OUTPUT`
+default to `0.10` and `0` dollars per million tokens; summary costs need both
+`SUMMARY_PRICE_INPUT` and `SUMMARY_PRICE_OUTPUT`.
+
+**Configuration migration:** `LLM_*` is no longer read. Move the previous
+Messages provider settings to `SUMMARY_*`, and configure `SUGGEST_*` with an
+OpenAI key separately. Leaving both keys empty disables both services.
+The assistant retains its separate `ASSISTANT_*` settings.
+
+`suggest-bench -messages DIR -out DIR [-runs N]` tests only the Decisions
+selector. Each `message*` file is a JSON object with `category`, `values` and
+`description`, matching the form. Results include the selected fiche,
+confidence, tokens and duration; summary generation is never called.
+Use independently reviewed expected choices when measuring accuracy: past
+suggestions are observations, not validated labels. A confidence cutoff needs
+representative labeled cases, including requests with no matching article.
 
 ### Committee assistant
 
@@ -307,7 +333,7 @@ conversation, and so does a restart. Each account gets
 usage journal at `/assistant/journal`: what the assistant and the suggestions
 cost per day over 30 days, per month over 12 and per account this month, then
 the last 100 questions with their tokens but not their text. Costs are
-estimates from `ASSISTANT_PRICE_*` and `LLM_PRICE_*`; a chart counts calls
+estimates from `ASSISTANT_PRICE_*`, `SUGGEST_PRICE_*` and `SUMMARY_PRICE_*`; a chart counts calls
 instead unless every call it shows has a price.
 The assistant has its own provider, apart from the suggestions':
 `ASSISTANT_BASE_URL` (Anthropic by default), `ASSISTANT_API_KEY` and

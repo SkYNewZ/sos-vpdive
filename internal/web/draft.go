@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"sync"
 	"time"
 
+	"github.com/SkYNewZ/sos-vpdive/internal/config"
 	"github.com/SkYNewZ/sos-vpdive/internal/kb"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 	"github.com/SkYNewZ/sos-vpdive/internal/suggest"
@@ -23,34 +25,57 @@ type beforeData struct {
 	OpenRequest bool
 }
 
-// chooser asks the model about a stored draft, within the daily cap of spec
-// §5.5; nil without a model. Any failure files the request without
-// suggestions.
+// chooser runs article selection and summary generation independently. A
+// failed or capped provider never discards the other provider's result.
 func (s *Server) chooser(sub tickets.Submission) tickets.Chooser {
-	if s.suggest == nil {
+	if s.suggest == nil && s.summary == nil {
 		return nil
 	}
 	return func(ctx context.Context) (tickets.Suggestion, bool) {
-		// The key carries the day in Paris: the count starts again at midnight there.
-		day := s.now().In(s.paris).Format(time.DateOnly)
-		allowed, err := s.limiter.allow(ctx, "llm-day:"+day, s.cfg.LLM.DailyLimit, counterRetention)
-		switch {
-		case err != nil:
-			s.logger.ErrorContext(ctx, "model daily cap", "error", err)
-			return tickets.Suggestion{}, false
-		case !allowed:
-			s.logger.InfoContext(ctx, "model daily cap reached, request sent without suggestions")
-			return tickets.Suggestion{}, false
+		req := s.suggestRequest(sub)
+		var selection, summary suggest.Result
+		var selected, summarized bool
+		var calls sync.WaitGroup
+		if s.suggest != nil && len(s.kb.Fiches) > 0 {
+			calls.Go(func() {
+				selection, selected = s.formModelCall(ctx, formModelSuggest, s.cfg.Suggest, func() (suggest.Result, error) {
+					return s.suggest.Choose(ctx, req, s.suggestionFiches())
+				})
+			})
 		}
-		start := time.Now()
-		res, err := s.suggest.Choose(ctx, s.suggestRequest(sub), s.fiches)
-		s.recordSuggestion(ctx, res, time.Since(start), err)
-		if err != nil {
-			s.logger.WarnContext(ctx, "model call failed, request sent without suggestions", "error", err)
-			return tickets.Suggestion{}, false
+		if s.summary != nil {
+			calls.Go(func() {
+				summary, summarized = s.formModelCall(ctx, formModelSummary, s.cfg.Summary, func() (suggest.Result, error) {
+					return s.summary.Summarize(ctx, req)
+				})
+			})
 		}
-		return tickets.Suggestion{KBIDs: res.IDs, Summary: res.Summary}, true
+		calls.Wait()
+		return tickets.Suggestion{KBIDs: selection.IDs, Summary: summary.Summary}, selected || summarized
 	}
+}
+
+// formModelCall applies a provider's own daily cap and journals only actual calls.
+func (s *Server) formModelCall(ctx context.Context, purpose formModel, cfg *config.LLM, call func() (suggest.Result, error)) (suggest.Result, bool) {
+	// The key carries the day in Paris: the count starts again at midnight there.
+	day := s.now().In(s.paris).Format(time.DateOnly)
+	allowed, err := s.limiter.allow(ctx, string(purpose)+"-day:"+day, cfg.DailyLimit, counterRetention)
+	switch {
+	case err != nil:
+		s.logger.ErrorContext(ctx, "form model daily cap", "provider", string(purpose), "error", err)
+		return suggest.Result{}, false
+	case !allowed:
+		s.logger.InfoContext(ctx, "form model daily cap reached", "provider", string(purpose))
+		return suggest.Result{}, false
+	}
+	start := time.Now()
+	res, err := call()
+	s.recordSuggestion(ctx, cfg, res, time.Since(start), err)
+	if err != nil {
+		s.logger.WarnContext(ctx, "form model call failed", "provider", string(purpose), "error", err)
+		return suggest.Result{}, false
+	}
+	return res, true
 }
 
 // suggestRequest is what the model reads: category, dedicated fields and
@@ -194,4 +219,13 @@ func (s *Server) resendDraftLink(w http.ResponseWriter, r *http.Request) {
 	}
 	s.renderBefore(w, r, http.StatusOK, token, d, &notice{Kind: noticeSuccess,
 		Text: "Le lien de suivi de ta demande en cours part par mail. Regarde aussi dans les indésirables."})
+}
+
+// suggestionFiches projects the current short indexes, never the article bodies.
+func (s *Server) suggestionFiches() []suggest.Fiche {
+	fiches := make([]suggest.Fiche, len(s.kb.Fiches))
+	for i, f := range s.kb.Fiches {
+		fiches[i] = suggest.Fiche{ID: f.ID, Index: f.Index}
+	}
+	return fiches
 }

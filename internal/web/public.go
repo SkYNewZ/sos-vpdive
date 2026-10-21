@@ -75,7 +75,7 @@ func (s *Server) renderForm(w http.ResponseWriter, r *http.Request, status int, 
 	p := s.newPage(r, "Demande d'aide")
 	d.Categories = s.tickets.Catalog.Public()
 	d.FAQ, d.Tarifs = s.vpdive["faq"], s.vpdive["tarifs"]
-	d.Suggestions = s.suggest != nil
+	d.Suggestions = s.suggest != nil || s.summary != nil
 	if s.turnstile != nil {
 		d.SiteKey = s.turnstile.SiteKey
 	}

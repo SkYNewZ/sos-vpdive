@@ -12,14 +12,18 @@ import (
 )
 
 func TestCommitteeSeesSummaryProcedureAndFiches(t *testing.T) {
-	e, m := modelEnv(t, 200)
-	m.set(`{"fiches": ["inscription-impossible"], "resume": "N'arrive pas à s'inscrire à la sortie de samedi."}`)
+	m := &modelStub{answer: decisionAnswer("inscription-impossible")}
+	e := newTestEnv(t, withModel(t, m, 200), withSummary(t, &modelStub{answer: "N'arrive pas à s'inscrire à la sortie de samedi."}, 200))
+	e.importMembers(t, "members_valid.xlsx")
 	_, token := e.screen2(t, validRequest(e.formKey(t)))
 	require.Equal(t, http.StatusSeeOther, e.draftAction(t, "/demandes/confirmer", token).Code)
 	m.set(choice)
 	_, other := e.screen2(t, validRequest(e.formKey(t)))
 	require.Equal(t, http.StatusSeeOther, e.draftAction(t, "/demandes/abandonner", other).Code)
 
+	// Disabling both providers later must retain historical summaries in views.
+	e.srv.suggest, e.srv.summary = nil, nil
+	e.srv.cfg.Suggest, e.srv.cfg.Summary = nil, nil
 	cookie := e.login(t)
 	board := html.UnescapeString(e.do(t, http.MethodGet, adminHost, "/", nil, withCookie(cookie)).Body.String())
 	assert.Contains(t, board, "N'arrive pas à s'inscrire à la sortie de samedi.")
@@ -73,7 +77,7 @@ func TestTicketPageWithoutFiche(t *testing.T) {
 
 func TestRemovedFicheIsNamed(t *testing.T) {
 	e, m := modelEnv(t, 200)
-	m.set(`{"fiches": ["caci-redemande"], "resume": "CACI redemandé."}`)
+	m.set(decisionAnswer("caci-redemande"))
 	_, token := e.screen2(t, validRequest(e.formKey(t)))
 	require.Equal(t, http.StatusSeeOther, e.draftAction(t, "/demandes/confirmer", token).Code)
 	_, err := e.db.ExecContext(context.Background(), `UPDATE tickets SET kb_ids = '["fiche-supprimee"]'`)

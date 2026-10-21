@@ -43,7 +43,7 @@ type suggestMetrics struct {
 	Model      string   `json:"model"`
 	Outcome    string   `json:"outcome"`
 	Fiches     []string `json:"fiches"`
-	Summary    string   `json:"summary"`
+	Confidence float64  `json:"confidence"`
 	Input      int      `json:"input_tokens"`
 	Output     int      `json:"output_tokens"`
 	DurationMS int64    `json:"duration_ms"`
@@ -194,8 +194,8 @@ func suggestBench(ctx context.Context, getenv func(string) string, args []string
 	if err != nil {
 		return err
 	}
-	if cfg.LLM == nil {
-		return errors.New("suggest-bench needs LLM_API_KEY")
+	if cfg.Suggest == nil {
+		return errors.New("suggest-bench needs SUGGEST_API_KEY")
 	}
 	b, err := openBench(ctx, cfg, *dir, *out, "suggestions.jsonl")
 	if err != nil {
@@ -225,8 +225,8 @@ func suggestBench(ctx context.Context, getenv func(string) string, args []string
 			if err != nil {
 				outcome = suggest.Code(err)
 			}
-			if err := b.enc.Encode(suggestMetrics{Message: name, Run: run, Model: cfg.LLM.Model, Outcome: outcome,
-				Fiches: r.IDs, Summary: r.Summary, Input: r.InputTokens, Output: r.OutputTokens,
+			if err := b.enc.Encode(suggestMetrics{Message: name, Run: run, Model: cfg.Suggest.Model, Outcome: outcome,
+				Fiches: r.IDs, Confidence: r.Confidence, Input: r.InputTokens, Output: r.OutputTokens,
 				DurationMS: took.Milliseconds()}); err != nil {
 				return err
 			}

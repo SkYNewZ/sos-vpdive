@@ -101,7 +101,7 @@ func (s *Store) Submit(ctx context.Context, sub Submission, choose Chooser) (Out
 	}
 	if choose != nil {
 		if sg, ok := choose(ctx); ok {
-			return s.suggested(ctx, id, sg)
+			return s.suggested(context.WithoutCancel(ctx), id, sg)
 		}
 	}
 	// The draft is stored: file it even if the member has left meanwhile.
