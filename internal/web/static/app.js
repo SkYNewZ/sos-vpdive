@@ -228,6 +228,7 @@ const refreshBoard = async () => {
 // closes after ten seconds, later while the pointer or the focus is on it.
 const toasts = document.querySelector("[data-toasts]");
 const wide = window.matchMedia("(min-width: 64rem)");
+const chat = createCommitteeChat(document.querySelector("[data-chat]"));
 const TOAST_MS = 10000;
 const showToast = async (type, id) => {
   try {
@@ -254,13 +255,49 @@ const shown = ticketPage?.dataset.ticketPage;
 // One stream per page, opened on first use. Phones open it on the board and
 // the request page only, as before: push notifications tell them the rest.
 let live = null;
-const stream = () => (live ??= new EventSource("/evenements"));
+const liveListeners = new Map();
+const attachLive = (source, type, listener) => source.addEventListener(type, (event) => {
+  if (live === source) listener(event);
+});
+const listenLive = (type, listener) => {
+  if (!liveListeners.has(type)) liveListeners.set(type, []);
+  liveListeners.get(type).push(listener);
+  if (live) attachLive(live, type, listener);
+};
+const stream = () => {
+  if (live) return live;
+  const url = new URL("/evenements", location.origin);
+  if (chat?.active() && wide.matches) {
+    url.searchParams.set("chat", "1");
+    if (chat.cursor()) url.searchParams.set("after", chat.cursor());
+  }
+  live = new EventSource(url);
+  for (const [type, listeners] of liveListeners) for (const listener of listeners) attachLive(live, type, listener);
+  return live;
+};
+const restartLive = () => {
+  live?.close();
+  live = null;
+  if (board || ticketPage || (wide.matches && (toasts || chat?.active()))) stream();
+};
+if (chat) {
+  for (const [type, handler] of Object.entries({
+    "chat-ready": (data) => chat.receive(data),
+    "chat-message": (data) => chat.message(data, false),
+    "chat-presence": (data) => chat.people(data),
+    "chat-session-ended": () => chat.ended(),
+  })) listenLive(type, (event) => handler(JSON.parse(event.data)));
+  listenLive("error", () => chat.disconnected());
+  wide.addEventListener("change", () => { chat.resize(); restartLive(); });
+}
+
 const onChange = (types, handler) => {
   for (const type of types) {
-    stream().addEventListener(type, (event) => {
+    listenLive(type, (event) => {
       const data = JSON.parse(event.data);
       handler(type, String(data.id), data.self === true);
     });
+    stream();
   }
 };
 
@@ -273,7 +310,7 @@ if (board) {
     refreshBoard();
   });
   let connected = false;
-  stream().addEventListener("open", () => {
+  listenLive("open", () => {
     if (connected) refreshBoard(); // back after a cut: catch up on everything
     connected = true;
   });
@@ -301,6 +338,7 @@ const startToasts = () => {
 };
 startToasts();
 wide.addEventListener("change", startToasts);
+if (chat && wide.matches) stream();
 
 // A tap on a notification while the app is open (service worker): go to the
 // request, unless something here is not sent yet; then a banner offers it.
@@ -309,7 +347,7 @@ wide.addEventListener("change", startToasts);
 // texte » ([data-unsent]) when the request no longer takes it.
 const unsent = () =>
   document.querySelector("[data-unsent]") !== null ||
-  [...document.querySelectorAll("form[method=post] :is(textarea, input, select)")].some((el) => {
+  [...document.querySelectorAll("form[method=post]:not([data-chat-form]) :is(textarea, input, select)")].some((el) => {
     if (el.type === "file") return el.files.length > 0;
     if (el.type === "checkbox" || el.type === "radio") return el.checked !== el.defaultChecked;
     if (el.localName === "select") return el.selectedIndex !== Math.max(0, [...el.options].findIndex((o) => o.defaultSelected));
@@ -760,3 +798,268 @@ if (pushBox) {
   );
   document.head.append(script);
 })();
+
+// The room shares the page's live stream; each tab owns its received messages.
+function createCommitteeChat(root) {
+  const prefix = "sos:chat:";
+  const clearChatStorage = (except = "") => {
+    try {
+      for (const key of Object.keys(sessionStorage)) if (key.startsWith(prefix) && key !== except) sessionStorage.removeItem(key);
+    } catch { /* The room can still work in memory. */ }
+  };
+  if (!root) {
+    if (document.querySelector('form[action="/connexion"]')) clearChatStorage();
+    return null;
+  }
+  const key = prefix + root.dataset.chatSession;
+  const username = root.dataset.chatUser;
+  const baseTitle = document.title;
+  const panel = root.querySelector("[data-chat-panel]");
+  const toggle = root.querySelector("[data-chat-toggle]");
+  const badge = root.querySelector("[data-chat-badge]");
+  const log = root.querySelector("[data-chat-log]");
+  const empty = root.querySelector("[data-chat-empty]");
+  const input = root.querySelector("[data-chat-text]");
+  const send = root.querySelector("[data-chat-send]");
+  const status = root.querySelector("[data-chat-status]");
+  const warning = root.querySelector("[data-chat-warning]");
+  const jump = root.querySelector("[data-chat-jump]");
+  const announcement = root.querySelector("[data-chat-announcement]");
+  const mute = root.querySelector("[data-chat-mute]");
+  let state = { version: 1, messages: [], cursor: "", draft: "", unread: 0, muted: false, open: false };
+  let storageWarning = false;
+  let connected = false;
+  let expired = false;
+  let posting = false;
+  let checking = false;
+  const validMessage = (m) => m && ["id", "username", "name", "avatar", "text"].every((p) => typeof m[p] === "string") && Number.isSafeInteger(m.at) && m.at >= 0 && m.at <= 8640000000000;
+  clearChatStorage(key);
+  try {
+    const raw = sessionStorage.getItem(key);
+    if (raw) {
+      const saved = JSON.parse(raw);
+      if (saved.version !== 1 || !Array.isArray(saved.messages) || !saved.messages.every(validMessage) ||
+          typeof saved.cursor !== "string" || typeof saved.draft !== "string" ||
+          !Number.isSafeInteger(saved.unread) || saved.unread < 0 || typeof saved.muted !== "boolean" || typeof saved.open !== "boolean") throw new Error("Invalid chat state");
+      state = saved;
+    }
+  } catch { storageWarning = true; }
+  const known = new Set(state.messages.map((m) => m.id));
+  const atBottom = () => log.scrollHeight - log.scrollTop - log.clientHeight < 24;
+  const readable = () => wide.matches && state.open && document.visibilityState === "visible" && document.hasFocus() && atBottom();
+  const showWarning = (text) => { warning.textContent = text; warning.hidden = false; };
+  const persist = () => {
+    if (expired) return;
+    try { sessionStorage.setItem(key, JSON.stringify(state)); }
+    catch { storageWarning = true; }
+    if (storageWarning) showWarning("Stockage indisponible : la prochaine navigation peut perdre tes messages.");
+  };
+  const sync = () => {
+    panel.hidden = !state.open;
+    toggle.hidden = state.open;
+    toggle.setAttribute("aria-expanded", String(state.open));
+    badge.hidden = state.unread === 0;
+    badge.textContent = String(state.unread);
+    toggle.setAttribute("aria-label", `Chat comité${state.unread ? `, ${state.unread} message${state.unread > 1 ? "s" : ""} non lu${state.unread > 1 ? "s" : ""}` : ""}`);
+    document.title = wide.matches && state.unread ? `(${state.unread}) ${baseTitle}` : baseTitle;
+    mute.setAttribute("aria-pressed", String(state.muted));
+    mute.title = state.muted ? "Activer le son" : "Couper le son";
+    send.disabled = !connected || expired || posting || !input.value.trim();
+    document.body.classList.toggle("has-committee-chat", wide.matches && !root.hidden);
+  };
+  const markRead = () => {
+    if (state.unread && readable()) {
+      state.unread = 0;
+      announcement.textContent = "";
+      jump.hidden = true;
+      sync();
+      persist();
+    }
+  };
+  const scrollBottom = () => { log.scrollTop = log.scrollHeight; jump.hidden = true; markRead(); };
+  const renderMessage = (message) => {
+    empty.hidden = true;
+    const line = document.createElement("div");
+    line.className = "chat-line" + (message.username === username ? " own" : "");
+    const avatar = document.createElement("img");
+    avatar.src = message.avatar;
+    avatar.alt = "";
+    avatar.width = avatar.height = 28;
+    const content = document.createElement("div");
+    content.className = "chat-message";
+    const meta = document.createElement("div");
+    meta.className = "chat-meta";
+    const name = document.createElement("strong");
+    name.textContent = message.name;
+    const time = document.createElement("time");
+    const date = new Date(message.at * 1000);
+    time.dateTime = date.toISOString();
+    time.textContent = date.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+    const text = document.createElement("p");
+    text.className = "chat-bubble";
+    text.textContent = message.text;
+    meta.append(name, time);
+    content.append(meta, text);
+    line.append(avatar, content);
+    log.append(line);
+  };
+  input.value = state.draft;
+  for (const message of state.messages) renderMessage(message);
+  const ended = () => {
+    expired = true;
+    connected = false;
+    clearChatStorage();
+    state.messages = [];
+    state.draft = "";
+    state.unread = 0;
+    state.cursor = "";
+    known.clear();
+    input.value = "";
+    log.replaceChildren();
+    root.querySelector("[data-chat-people]").replaceChildren();
+    root.querySelector("[data-chat-count]").textContent = "Déconnecté";
+    status.textContent = "Session terminée. ";
+    const link = document.createElement("a");
+    link.href = "/connexion";
+    link.className = "link";
+    link.textContent = "Se reconnecter";
+    status.append(link);
+    sync();
+    live?.close();
+    live = null;
+  };
+  const checkSession = async () => {
+    if (checking || expired) return;
+    checking = true;
+    try {
+      const response = await fetch("/chat/session", { cache: "no-store", redirect: "error" });
+      if (response.status === 403) ended();
+      else if (response.ok) root.hidden = false;
+    } catch { /* A network failure must not erase an authenticated tab's history. */ }
+    finally { checking = false; sync(); }
+  };
+  toggle.addEventListener("click", () => {
+    state.open = true;
+    sync();
+    scrollBottom();
+    persist();
+    input.focus();
+  });
+  root.querySelector("[data-chat-close]").addEventListener("click", () => {
+    state.open = false;
+    sync();
+    persist();
+    toggle.focus();
+  });
+  input.addEventListener("input", () => { state.draft = input.value; persist(); sync(); });
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+      event.preventDefault();
+      if (!send.disabled) root.querySelector("[data-chat-form]").requestSubmit();
+    }
+  });
+  root.querySelector("[data-chat-form]").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (send.disabled) return;
+    const draft = input.value;
+    const text = draft.trim();
+    if (Array.from(text).length > 2000) { status.textContent = "Ton message dépasse 2 000 caractères."; return; }
+    posting = true;
+    sync();
+    try {
+      const response = await fetch("/chat/messages", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ csrf: root.dataset.chatSession, text }),
+      });
+      if (response.status === 403) { ended(); return; }
+      if (!response.ok) { status.textContent = await response.text(); return; }
+      const accepted = await response.json();
+      // Only SSE advances the receive cursor; a POST can overtake an older event.
+      status.textContent = known.has(accepted.id) ? "En ligne · salon éphémère" : "Envoyé, réception en cours…";
+      if (input.value === draft) { input.value = ""; state.draft = ""; persist(); }
+    } catch {
+      status.textContent = "Envoi incertain : vérifie le salon avant de réessayer. Ton texte est conservé.";
+    } finally { posting = false; sync(); }
+  });
+  mute.addEventListener("click", () => { state.muted = !state.muted; persist(); sync(); });
+  jump.addEventListener("click", scrollBottom);
+  log.addEventListener("scroll", markRead);
+  window.addEventListener("focus", markRead);
+  document.addEventListener("visibilitychange", markRead);
+  document.querySelectorAll('form[action="/deconnexion"]').forEach((form) => form.addEventListener("submit", clearChatStorage));
+  window.addEventListener("pagehide", () => {
+    persist();
+    root.hidden = true;
+    document.title = baseTitle;
+    live?.close();
+    live = null;
+  });
+  window.addEventListener("pageshow", (event) => {
+    if (!event.persisted) return;
+    connected = false;
+    root.hidden = true;
+    checkSession().then(() => { if (!expired) restartLive(); });
+  });
+  new ResizeObserver(() => document.documentElement.style.setProperty("--committee-chat-height", `${root.offsetHeight}px`)).observe(root);
+  sync();
+  if (state.open) scrollBottom();
+  if (storageWarning) showWarning("Stockage indisponible : la prochaine navigation peut perdre tes messages.");
+  const message = (m, replay) => {
+    if (!validMessage(m) || known.has(m.id) || expired) return;
+    const bottom = atBottom();
+    state.messages.push(m);
+    state.cursor = m.id;
+    known.add(m.id);
+    renderMessage(m);
+    if (bottom) log.scrollTop = log.scrollHeight;
+    if (m.username !== username && !readable()) {
+      state.unread++;
+      announcement.textContent = `${state.unread} message${state.unread > 1 ? "s" : ""} non lu${state.unread > 1 ? "s" : ""} dans le chat comité`;
+      if (!bottom) jump.hidden = false;
+    }
+    if (!replay) status.textContent = "En ligne · salon éphémère";
+    sync();
+    markRead();
+    persist();
+  };
+  const people = (members) => {
+    const container = root.querySelector("[data-chat-people]");
+    container.replaceChildren();
+    for (const person of members || []) {
+      const item = document.createElement("span");
+      item.className = "chat-person";
+      const avatar = document.createElement("img");
+      avatar.src = person.avatar;
+      avatar.alt = "";
+      const name = document.createElement("span");
+      name.textContent = person.name + (person.username === username ? " (toi)" : "");
+      item.append(avatar, name);
+      container.append(item);
+    }
+    const count = (members || []).length;
+    root.querySelector("[data-chat-count]").textContent = `${count} connecté${count > 1 ? "s" : ""}`;
+  };
+  return {
+    active: () => !expired,
+    cursor: () => state.cursor,
+    message, people, ended,
+    receive: (snapshot) => {
+      if (expired) return;
+      connected = true;
+      root.hidden = false;
+      people(snapshot.people);
+      for (const m of snapshot.messages || []) message(m, true);
+      state.cursor = snapshot.cursor;
+      if (snapshot.gap) showWarning("Certains messages reçus pendant la coupure ne sont pas disponibles.");
+      status.textContent = "En ligne · salon éphémère";
+      persist();
+      sync();
+      markRead();
+    },
+    disconnected: () => {
+      connected = false;
+      if (!expired) { status.textContent = "Reconnexion…"; sync(); checkSession(); }
+    },
+    resize: () => { connected = false; sync(); },
+  };
+}

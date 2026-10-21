@@ -19,6 +19,7 @@
 <p>Ton navigateur est trop ancien pour ce site. Mets-le à jour, ou écris au club : <a href="mailto:{{.ClubEmail}}">{{.ClubEmail}}</a>.</p>
 </div>
 {{if and .Account (not .Bare)}}{{template "committeeShell" .}}{{else}}{{template "plainShell" .}}{{end}}
+{{if and .Account (not .Bare) (not .Account.MustChangePassword)}}{{template "committeeChat" .}}{{end}}
 </body>
 </html>{{end}}
 
