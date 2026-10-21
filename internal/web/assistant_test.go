@@ -21,6 +21,7 @@ import (
 	"github.com/SkYNewZ/sos-vpdive/internal/assistant"
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
+	"github.com/SkYNewZ/sos-vpdive/internal/tickets"
 )
 
 func assistantEnv(t *testing.T, stub *streamStub, limit int) (*testEnv, *http.Cookie) {
@@ -205,6 +206,29 @@ func TestAssistantRequestAnalysisStartsAgain(t *testing.T) {
 	_, ev, _ = e.ask(t, cookie, url.Values{"text": {""}, "demande": {demande}})
 	require.Len(t, ev.of("done"), 1, "« Nouvelle analyse »")
 	assert.Equal(t, "Analyse de la demande "+hugo.Ref, ev.of("start")[0]["question"])
+}
+
+// A closed request has no « Analyser », and a question on it is refused,
+// a conversation opened before the close included.
+func TestAssistantRefusesAClosedRequest(t *testing.T) {
+	stub := &streamStub{replies: []string{sseText(t, "Analyse.")}}
+	e, cookie := assistantEnv(t, stub, 50)
+	hugo := e.submitTicket(t, "hugo.bernard@example.org")
+	demande := itoa(hugo.ID)
+	_, ev, _ := e.ask(t, cookie, url.Values{"text": {""}, "demande": {demande}})
+	conversation := ev.of("start")[0]["conversation"].(string)
+
+	e.apply(t, hugo.ID, tickets.Command{Action: tickets.ActionClose})
+	assert.NotContains(t, e.openTicket(t, cookie, hugo.ID).body, "data-assistant-open", "no « Analyser » on a closed request")
+	for _, v := range []url.Values{
+		{"text": {""}, "demande": {demande}},
+		{"text": {"Et ensuite ?"}, "demande": {demande}, "conversation": {conversation}},
+	} {
+		status, _, body := e.ask(t, cookie, v)
+		assert.Equal(t, http.StatusConflict, status)
+		assert.Contains(t, body, "Demande close")
+	}
+	assert.Len(t, stub.calls(), 1, "no model call after the close")
 }
 
 // What the model wrote before its tools is narration: it streams while the

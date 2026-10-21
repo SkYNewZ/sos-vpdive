@@ -115,9 +115,13 @@ func (s *Server) renderTicket(w http.ResponseWriter, r *http.Request, status int
 	if m.Notice != nil {
 		p.Notices = append(p.Notices, *m.Notice)
 	}
-	if data.Assistant, err = s.ticketAssistant(r, t.ID, p.CSRF); err != nil {
-		s.serverError(w, r, err)
-		return
+	// A closed request gets no « Analyser »: nothing left to handle, and no
+	// model calls to spend on it.
+	if t.Status.Open() {
+		if data.Assistant, err = s.ticketAssistant(r, t.ID, p.CSRF); err != nil {
+			s.serverError(w, r, err)
+			return
+		}
 	}
 	p.Data = data
 	s.render(w, r, status, "ticket", p)

@@ -341,6 +341,21 @@ func (s *Server) assistantAsk(w http.ResponseWriter, r *http.Request) {
 		s.writeText(w, r, http.StatusForbidden, "Session expirée : reconnecte-toi.\n")
 		return
 	}
+	if c.TicketID > 0 {
+		row, err := s.tickets.Row(ctx, c.TicketID)
+		if errors.Is(err, tickets.ErrNotFound) {
+			s.notFound(w, r)
+			return
+		}
+		if err != nil {
+			s.serverError(w, r, err)
+			return
+		}
+		if !row.Status.Open() {
+			s.writeText(w, r, http.StatusConflict, "Demande close : l'assistant ne l'analyse plus.\n")
+			return
+		}
+	}
 	var ticket *tickets.Detail
 	switch {
 	case len(c.Exchanges) > 0 && text == "":
