@@ -73,6 +73,9 @@ func (s *Server) startSession(ctx context.Context, w http.ResponseWriter, a admi
 // endSessions closes the event streams of sessions that ended and erases
 // their live answers. Saved history remains private to the account.
 func (s *Server) endSessions(hashes ...string) {
+	if s.chat != nil {
+		s.chat.revoke(hashes...)
+	}
 	s.broker.disconnect(func(sub *subscriber) bool { return slices.Contains(hashes, sub.session) })
 	if s.convs != nil {
 		s.convs.Drop(hashes...)

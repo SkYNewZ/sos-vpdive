@@ -75,6 +75,7 @@ type Server struct {
 	outbox    *mail.Outbox
 	push      *push.Store
 	pushTest  func(ctx context.Context, sessionHash []byte) error
+	chat      *chatRoom
 	broker    *Broker
 	kb        *kb.Base
 	suggest   *suggest.Client        // nil without SUGGEST_API_KEY: no screen 2
@@ -152,6 +153,8 @@ func New(d Deps) (*Server, error) {
 		s.assistantPrompt = assistantSystem(d.KB)
 	}
 	s.tickets.OnContentDeleted = s.forgetConversations
+	s.chat = newChatRoom(d.Now)
+	s.broker.chat = s.chat
 	funcs := template.FuncMap{
 		"static": s.assets.URL, "formatTime": s.formatTime, "formatDate": s.formatDate, "shortPeriod": payments.ShortPeriod, "author": s.tickets.AccountName,
 		"age": s.age, "accountOf": s.accountOf, "actor": s.actorName, "isoDate": isoDate,
@@ -267,6 +270,8 @@ func (s *Server) adminRoutes() *http.ServeMux {
 	s.handle(mux, "POST /envois/{id}/relancer", s.signedIn(s.retryMail))
 	// The event stream is neither traced nor logged (spec §9.9).
 	mux.HandleFunc("GET /evenements", s.events)
+	s.handle(mux, "POST /chat/messages", s.signedIn(s.chatSend))
+	s.handle(mux, "GET /chat/session", s.chatStatus)
 	if s.assistant != nil {
 		s.handle(mux, "GET /assistant", s.signedIn(s.assistantPage))
 		s.handle(mux, "GET /assistant/journal", s.ownerOnly(s.assistantJournal))

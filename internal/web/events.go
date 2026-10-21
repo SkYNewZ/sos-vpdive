@@ -1,6 +1,7 @@
 package web
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -35,6 +36,24 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	}
 	defer s.broker.unsubscribe(sub)
 
+	var chatSub *chatSubscription
+	var chatCh <-chan chatUpdate
+	var chatDone <-chan struct{}
+	var snapshot chatSnapshot
+	if r.URL.Query().Get("chat") == "1" {
+		cursor := r.Header.Get("Last-Event-ID")
+		if cursor == "" {
+			cursor = r.URL.Query().Get("after")
+		}
+		var err error
+		chatSub, snapshot, err = s.chat.subscribe(string(sess.hash), chatIdentity(sess.account), cursor)
+		if err != nil {
+			s.writeText(w, r, http.StatusServiceUnavailable, "Chat indisponible.\n")
+			return
+		}
+		defer s.chat.unsubscribe(chatSub)
+		chatCh, chatDone = chatSub.ch, chatSub.done
+	}
 	rc := http.NewResponseController(w)
 	// The server's read and write timeouts would cut a stream that lasts hours.
 	if err := rc.SetReadDeadline(time.Time{}); err != nil {
@@ -49,6 +68,23 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	if _, err := fmt.Fprintf(w, "retry: %d\n\n", reconnectDelay.Milliseconds()); err != nil || rc.Flush() != nil {
 		return
 	}
+	if chatSub != nil {
+		if _, ok := s.sessionOf(r); !ok {
+			return
+		}
+		if err := writeChatEvent(w, "chat-ready", snapshot.Cursor, snapshot); err != nil || rc.Flush() != nil {
+			return
+		}
+	}
+	endChat := func() {
+		if chatSub != nil {
+			if _, ok := s.sessionOf(r); !ok {
+				s.chat.revoke(string(sess.hash))
+				_ = writeChatEvent(w, "chat-session-ended", "", struct{}{})
+				_ = rc.Flush()
+			}
+		}
+	}
 	ticker := time.NewTicker(s.keepAlive)
 	defer ticker.Stop()
 	for {
@@ -57,7 +93,21 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			return
 		case <-sub.done:
+			endChat()
 			return
+		case <-chatDone:
+			endChat()
+			return
+		case update := <-chatCh:
+			if _, ok := s.sessionOf(r); !ok {
+				endChat()
+				return
+			}
+			if update.Message != nil {
+				err = writeChatEvent(w, update.Kind, update.Message.ID, update.Message)
+			} else {
+				err = writeChatEvent(w, update.Kind, "", update.People)
+			}
 		case c := <-sub.ch:
 			// self spares a resolver the toast of their own change.
 			self := c.Actor != "" && c.Actor == sub.username
@@ -66,8 +116,10 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 			// An expired or deleted session, or a changed password, ends the
 			// stream within one keepalive.
 			if _, ok := s.sessionOf(r); !ok {
+				endChat()
 				return
 			}
+			s.chat.sweep()
 			_, err = io.WriteString(w, ": keepalive\n\n")
 		}
 		if err != nil || rc.Flush() != nil {
@@ -85,4 +137,18 @@ func (s *Server) streamOriginOK(r *http.Request) bool {
 	}
 	site := r.Header.Get("Sec-Fetch-Site")
 	return site == "" || site == "same-origin"
+}
+
+func writeChatEvent(w io.Writer, kind, cursor string, value any) error {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	if cursor != "" {
+		if _, err = fmt.Fprintf(w, "id: %s\n", cursor); err != nil {
+			return err
+		}
+	}
+	_, err = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", kind, data)
+	return err
 }
