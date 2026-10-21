@@ -3,8 +3,9 @@ package assistant
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
-	"maps"
+	"fmt"
 	"slices"
 	"strconv"
 	"sync"
@@ -27,6 +28,7 @@ const (
 // Store errors.
 var (
 	ErrNotFound = errors.New("conversation not found or erased")
+	ErrExpired  = errors.New("conversation resumption expired")
 	ErrBusy     = errors.New("an answer is already running for this account")
 	ErrFull     = errors.New("conversation reached its question limit")
 	// ErrSessionEnded is the cause Drop stops an answer with.
@@ -36,34 +38,35 @@ var (
 // Person is someone the model refers to by Ref (m1, m2…): the server keeps
 // how to find their data, the model never sees their address.
 type Person struct {
-	Ref      string
-	Name     string
-	Email    string
-	NameHash []byte
-	Seasons  string
-	Licence  string
-	Shared   int // members bearing this name, this one included; 2 for a name the campaign holds twice
+	Ref      string `json:"ref"`
+	Name     string `json:"name"`
+	Email    string `json:"email"`
+	NameHash []byte `json:"name_hash"`
+	Seasons  string `json:"seasons"`
+	Licence  string `json:"licence"`
+	Shared   int    `json:"shared"` // members bearing this name, this one included; 2 for a name the campaign holds twice
 }
 
 // Source is a piece of data an answer read: an import with its date, or an
 // outing, a request or a fiche with its committee page.
 type Source struct {
-	Label string
-	Date  string // import date; "" for a page
-	Stale bool
-	Link  string // committee page; "" for an import
+	Label string `json:"label"`
+	Date  string `json:"date"` // import date; "" for a page
+	Stale bool   `json:"stale"`
+	Link  string `json:"link"` // committee page; "" for an import
 }
 
 // Exchange is one question and its answer, as the page shows them again.
 type Exchange struct {
-	Question string // as typed: it never leaves the server unmasked
-	Steps    []string
-	Answer   string // Markdown
-	Sources  []Source
+	Question string   `json:"question"` // as typed: it never leaves the server unmasked
+	Steps    []string `json:"steps"`
+	Answer   string   `json:"answer"` // Markdown
+	Sources  []Source `json:"sources"`
 }
 
-// Conversation is a resolver's exchange with the model, in memory only.
+// Conversation is an account-private exchange with the model.
 type Conversation struct {
+	Title     string
 	ID        string
 	Account   string
 	TicketID  int64 // the request « Analyser » opened it on; 0 from /assistant
@@ -74,9 +77,9 @@ type Conversation struct {
 	People    []Person
 	Emails    []string // [email N] is Emails[N-1]
 
-	session string
-	opened  uint64 // the answer that opened it: the newest has the highest
-	answer  uint64 // the answer this copy is for (Begin), which only it releases
+	revision     int64
+	historyBytes int
+	answer       uint64 // the reservation that only this copy can release
 }
 
 // AddPerson returns the ref of p, adding it once by address, or by name
@@ -101,7 +104,7 @@ func (c *Conversation) Person(ref string) (Person, bool) {
 	return c.People[i], true
 }
 
-// Expires is when c is erased if no question comes before.
+// Expires is the resumption deadline; the archive lives for seven days.
 func (c *Conversation) Expires() time.Time {
 	idle, end := c.Seen.Add(idleLife), c.Created.Add(maxLife)
 	if idle.Before(end) {
@@ -110,173 +113,151 @@ func (c *Conversation) Expires() time.Time {
 	return end
 }
 
-// Store keeps the conversations in memory: a restart erases them all.
-type Store struct {
-	mu      sync.Mutex
-	now     func() time.Time
-	convs   map[string]*Conversation
-	busy    map[string]slot // accounts with an answer in flight
-	answers uint64          // numbers the answers, for their slots
+// CanResume reports whether a new question may reuse this context.
+func (c *Conversation) CanResume(now time.Time) bool { return c.resumeError(now) == nil }
+
+func (c *Conversation) resumeError(now time.Time) error {
+	if !now.Before(c.Expires()) {
+		return ErrExpired
+	}
+	if len(c.Exchanges) >= MaxQuestions || c.historyBytes > maxHistory {
+		return ErrFull
+	}
+	return nil
 }
 
-// slot is an account's answer in flight, its session, and how to stop it.
+// Store persists encrypted conversations; only live answer reservations stay in memory.
+type Store struct {
+	mu      sync.Mutex
+	db      *sql.DB
+	keys    *secure.Keys
+	now     func() time.Time
+	busy    map[string]slot
+	answers uint64
+}
+
 type slot struct {
 	answer  uint64
 	session string
 	stop    context.CancelCauseFunc
+	err     error
 }
 
-// NewStore returns an empty store; now is injectable for tests.
-func NewStore(now func() time.Time) *Store {
-	return &Store{now: now, convs: map[string]*Conversation{}, busy: map[string]slot{}}
+// NewStore opens account-private history and initializes live answer reservations.
+func NewStore(db *sql.DB, keys *secure.Keys, now func() time.Time) *Store {
+	return &Store{db: db, keys: keys, now: now, busy: map[string]slot{}}
 }
 
-// Begin reserves account's answer slot and returns a copy of the
-// conversation to continue: id's when set, else a new one, on ticketID
-// when set (a request's analysis starts again: ForTicket shows the newest).
-// stop cancels the answer (an erasure calls it through DropAll, the end of
-// its session through Drop, with ErrSessionEnded). The caller releases the
-// slot with Finish or Abort; a late Abort is harmless. A question resets the
-// idle time, so that no sweep erases the conversation under its answer.
-func (s *Store) Begin(session, account, id string, ticketID int64, stop context.CancelCauseFunc) (Conversation, error) {
+// Begin reserves one account's answer, loading context only after checking its limits.
+func (s *Store) Begin(ctx context.Context, session, account, id string, ticketID int64, stop context.CancelCauseFunc) (Conversation, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.sweep()
-	if _, busy := s.busy[account]; busy {
+	if _, ok := s.busy[account]; ok {
 		return Conversation{}, ErrBusy
 	}
-	if stop == nil {
-		stop = func(error) {} // DropAll calls it
-	}
-	var c *Conversation
+	var c Conversation
+	var err error
 	if id != "" {
-		if c = s.convs[id]; c == nil || c.session != session {
-			return Conversation{}, ErrNotFound
-		}
-		if len(c.Exchanges) >= MaxQuestions || historySize(c.History) > maxHistory {
-			return Conversation{}, ErrFull
-		}
-		c.Seen = s.now()
-	}
-	s.answers++
-	if c == nil {
-		token, err := secure.NewToken()
+		c, err = s.read(ctx, account, id, true)
 		if err != nil {
 			return Conversation{}, err
 		}
-		now := s.now()
-		c = &Conversation{ID: token, Account: account, TicketID: ticketID, Created: now, Seen: now, session: session, opened: s.answers}
-		s.convs[c.ID] = c
-	}
-	s.busy[account] = slot{answer: s.answers, session: session, stop: stop}
-	out := copyOf(c)
-	out.answer = s.answers
-	return out, nil
-}
-
-// DropAll erases every conversation and stops the answers in flight: an
-// erasure or a deleted request must leave no copy of what it removed, and a
-// conversation only lives half an hour anyway.
-func (s *Store) DropAll() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	clear(s.convs)
-	for _, a := range s.busy {
-		a.stop(nil)
-	}
-}
-
-// Finish stores c, grown by an answer, frees its account's slot and returns
-// c as stored, with its new Seen. A conversation dropped meanwhile (logout)
-// stays dropped.
-func (s *Store) Finish(c Conversation) Conversation {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.release(c)
-	if stored := s.convs[c.ID]; stored != nil {
-		c.Seen = s.now()
-		*stored = c
-	}
-	return c
-}
-
-// Abort frees c's account slot and keeps the conversation as it was.
-func (s *Store) Abort(c Conversation) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.release(c)
-}
-
-// Find returns a copy of session's conversation id.
-func (s *Store) Find(session, id string) (Conversation, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.sweep()
-	c := s.convs[id]
-	if c == nil || c.session != session {
-		return Conversation{}, false
-	}
-	return copyOf(c), true
-}
-
-// ForTicket returns a copy of session's newest conversation on ticketID.
-func (s *Store) ForTicket(session string, ticketID int64) (Conversation, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.sweep()
-	var newest *Conversation
-	for _, c := range s.convs {
-		if c.session == session && c.TicketID == ticketID && (newest == nil || c.opened > newest.opened) {
-			newest = c
+	} else {
+		c.ID, err = secure.NewToken()
+		if err != nil {
+			return Conversation{}, err
+		}
+		c.Account, c.TicketID, c.Created, c.Seen = account, ticketID, s.now(), s.now()
+		c.Title = "Conversation du " + c.Created.Format("02/01/2006")
+		if err = s.create(ctx, c); err != nil {
+			return Conversation{}, err
 		}
 	}
-	if newest == nil {
-		return Conversation{}, false
+	if stop == nil {
+		stop = func(error) {}
 	}
-	return copyOf(newest), true
+	s.answers++
+	c.answer = s.answers
+	s.busy[account] = slot{answer: c.answer, session: session, stop: stop}
+	return c, nil
 }
 
-// Drop erases the conversations of sessions that ended (logout, a password
-// changed or reset, an account deleted) and stops their answers in flight.
+// Finish atomically saves a complete exchange before the caller signals success.
+// A late completion cannot recreate a deleted row or overwrite a newer answer.
+func (s *Store) Finish(ctx context.Context, c Conversation) (Conversation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, ok := s.busy[c.Account]
+	if !ok || a.answer != c.answer {
+		return Conversation{}, ErrNotFound
+	}
+	defer delete(s.busy, c.Account)
+	if a.err != nil {
+		return Conversation{}, a.err
+	}
+	c.Seen = s.now()
+	if err := s.save(ctx, c); err != nil {
+		return Conversation{}, err
+	}
+	c.revision++
+	c.historyBytes = historySize(c.History)
+	return c, nil
+}
+
+// Abort releases only this answer and removes an uncompleted initial conversation.
+func (s *Store) Abort(ctx context.Context, c Conversation) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if a, ok := s.busy[c.Account]; ok && a.answer != c.answer {
+		return nil
+	}
+	delete(s.busy, c.Account)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM assistant_conversations WHERE id=? AND account=? AND question_count=0 AND revision=?`, c.ID, c.Account, c.revision)
+	if err != nil {
+		return fmt.Errorf("abort conversation: %w", err)
+	}
+	return nil
+}
+
+// Find loads the private visible archive, never its provider context.
+func (s *Store) Find(ctx context.Context, account, id string) (Conversation, error) {
+	return s.read(ctx, account, id, false)
+}
+
+// ForTicket loads the most recent completed analysis, including its read-only state.
+func (s *Store) ForTicket(ctx context.Context, account string, ticketID int64) (Conversation, error) {
+	var id string
+	err := s.db.QueryRowContext(ctx, `SELECT id FROM assistant_conversations WHERE account=? AND ticket_id=? AND question_count>0 AND created_at>? ORDER BY seen_at DESC,rowid DESC LIMIT 1`, account, ticketID, s.now().Add(-historyLife).UnixNano()).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Conversation{}, ErrNotFound
+	}
+	if err != nil {
+		return Conversation{}, fmt.Errorf("find ticket conversation: %w", err)
+	}
+	return s.Find(ctx, account, id)
+}
+
+// Drop cancels live answers of sessions that ended; saved archives stay account-private.
 func (s *Store) Drop(sessions ...string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	maps.DeleteFunc(s.convs, func(_ string, c *Conversation) bool { return slices.Contains(sessions, c.session) })
-	for _, a := range s.busy {
+	for account, a := range s.busy {
 		if slices.Contains(sessions, a.session) {
+			a.err = ErrSessionEnded
+			s.busy[account] = a
 			a.stop(ErrSessionEnded)
 		}
 	}
 }
 
-// Run erases the expired conversations every interval until ctx ends: one
-// nobody opens again must not stay in memory past its limits. It stops no
-// answer, and Begin resets the idle time of the conversation one runs on.
-func (s *Store) Run(ctx context.Context, every time.Duration) {
-	ticker := time.NewTicker(every)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			s.mu.Lock()
-			s.sweep()
-			s.mu.Unlock()
-		}
-	}
-}
-
-// sweep erases the expired conversations; s.mu is held.
-func (s *Store) sweep() {
-	now := s.now()
-	maps.DeleteFunc(s.convs, func(_ string, c *Conversation) bool { return !now.Before(c.Expires()) })
-}
-
-// release frees c's account slot if c's answer still holds it; s.mu is held.
-func (s *Store) release(c Conversation) {
-	if s.busy[c.Account].answer == c.answer {
-		delete(s.busy, c.Account)
+// DropAll cancels live answers after transactional content erasure.
+func (s *Store) DropAll() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for account, a := range s.busy {
+		a.err = ErrNotFound
+		s.busy[account] = a
+		a.stop(nil)
 	}
 }
 
@@ -289,14 +270,4 @@ func historySize(h []Message) int {
 		}
 	}
 	return n
-}
-
-// copyOf is c with its slices copied, so that an answer grows its own.
-func copyOf(c *Conversation) Conversation {
-	out := *c
-	out.History = slices.Clone(c.History)
-	out.Exchanges = slices.Clone(c.Exchanges)
-	out.People = slices.Clone(c.People)
-	out.Emails = slices.Clone(c.Emails)
-	return out
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/SkYNewZ/sos-vpdive/internal/assistant"
 	"github.com/SkYNewZ/sos-vpdive/internal/mail"
 	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 	"github.com/SkYNewZ/sos-vpdive/internal/store"
@@ -47,6 +48,9 @@ func (s *Store) deleteCapture(ctx context.Context, tx *sql.Tx, t ticketRow, cmd 
 	if err := s.transition(ctx, tx, t, t, cmd.Actor, eventCaptureDeleted, nil); err != nil {
 		return outcome{}, err
 	}
+	if err := assistant.EraseAllTx(ctx, tx); err != nil {
+		return outcome{}, err
+	}
 	return outcome{change: ChangeUpdated, objects: []string{key}}, nil
 }
 
@@ -66,6 +70,9 @@ func (s *Store) deleteMessage(ctx context.Context, tx *sql.Tx, t ticketRow, cmd 
 		return outcome{}, errors.Join(ErrNotFound, err)
 	}
 	if err := s.transition(ctx, tx, t, t, cmd.Actor, eventMessageDeleted, nil); err != nil {
+		return outcome{}, err
+	}
+	if err := assistant.EraseAllTx(ctx, tx); err != nil {
 		return outcome{}, err
 	}
 	return outcome{change: ChangeUpdated, objects: keys}, nil
@@ -98,6 +105,11 @@ func (s *Store) drop(ctx context.Context, tx *sql.Tx, list []ticketRow) ([]strin
 		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM tickets WHERE id = ?`, d.id); err != nil {
 			return nil, fmt.Errorf("delete ticket: %w", err)
+		}
+	}
+	if len(list) > 0 {
+		if err := assistant.EraseAllTx(ctx, tx); err != nil {
+			return nil, err
 		}
 	}
 	return keys, nil
@@ -192,6 +204,9 @@ func (s *Store) Erase(ctx context.Context, email, actor string) (Erasure, error)
 			return err
 		}
 		if e.CampaignLines, err = s.Campaign.EraseTx(ctx, tx, p.NameHash, p.LastName, p.FirstName); err != nil {
+			return err
+		}
+		if err := assistant.EraseAllTx(ctx, tx); err != nil {
 			return err
 		}
 		return s.Outbox.DeleteRecipient(ctx, tx, normalized)

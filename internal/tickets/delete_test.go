@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/SkYNewZ/sos-vpdive/internal/assistant"
 	"github.com/SkYNewZ/sos-vpdive/internal/blobs"
 	"github.com/SkYNewZ/sos-vpdive/internal/campaign"
 	"github.com/SkYNewZ/sos-vpdive/internal/carnets"
@@ -298,4 +299,60 @@ func TestSweepOrphans(t *testing.T) {
 		keys = append(keys, o.Key)
 	}
 	assert.ElementsMatch(t, []string{used, "orphan-recent-object"}, keys)
+}
+
+// Persisted history must be erased inside the content transaction, including
+// callers that do not run through an HTTP handler and retention jobs.
+func TestDeletionErasesDurableAssistantHistory(t *testing.T) {
+	for _, action := range []Action{ActionDelete, ActionDeleteMessage, ActionDeleteCapture} {
+		t.Run(string(action), func(t *testing.T) {
+			e := newTestStore(t)
+			id, _ := e.submit(t, png())
+			require.NoError(t, e.apply(t, id, Command{Action: ActionTake}))
+			require.NoError(t, e.store.MemberReply(t.Context(), id, "Synthetic reply", nil))
+			d, err := e.store.Detail(t.Context(), id)
+			require.NoError(t, err)
+			e.seedHistory(t)
+			cmd := Command{Action: action, AttachmentID: d.Captures[0].ID, MessageID: d.Messages[0].ID}
+			require.NoError(t, e.apply(t, id, cmd))
+			assert.Equal(t, 0, e.count(t, `SELECT COUNT(*) FROM assistant_conversations`))
+		})
+	}
+}
+func (e *env) seedHistory(t *testing.T) {
+	t.Helper()
+	_, err := e.db.ExecContext(t.Context(), `INSERT OR IGNORE INTO accounts(username,name,role,password_hash,must_change_password,created_at) VALUES('history-test',?,'committee','test',0,0)`, e.keys.SealString("Synthetic"))
+	require.NoError(t, err)
+	a := assistant.NewStore(e.db, e.keys, e.clock.now)
+	c, err := a.Begin(t.Context(), "test-session", "history-test", "", 0, nil)
+	require.NoError(t, err)
+	c.Exchanges = []assistant.Exchange{{Question: "Private", Answer: "Saved"}}
+	_, err = a.Finish(t.Context(), c)
+	require.NoError(t, err)
+}
+func TestErasureWithoutTicketsErasesHistoryAtomically(t *testing.T) {
+	e := newTestStore(t)
+	e.seedHistory(t)
+	_, err := e.db.ExecContext(t.Context(), `CREATE TRIGGER fail_history_erasure BEFORE DELETE ON assistant_conversations BEGIN SELECT RAISE(ABORT,'synthetic failure'); END`)
+	require.NoError(t, err)
+	_, err = e.store.Erase(t.Context(), "absent@example.org", "alice")
+	require.Error(t, err)
+	assert.Equal(t, 1, e.count(t, `SELECT COUNT(*) FROM assistant_conversations`))
+	_, err = e.db.ExecContext(t.Context(), `DROP TRIGGER fail_history_erasure`)
+	require.NoError(t, err)
+	_, err = e.store.Erase(t.Context(), "absent@example.org", "alice")
+	require.NoError(t, err)
+	assert.Equal(t, 0, e.count(t, `SELECT COUNT(*) FROM assistant_conversations`))
+}
+func TestPurgeErasesHistoryOnlyWhenContentIsRemoved(t *testing.T) {
+	e := newTestStore(t)
+	id, _ := e.submit(t)
+	require.NoError(t, e.apply(t, id, Command{Action: ActionTake}))
+	require.NoError(t, e.apply(t, id, Command{Action: ActionClose}))
+	e.seedHistory(t)
+	require.NoError(t, e.store.Purge(t.Context()))
+	assert.Equal(t, 1, e.count(t, `SELECT COUNT(*) FROM assistant_conversations`))
+	e.clock.advance(366 * 24 * time.Hour)
+	require.NoError(t, e.store.Purge(t.Context()))
+	assert.Equal(t, 0, e.count(t, `SELECT COUNT(*) FROM assistant_conversations`))
 }

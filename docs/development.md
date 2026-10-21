@@ -136,8 +136,18 @@ ambiguous identities must not expose payments or outings. `member_membership`
 counts toward the same person limit. Closed tickets refuse analysis in both UI
 and API before a provider call.
 
-Keep conversation state in memory, session-bound, with 30-minute idle and two-hour
-maximum lifetimes. Preserve invalidation on logout, erasure and content deletion.
+Conversation archives and provider context are encrypted in SQLite and owned by
+an account, retained for seven days from creation. List queries decrypt titles
+only; visible archive reads do not load provider context. Resume only within
+30 minutes of the last successful answer and two hours from creation, under the
+20-question/256 KiB context limits. Reads and refused/failed questions must not
+extend the window. An expired conversation is read-only; a new one copies no
+context. Reconnection/restart must not reset deadlines. Logout/revocation cancel
+live answers while saved history stays private. Global content erasure/deletion
+must remove archives transactionally, including ticket retention; late response
+or title updates must never recreate removed rows. One SUMMARY title attempt
+uses the masked first question asynchronously, with a dated fallback and existing
+usage accounting. Never send the transcript to generate a title.
 Mask email, phone and bank patterns in input and each decoded tool-result string
 with `assistant.Mask`/`MaskJSON`; masking encoded JSON misses escaped boundaries.
 Render answers only through `assistant.Render`, neutralizing links and images.

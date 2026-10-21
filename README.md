@@ -325,10 +325,24 @@ unregistration. In all of it, email addresses, phone numbers and bank
 details (IBAN or French RIB) are masked by pattern before leaving. Screenshots
 and internal notes are never sent.
 
-Conversations live in the server's memory only: 30 minutes after the last
-question, 2 hours at most. Logout drops the conversations of that session. An
-erasure or a deletion (of a request, a message or a capture) drops every
-conversation, and so does a restart. Each account gets
+Conversations are encrypted in SQLite and private to the signed-in account,
+including from the owner. The Assistant page restores the latest chat and lists
+recent ones; « Nouvelle conversation » opens an empty chat. History remains
+readable for 7 days from creation, including after logout or a server restart.
+A chat can be continued for 30 minutes after its last successful answer, for no
+more than 2 hours from creation, 20 questions or 256 KiB of provider context.
+After that, its composer is replaced by a read-only notice and an
+« Ouvrir une nouvelle conversation » button; no old context is copied.
+Logout and password revocation cancel live answers. An erasure or a content
+deletion (request, message or capture, including ticket retention) removes all
+accounts' conversations in the same database transaction. The daily purge removes
+seven-day archives; reads enforce that limit even before the purge runs.
+
+When `SUMMARY_API_KEY` is configured, one background `SUMMARY_*` call generates
+a short title from the masked first question. It never delays the answer and is
+counted in the usage journal with SUMMARY prices. Without that provider, or after
+a failed title attempt, a dated fallback title stays available; reading or
+continuing the chat never retries the title call. Each account gets
 `ASSISTANT_DAILY_QUESTIONS` questions a day (50 by default). The owner sees a
 usage journal at `/assistant/journal`: what the assistant and the suggestions
 cost per day over 30 days, per month over 12 and per account this month, then

@@ -200,6 +200,7 @@ func newTestEnv(t *testing.T, opts ...func(*Deps)) *testEnv {
 	}
 	srv, err := New(deps)
 	require.NoError(t, err)
+	t.Cleanup(srv.WaitAssistantTitles)
 	registry.OnChange = srv.AccountsChanged
 	return &testEnv{
 		srv: srv, deps: deps, db: db, logs: logs, clock: clock,

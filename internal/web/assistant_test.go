@@ -133,7 +133,7 @@ func TestAssistantFollowUpKeepsTheConversation(t *testing.T) {
 	dossiers := ev.of("dossier")
 	require.NotEmpty(t, dossiers)
 	erased := e.clock.now().Add(30 * time.Minute).In(e.srv.paris).Format("15:04")
-	assert.Contains(t, html.UnescapeString(dossiers[len(dossiers)-1]["html"].(string)), "S'efface à "+erased+" sans nouvelle question", "the expiry runs from this answer, as a reload shows")
+	assert.Contains(t, html.UnescapeString(dossiers[len(dossiers)-1]["html"].(string)), "Reprise possible jusqu’à "+erased, "the expiry runs from this answer, as a reload shows")
 	second := stub.calls()[1]
 	assert.Contains(t, second, "Première.", "the history goes back")
 	assert.Equal(t, 1, strings.Count(second, "Nous sommes le"), "the context comes once")
@@ -163,9 +163,8 @@ func TestAssistantConversationExpires(t *testing.T) {
 	id := ev.of("start")[0]["conversation"].(string)
 	e.clock.advance(31 * time.Minute)
 	status, _, body := e.ask(t, cookie, url.Values{"text": {"Q"}, "conversation": {id}})
-	assert.Equal(t, http.StatusNotFound, status)
-	assert.Contains(t, body, "Conversation effacée")
-	assert.Contains(t, body, "Ta prochaine question en ouvrira une nouvelle.", "app.js forgets the conversation on a 404")
+	assert.Equal(t, http.StatusGone, status)
+	assert.Contains(t, body, "Cette conversation est terminée")
 }
 
 // A request's analysis that was erased or filled up does not trap the
@@ -180,10 +179,11 @@ func TestAssistantRequestAnalysisStartsAgain(t *testing.T) {
 	_, ev, _ := e.ask(t, cookie, url.Values{"text": {""}, "demande": {demande}})
 	first := ev.of("start")[0]["conversation"].(string)
 
-	c, err := e.srv.convs.Begin(sessionOf(cookie), "alice", first, 0, nil)
+	c, err := e.srv.convs.Begin(t.Context(), sessionOf(cookie), "alice", first, 0, nil)
 	require.NoError(t, err)
 	c.Exchanges = make([]assistant.Exchange, assistant.MaxQuestions)
-	e.srv.convs.Finish(c)
+	_, err = e.srv.convs.Finish(t.Context(), c)
+	require.NoError(t, err)
 	status, _, body := e.ask(t, cookie, url.Values{"text": {"Et ensuite ?"}, "demande": {demande}, "conversation": {first}})
 	assert.Equal(t, http.StatusGone, status)
 	assert.Contains(t, body, "Conversation trop longue.")
@@ -200,8 +200,8 @@ func TestAssistantRequestAnalysisStartsAgain(t *testing.T) {
 
 	e.clock.advance(31 * time.Minute)
 	status, _, body = e.ask(t, cookie, url.Values{"text": {"Et ensuite ?"}, "demande": {demande}, "conversation": {second}})
-	assert.Equal(t, http.StatusNotFound, status)
-	assert.Contains(t, body, "Ta prochaine question relancera l'analyse de la demande.")
+	assert.Equal(t, http.StatusGone, status)
+	assert.Contains(t, body, "Cette conversation est terminée")
 
 	_, ev, _ = e.ask(t, cookie, url.Values{"text": {""}, "demande": {demande}})
 	require.Len(t, ev.of("done"), 1, "« Nouvelle analyse »")
@@ -320,7 +320,7 @@ func TestAssistantRetriesAToolCallWrittenAsText(t *testing.T) {
 func TestAssistantCancelDuringTheQuotaCheck(t *testing.T) {
 	stub := &streamStub{}
 	e, _ := assistantEnv(t, stub, 50)
-	c, err := e.srv.convs.Begin("tab", "alice", "", 0, nil)
+	c, err := e.srv.convs.Begin(t.Context(), "tab", "alice", "", 0, nil)
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -360,7 +360,9 @@ func TestAssistantFailureRollsBack(t *testing.T) {
 	assert.Equal(t, "Il te reste 49 questions aujourd'hui.", ev.of("error")[0]["remaining"], "a failed question counted: the page says so")
 	id := ev.of("start")[0]["conversation"].(string)
 	stub.script(sseText(t, "R"))
-	_, ev, _ = e.ask(t, cookie, url.Values{"text": {"Q2"}, "conversation": {id}})
+	_, findErr := e.srv.convs.Find(t.Context(), "alice", id)
+	require.ErrorIs(t, findErr, assistant.ErrNotFound)
+	_, ev, _ = e.ask(t, cookie, url.Values{"text": {"Q2"}})
 	require.Len(t, ev.of("done"), 1)
 	calls := stub.calls()
 	assert.NotContains(t, calls[len(calls)-1], "Q1", "the failed turn left no trace")
@@ -416,20 +418,20 @@ func TestAssistantMasksTheRequesterAsImported(t *testing.T) {
 	assert.NotContains(t, body, "hugo.perso@")
 }
 
-func TestAssistantLogoutErases(t *testing.T) {
+func TestAssistantLogoutPreservesPrivateHistory(t *testing.T) {
 	stub := &streamStub{replies: []string{sseText(t, "R")}}
 	e, cookie := assistantEnv(t, stub, 50)
 	_, ev, _ := e.ask(t, cookie, url.Values{"text": {"Q"}})
 	id := ev.of("start")[0]["conversation"].(string)
-	_, found := e.srv.convs.Find(sessionOf(cookie), id)
-	require.True(t, found)
+	_, found := e.srv.convs.Find(t.Context(), "alice", id)
+	require.NoError(t, found)
 	rec := e.postAs(t, cookie, "/deconnexion", url.Values{"csrf": {e.csrf(t, cookie, "/assistant")}})
 	require.Equal(t, http.StatusSeeOther, rec.Code)
-	_, found = e.srv.convs.Find(sessionOf(cookie), id)
-	assert.False(t, found, "logout drops the session's conversations")
+	_, found = e.srv.convs.Find(t.Context(), "alice", id)
+	require.NoError(t, found, "saved history belongs to the account")
 	again := e.login(t)
 	status, _ := e.page(t, again, "/assistant/"+id)
-	assert.Equal(t, http.StatusNotFound, status)
+	assert.Equal(t, http.StatusOK, status)
 }
 
 // Codex review: after an erasure, no conversation keeps the erased data,
@@ -456,14 +458,14 @@ func TestAssistantDeletionForgetsConversations(t *testing.T) {
 	id := ev.of("start")[0]["conversation"].(string)
 	rec := e.act(t, cookie, hugo.ID, e.openTicket(t, cookie, hugo.ID), url.Values{"action": {"delete"}})
 	require.Equal(t, http.StatusSeeOther, rec.Code)
-	_, found := e.srv.convs.Find(sessionOf(cookie), id)
-	assert.False(t, found, "the analysis of a deleted request goes with it")
+	_, found := e.srv.convs.Find(t.Context(), "alice", id)
+	assert.ErrorIs(t, found, assistant.ErrNotFound, "the analysis of a deleted request goes with it")
 }
 
 func TestAssistantRefusesASecondAnswerInFlight(t *testing.T) {
 	stub := &streamStub{replies: []string{sseText(t, "R")}}
 	e, cookie := assistantEnv(t, stub, 50)
-	_, err := e.srv.convs.Begin("another-tab", "alice", "", 0, func(error) {})
+	_, err := e.srv.convs.Begin(t.Context(), "another-tab", "alice", "", 0, func(error) {})
 	require.NoError(t, err)
 	status, _, body := e.ask(t, cookie, url.Values{"text": {"Q"}})
 	assert.Equal(t, http.StatusConflict, status)
@@ -554,8 +556,8 @@ func TestAssistantRevokedSessionStopsTheAnswer(t *testing.T) {
 	_, err := e.deps.Admins.ResetPassword(context.Background(), "bob")
 	require.NoError(t, err)
 	assert.Contains(t, e.stoppedAnswer(t, stub, done), sessionEnded)
-	_, found := e.srv.convs.Find(sessionOf(alice), kept)
-	assert.True(t, found, "alice's session is untouched")
+	_, found := e.srv.convs.Find(t.Context(), "alice", kept)
+	assert.NoError(t, found, "alice's session is untouched")
 }
 
 // An erasure stops every answer in flight; the session goes on, so the
@@ -590,11 +592,11 @@ func TestAssistantRefusesASessionEndedBeforeBegin(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, rec.Code)
 	assert.Contains(t, rec.Body.String(), "Session expirée")
 	assert.Empty(t, stub.calls())
-	_, found := e.srv.convs.ForTicket(sessionOf(cookie), 0)
-	assert.False(t, found, "no conversation left on the ended session")
-	busy, err := e.srv.convs.Begin("another-tab", "alice", "", 0, nil)
+	_, found := e.srv.convs.ForTicket(t.Context(), "alice", 0)
+	require.ErrorIs(t, found, assistant.ErrNotFound, "no conversation left on the ended session")
+	busy, err := e.srv.convs.Begin(t.Context(), "another-tab", "alice", "", 0, nil)
 	require.NoError(t, err, "the slot is free")
-	e.srv.convs.Abort(busy)
+	require.NoError(t, e.srv.convs.Abort(t.Context(), busy))
 }
 
 // Codex review: « Analyser » registers its answer before it reads the
@@ -604,11 +606,11 @@ func TestAssistantRefusesASessionEndedBeforeBegin(t *testing.T) {
 func TestAssistantRegistersTheAnalysisBeforeReadingTheRequest(t *testing.T) {
 	stub := &streamStub{replies: []string{sseText(t, "R")}}
 	e, cookie := assistantEnv(t, stub, 50)
-	busy, err := e.srv.convs.Begin("another-tab", "alice", "", 0, nil)
+	busy, err := e.srv.convs.Begin(t.Context(), "another-tab", "alice", "", 0, nil)
 	require.NoError(t, err)
 	status, _, _ := e.ask(t, cookie, url.Values{"text": {""}, "demande": {"999"}})
 	assert.Equal(t, http.StatusConflict, status, "registered first")
-	e.srv.convs.Abort(busy)
+	require.NoError(t, e.srv.convs.Abort(t.Context(), busy))
 	status, _, _ = e.ask(t, cookie, url.Values{"text": {""}, "demande": {"999"}})
 	assert.Equal(t, http.StatusNotFound, status, "then the request is read")
 	assert.Empty(t, stub.calls())
@@ -742,8 +744,8 @@ func TestAssistantReplay(t *testing.T) {
 				assert.NotContains(t, b, leak, sc.name)
 			}
 		}
-		c, ok := e.srv.convs.Find(sessionOf(cookie), id)
-		require.True(t, ok, sc.name)
+		c, ok := e.srv.convs.Find(t.Context(), "alice", id)
+		require.NoError(t, ok, sc.name)
 		var people []string
 		for i, p := range c.People {
 			assert.Equal(t, "m"+itoa(int64(i+1)), p.Ref, sc.name)

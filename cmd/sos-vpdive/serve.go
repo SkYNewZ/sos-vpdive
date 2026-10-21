@@ -226,7 +226,6 @@ func serve(ctx context.Context, getenv func(string) string, stdout io.Writer) (e
 	jobs.Go(func() { a.admins.Watch(ctx, accountsPollInterval) })
 	jobs.Go(func() { a.runPurges(ctx) })
 	jobs.Go(func() { a.outbox.Run(ctx, a.senders, logger) })
-	jobs.Go(func() { a.web.SweepConversations(ctx) })
 
 	httpServer := &http.Server{
 		Addr:              ":" + strconv.Itoa(cfg.Port),
@@ -247,6 +246,7 @@ func serve(ctx context.Context, getenv func(string) string, stdout io.Writer) (e
 	case err := <-listenErr:
 		stop()
 		jobs.Wait()
+		a.web.WaitAssistantTitles()
 		return errors.Join(fmt.Errorf("http server: %w", err), a.db.Close(), shutdownTraces(context.WithoutCancel(ctx)))
 	case <-ctx.Done():
 	}
@@ -256,6 +256,7 @@ func serve(ctx context.Context, getenv func(string) string, stdout io.Writer) (e
 	defer cancel()
 	shutdownErr := httpServer.Shutdown(shutdownCtx)
 	jobs.Wait()
+	a.web.WaitAssistantTitles()
 	return errors.Join(shutdownErr, shutdownTraces(shutdownCtx), a.db.Close())
 }
 
