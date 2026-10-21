@@ -122,3 +122,143 @@ func TestCategorySuggestionFollowsTicketDeletion(t *testing.T) {
 		})
 	}
 }
+
+func TestDismissCategorySuggestionPreservesTicket(t *testing.T) {
+	e := newTestStore(t)
+	ctx := context.Background()
+	out, err := e.store.Submit(ctx, submission(t), categoryAnswer("paiement", "carnet"))
+	require.NoError(t, err)
+	id := e.idOf(t, out.Ref)
+	require.NoError(t, e.apply(t, id, Command{Action: ActionTake}))
+	require.NoError(t, e.apply(t, id, Command{Action: ActionNote, Body: "Internal note"}))
+	require.NoError(t, e.apply(t, id, Command{Action: ActionReassign, Assignee: "bob"}))
+	before, err := e.store.Detail(ctx, id)
+	require.NoError(t, err)
+	require.Equal(t, "paiement", before.SuggestedCategory, "unrelated actions preserve advice")
+	e.mails(t)
+	require.NoError(t, e.apply(t, id, Command{Action: Action("dismiss_category_suggestion")}))
+	after, err := e.store.Detail(ctx, id)
+	require.NoError(t, err)
+	assert.Equal(t, before.Category, after.Category)
+	assert.Equal(t, before.Status, after.Status)
+	assert.Equal(t, before.Assignee, after.Assignee)
+	assert.Equal(t, before.Version+1, after.Version)
+	assert.Empty(t, after.SuggestedCategory)
+	assert.Equal(t, 1, e.count(t, `SELECT category_suggestion_resolved FROM tickets WHERE id=?`, id))
+	assert.Equal(t, before.Events, after.Events)
+	assert.Empty(t, e.mails(t))
+	err = e.store.Apply(ctx, Command{TicketID: id, Version: before.Version, Actor: "alice", Action: Action("dismiss_category_suggestion")})
+	require.ErrorIs(t, err, ErrStale)
+	require.ErrorIs(t, e.apply(t, id, Command{Action: Action("dismiss_category_suggestion")}), ErrInvalid)
+}
+
+func TestDismissCategorySuggestionRefusals(t *testing.T) {
+	for _, state := range []string{"draft", "closed", "absent"} {
+		t.Run(state, func(t *testing.T) {
+			e := newTestStore(t)
+			ctx := context.Background()
+			var id int64
+			switch state {
+			case "draft":
+				var err error
+				id, err = e.store.draft(ctx, submission(t))
+				require.NoError(t, err)
+			default:
+				id, _ = e.submit(t)
+			}
+			want := ErrInvalid
+			if state == "draft" {
+				want = ErrNotFound
+			}
+			if state == "closed" {
+				require.NoError(t, e.apply(t, id, Command{Action: ActionClose}))
+				want = ErrNotAllowed
+			}
+			require.ErrorIs(t, e.apply(t, id, Command{Action: Action("dismiss_category_suggestion")}), want)
+		})
+	}
+}
+
+func TestCategoryActionsResolveSuggestion(t *testing.T) {
+	for _, action := range []Action{ActionCategory, Action("dismiss_category_suggestion"), ActionClose, ActionReplyClose} {
+		t.Run(string(action), func(t *testing.T) {
+			e := newTestStore(t)
+			ctx := context.Background()
+			out, err := e.store.Submit(ctx, submission(t), categoryAnswer("paiement", "carnet"))
+			require.NoError(t, err)
+			id := e.idOf(t, out.Ref)
+			if action == ActionReplyClose {
+				require.NoError(t, e.apply(t, id, Command{Action: ActionTake}))
+			}
+			require.NoError(t, e.apply(t, id, Command{Action: action, Category: "paiement", Body: "Resolved"}))
+			detail, err := e.store.Detail(ctx, id)
+			require.NoError(t, err)
+			assert.Empty(t, detail.SuggestedCategory)
+			assert.Equal(t, 1, e.count(t, `SELECT category_suggestion_resolved FROM tickets WHERE id=?`, id))
+			if action == ActionCategory {
+				assert.Equal(t, "paiement", detail.Category)
+				assert.Equal(t, 1, e.count(t, `SELECT count(*) FROM events WHERE ticket_id=? AND type='category_changed'`, id))
+			}
+			if action == ActionClose || action == ActionReplyClose {
+				require.NoError(t, e.store.MemberReply(ctx, id, "More information", nil))
+				detail, err = e.store.Detail(ctx, id)
+				require.NoError(t, err)
+				assert.True(t, detail.Status.Open())
+				assert.Empty(t, detail.SuggestedCategory)
+			}
+		})
+	}
+}
+
+func TestResolvedCategorySuggestionNeverReturns(t *testing.T) {
+	for _, scenario := range []string{"round trip", "close", "reply close"} {
+		t.Run(scenario, func(t *testing.T) {
+			e := newTestStore(t)
+			ctx := context.Background()
+			started := make(chan struct{})
+			release := make(chan struct{})
+			done := make(chan error, 1)
+			go func() {
+				_, err := e.store.Submit(ctx, submission(t), func(context.Context) (Suggestion, bool) {
+					close(started)
+					<-release
+					return Suggestion{SuggestedCategory: "paiement", CategorySource: "carnet", KBIDs: []string{"fiche-a"}, Summary: "Late summary"}, true
+				})
+				done <- err
+			}()
+			<-started
+			var id int64
+			require.NoError(t, e.db.QueryRowContext(ctx, `SELECT max(id) FROM tickets`).Scan(&id))
+			_, err := e.store.Confirm(ctx, id)
+			require.NoError(t, err)
+			switch scenario {
+			case "round trip":
+				require.NoError(t, e.apply(t, id, Command{Action: ActionCategory, Category: "paiement"}))
+				require.NoError(t, e.apply(t, id, Command{Action: ActionCategory, Category: "carnet"}))
+			case "close":
+				require.NoError(t, e.apply(t, id, Command{Action: ActionClose}))
+			case "reply close":
+				require.NoError(t, e.apply(t, id, Command{Action: ActionTake}))
+				require.NoError(t, e.apply(t, id, Command{Action: ActionReplyClose, Body: "Resolved"}))
+			}
+			close(release)
+			select {
+			case err = <-done:
+				require.NoError(t, err)
+			case <-time.After(5 * time.Second):
+				t.Fatal("late submission did not finish")
+			}
+			detail, err := e.store.Detail(ctx, id)
+			require.NoError(t, err)
+			assert.Empty(t, detail.SuggestedCategory)
+			assert.Equal(t, "Late summary", detail.Summary)
+			assert.Equal(t, []string{"fiche-a"}, detail.KBIDs)
+			if !detail.Status.Open() {
+				require.NoError(t, e.store.MemberReply(ctx, id, "Follow-up", nil))
+				detail, err = e.store.Detail(ctx, id)
+				require.NoError(t, err)
+				assert.Empty(t, detail.SuggestedCategory)
+			}
+		})
+	}
+}

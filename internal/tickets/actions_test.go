@@ -59,17 +59,18 @@ func (e *env) apply(t *testing.T, id int64, cmd Command) error {
 func TestMatrix(t *testing.T) {
 	// Spec §8.1, written out rather than derived from allowedFrom.
 	allowed := map[Action][]Status{
-		ActionTake:       {StatusTodo},
-		ActionReassign:   {StatusInProgress, StatusWaiting},
-		ActionUnassign:   {StatusInProgress, StatusWaiting},
-		ActionWait:       {StatusInProgress},
-		ActionResume:     {StatusWaiting},
-		ActionReply:      {StatusInProgress, StatusWaiting},
-		ActionReplyWait:  {StatusInProgress, StatusWaiting},
-		ActionReplyClose: {StatusInProgress, StatusWaiting},
-		ActionNote:       {StatusInProgress, StatusWaiting},
-		ActionCategory:   {StatusTodo, StatusInProgress, StatusWaiting},
-		ActionClose:      {StatusTodo, StatusInProgress, StatusWaiting},
+		ActionTake:                      {StatusTodo},
+		ActionReassign:                  {StatusInProgress, StatusWaiting},
+		ActionUnassign:                  {StatusInProgress, StatusWaiting},
+		ActionWait:                      {StatusInProgress},
+		ActionResume:                    {StatusWaiting},
+		ActionReply:                     {StatusInProgress, StatusWaiting},
+		ActionReplyWait:                 {StatusInProgress, StatusWaiting},
+		ActionReplyClose:                {StatusInProgress, StatusWaiting},
+		ActionNote:                      {StatusInProgress, StatusWaiting},
+		ActionCategory:                  {StatusTodo, StatusInProgress, StatusWaiting},
+		ActionDismissCategorySuggestion: {StatusTodo, StatusInProgress, StatusWaiting},
+		ActionClose:                     {StatusTodo, StatusInProgress, StatusWaiting},
 	}
 	e := newTestStore(t)
 	for action, from := range allowed {
@@ -80,6 +81,10 @@ func TestMatrix(t *testing.T) {
 				assignee = ""
 			}
 			e.force(t, id, status, assignee)
+			if action == ActionDismissCategorySuggestion {
+				_, err := e.db.ExecContext(context.Background(), `UPDATE tickets SET suggested_category=? WHERE id=?`, e.keys.SealString("paiement"), id)
+				require.NoError(t, err)
+			}
 			err := e.apply(t, id, Command{Action: action, Actor: "bob", Assignee: "bob", Body: "Réponse du comité", Category: "autre"})
 			if slices.Contains(from, status) {
 				require.NoError(t, err, "%s from %s", action, status)
