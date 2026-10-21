@@ -60,7 +60,7 @@ func (s *Store) suggested(ctx context.Context, id int64, sg Suggestion) (Outcome
 		case err != nil:
 			return fmt.Errorf("store suggestion: %w", err)
 		}
-		if _, err := s.storeCategorySuggestion(ctx, tx, id, sg); err != nil {
+		if err := s.storeCategorySuggestion(ctx, tx, id, sg); err != nil {
 			return err
 		}
 		switch {
@@ -250,22 +250,18 @@ func (s *Store) DeflectionCounts(ctx context.Context) (map[string]int, error) {
 }
 
 // storeCategorySuggestion leaves human decisions and the original category untouched.
-func (s *Store) storeCategorySuggestion(ctx context.Context, tx *sql.Tx, id int64, sg Suggestion) (late bool, err error) {
+func (s *Store) storeCategorySuggestion(ctx context.Context, tx *sql.Tx, id int64, sg Suggestion) error {
 	category, known := s.Catalog.Category(sg.SuggestedCategory)
 	if !known || category.CommitteeOnly || sg.SuggestedCategory == sg.CategorySource {
-		return false, nil
+		return nil
 	}
-	var status Status
-	err = tx.QueryRowContext(ctx, `UPDATE tickets SET suggested_category = ?,
-  version = version + CASE WHEN status = 'draft' THEN 0 ELSE 1 END
-  WHERE id = ? AND category = ? AND suggested_category IS NULL AND category_suggestion_resolved = 0
-  AND status IN ('draft', 'todo', 'in_progress', 'waiting') RETURNING status`,
-		s.Keys.SealString(sg.SuggestedCategory), id, sg.CategorySource).Scan(&status)
-	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
-	}
+	_, err := tx.ExecContext(ctx, `UPDATE tickets SET suggested_category = ?,
+   version = version + CASE WHEN status = 'draft' THEN 0 ELSE 1 END
+   WHERE id = ? AND category = ? AND suggested_category IS NULL AND category_suggestion_resolved = 0
+   AND status IN ('draft', 'todo', 'in_progress', 'waiting')`,
+		s.Keys.SealString(sg.SuggestedCategory), id, sg.CategorySource)
 	if err != nil {
-		return false, fmt.Errorf("store category suggestion: %w", err)
+		return fmt.Errorf("store category suggestion: %w", err)
 	}
-	return status != StatusDraft, nil
+	return nil
 }

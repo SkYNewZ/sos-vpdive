@@ -38,8 +38,9 @@ type ticketMessage struct {
 }
 
 type ticketData struct {
-	SuggestedCategory *option
 	ticketMessage
+
+	SuggestedCategory *option
 
 	Ticket       *tickets.Detail
 	Can          map[string]bool // action name -> the status allows it (templates cannot index by tickets.Action)

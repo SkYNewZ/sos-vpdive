@@ -2,14 +2,15 @@ package web
 
 import (
 	"context"
-	"github.com/SkYNewZ/sos-vpdive/internal/assistant"
-	"github.com/SkYNewZ/sos-vpdive/internal/config"
-	"github.com/SkYNewZ/sos-vpdive/internal/tickets"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/SkYNewZ/sos-vpdive/internal/assistant"
+	"github.com/SkYNewZ/sos-vpdive/internal/config"
+	"github.com/SkYNewZ/sos-vpdive/internal/tickets"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/suggest"
 	"github.com/stretchr/testify/assert"

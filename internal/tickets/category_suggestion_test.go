@@ -218,8 +218,9 @@ func TestResolvedCategorySuggestionNeverReturns(t *testing.T) {
 			started := make(chan struct{})
 			release := make(chan struct{})
 			done := make(chan error, 1)
+			sub := submission(t)
 			go func() {
-				_, err := e.store.Submit(ctx, submission(t), func(context.Context) (Suggestion, bool) {
+				_, err := e.store.Submit(ctx, sub, func(context.Context) (Suggestion, bool) {
 					close(started)
 					<-release
 					return Suggestion{SuggestedCategory: "paiement", CategorySource: "carnet", KBIDs: []string{"fiche-a"}, Summary: "Late summary"}, true
