@@ -36,21 +36,14 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	}
 	defer s.broker.unsubscribe(sub)
 
-	var chatSub *chatSubscription
+	chatSub, snapshot, err := s.subscribeChat(r, sess)
+	if err != nil {
+		s.writeText(w, r, http.StatusServiceUnavailable, "Chat indisponible.\n")
+		return
+	}
 	var chatCh <-chan chatUpdate
 	var chatDone <-chan struct{}
-	var snapshot chatSnapshot
-	if r.URL.Query().Get("chat") == "1" {
-		cursor := r.Header.Get("Last-Event-ID")
-		if cursor == "" {
-			cursor = r.URL.Query().Get("after")
-		}
-		var err error
-		chatSub, snapshot, err = s.chat.subscribe(string(sess.hash), chatIdentity(sess.account), cursor)
-		if err != nil {
-			s.writeText(w, r, http.StatusServiceUnavailable, "Chat indisponible.\n")
-			return
-		}
+	if chatSub != nil {
 		defer s.chat.unsubscribe(chatSub)
 		chatCh, chatDone = chatSub.ch, chatSub.done
 	}
@@ -151,4 +144,15 @@ func writeChatEvent(w io.Writer, kind, cursor string, value any) error {
 	}
 	_, err = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", kind, data)
 	return err
+}
+
+func (s *Server) subscribeChat(r *http.Request, sess session) (*chatSubscription, chatSnapshot, error) {
+	if r.URL.Query().Get("chat") != "1" {
+		return nil, chatSnapshot{}, nil
+	}
+	cursor := r.Header.Get("Last-Event-ID")
+	if cursor == "" {
+		cursor = r.URL.Query().Get("after")
+	}
+	return s.chat.subscribe(string(sess.hash), chatIdentity(sess.account), cursor)
 }

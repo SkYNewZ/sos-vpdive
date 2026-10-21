@@ -11,6 +11,8 @@ import (
 	"time"
 )
 
+const chatPresenceEvent = "chat-presence"
+
 var (
 	errChatUnavailable = errors.New("chat session is not connected")
 	errChatRateLimited = errors.New("chat send rate exceeded")
@@ -99,14 +101,14 @@ func (c *chatRoom) subscribe(session string, person chatPerson, cursor string) (
 		if !ok || err != nil || epoch != c.epoch || n > c.seq || n < c.seq-uint64(len(c.messages)) {
 			snapshot.Gap = true
 		} else {
-			offset := int(n - (c.seq - uint64(len(c.messages))))
+			offset := n - (c.seq - uint64(len(c.messages)))
 			snapshot.Messages = slices.Clone(c.messages[offset:])
 		}
 	}
 	// The snapshot and live registration share the lock: no message can fall between.
 	c.subs[sub] = struct{}{}
 	if !slices.Equal(before, snapshot.People) {
-		c.broadcastLocked(chatUpdate{Kind: "chat-presence", People: snapshot.People})
+		c.broadcastLocked(chatUpdate{Kind: chatPresenceEvent, People: snapshot.People})
 	}
 	c.scheduleLocked()
 	return sub, snapshot, nil
@@ -198,7 +200,7 @@ func (c *chatRoom) revoke(sessions ...string) {
 	}
 	people := c.peopleLocked()
 	if !slices.Equal(before, people) {
-		c.broadcastLocked(chatUpdate{Kind: "chat-presence", People: people})
+		c.broadcastLocked(chatUpdate{Kind: chatPresenceEvent, People: people})
 	}
 	c.scheduleLocked()
 }
@@ -230,7 +232,7 @@ func (c *chatRoom) sweepLocked() {
 	c.messages = slices.Delete(c.messages, 0, cut)
 	people := c.peopleLocked()
 	if !slices.Equal(before, people) {
-		c.broadcastLocked(chatUpdate{Kind: "chat-presence", People: people})
+		c.broadcastLocked(chatUpdate{Kind: chatPresenceEvent, People: people})
 	}
 }
 

@@ -27,8 +27,7 @@ func (s *Server) chatSend(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 16*1024)
 	raw, err := io.ReadAll(r.Body)
 	if err != nil {
-		var size *http.MaxBytesError
-		if errors.As(err, &size) {
+		if _, tooLarge := errors.AsType[*http.MaxBytesError](err); tooLarge {
 			s.writeText(w, r, http.StatusRequestEntityTooLarge, "Message trop volumineux.\n")
 		} else {
 			s.writeText(w, r, http.StatusBadRequest, "Message illisible.\n")

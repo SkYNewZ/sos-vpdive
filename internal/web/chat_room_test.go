@@ -1,7 +1,6 @@
 package web
 
 import (
-	"errors"
 	"testing"
 	"time"
 
@@ -116,7 +115,7 @@ func TestChatRoomRateLimit(t *testing.T) {
 	}
 	clock.advance(9999 * time.Millisecond)
 	_, err = room.send("a2", chatAlice, "too soon")
-	assert.ErrorIs(t, err, errChatRateLimited)
+	require.ErrorIs(t, err, errChatRateLimited)
 	clock.advance(time.Millisecond)
 	_, err = room.send("a", chatAlice, "now allowed")
 	require.NoError(t, err)
@@ -143,5 +142,5 @@ func TestChatRoomSlowReaderAndClose(t *testing.T) {
 	room.close()
 	room.close()
 	_, _, err = room.subscribe("a", chatAlice, "")
-	assert.True(t, errors.Is(err, errChatClosed))
+	require.ErrorIs(t, err, errChatClosed)
 }

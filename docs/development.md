@@ -45,6 +45,28 @@ the current credential hash. `reset-password` recovers or creates an account;
 `ADMINS_FILE` and `hash-password` are obsolete. Pushover user keys belong to
 individual accounts; the app token belongs to the environment.
 
+## Chat éphémère du comité
+
+Le salon commun est réservé aux comptes connectés en vue ordinateur (64 rem
+au minimum). Il partage `/evenements` avec les demandes ; seuls les flux qui
+optent pour `chat=1` reçoivent son contenu. Les messages sont envoyés en JSON
+par `POST /chat/messages`, avec session, Origin et jeton anti-CSRF.
+
+Aucun message n’est archivé en base ou dans un fichier. Le serveur garde au
+plus 256 messages pendant 60 secondes pour reprendre une réception interrompue.
+Un nouvel arrivant sans curseur ne reçoit pas de passé. Les onglets possèdent
+leur historique en clair dans `sessionStorage`, lié à la session authentifiée :
+masquer le panneau ou naviguer le conserve ; terminer la session le retire.
+La duplication/restauration native d’onglet peut recopier ce stockage. Un
+stockage indisponible fait basculer en mémoire avec un avertissement.
+
+La présence est dédupliquée par compte, avec 30 secondes de grâce pour un départ
+ordinaire. Une révocation est immédiate. En vue mobile, le chat est désactivé ;
+le SSE des demandes garde son fonctionnement. Les non-lus et le choix muet
+restent propres à chaque onglet. Le son requiert une interaction autorisée
+par le navigateur. Aucun contenu du salon ne rejoint les journaux, traces,
+services d’IA ou notifications système.
+
 ## Private Data and Acceptance Runs
 
 This repository is public: write reusable documentation for another club.

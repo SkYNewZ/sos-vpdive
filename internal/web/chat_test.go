@@ -57,7 +57,7 @@ func decodeChatEvent(t *testing.T, stream *bufio.Reader, kind string, dst any) {
 			continue
 		}
 		if strings.Contains("\n"+event.String(), "\nevent: "+kind+"\n") {
-			for _, field := range strings.Split(event.String(), "\n") {
+			for field := range strings.SplitSeq(event.String(), "\n") {
 				if data, ok := strings.CutPrefix(field, "data: "); ok {
 					require.NoError(t, json.Unmarshal([]byte(data), dst))
 					return
@@ -97,7 +97,7 @@ func TestChatHTTPRefusals(t *testing.T) {
 	var msg chatMessage
 	require.NoError(t, json.Unmarshal(good.Body.Bytes(), &msg))
 	assert.Equal(t, "alice", msg.Username)
-	assert.Equal(t, 2000, len([]rune(msg.Text)))
+	assert.Len(t, []rune(msg.Text), 2000)
 	assert.Equal(t, "no-store", good.Header().Get("Cache-Control"))
 	for range 4 {
 		require.Equal(t, 200, post("ok").Code)
