@@ -188,7 +188,7 @@ func (s *Server) adminNotices(ctx context.Context) ([]notice, error) {
 			linkText = "Voir le dernier calendrier reçu"
 		case imports.Carnets:
 			linkText = "Voir les dernières cartes reçues"
-		case imports.Members, imports.Payments, imports.Mollie:
+		case imports.Members, imports.Payments, imports.Mollie, imports.Campaign:
 		}
 		out = append(out, notice{Kind: noticeWarning, Text: fmt.Sprintf(st.banner, s.formatDate(st.last.ImportedAt)),
 			Link: st.link, LinkText: linkText})

@@ -1,6 +1,7 @@
 package assistant
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"maps"
@@ -41,7 +42,7 @@ type Person struct {
 	NameHash []byte
 	Seasons  string
 	Licence  string
-	Shared   int // members bearing this name, this one included
+	Shared   int // members bearing this name, this one included; 2 for a name the campaign holds twice
 }
 
 // Source is a piece of data an answer read: an import with its date, or an
@@ -78,10 +79,11 @@ type Conversation struct {
 	answer  uint64 // the answer this copy is for (Begin), which only it releases
 }
 
-// AddPerson returns the ref of p, adding it once by address.
+// AddPerson returns the ref of p, adding it once by address, or by name
+// hash for someone known by the membership campaign only, who has none.
 func (c *Conversation) AddPerson(p Person) string {
 	for _, known := range c.People {
-		if known.Email == p.Email {
+		if known.Email == p.Email && (p.Email != "" || bytes.Equal(known.NameHash, p.NameHash)) {
 			return known.Ref
 		}
 	}

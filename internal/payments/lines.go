@@ -31,10 +31,10 @@ func (l Line) Origin() (int, string) { return l.Row, l.NameKey }
 func (l MollieLine) Origin() (int, string) { return l.Row, l.NameKey }
 
 // LineTable is a table of imported lines of type T. payment_lines,
-// online_payment_lines and carnets share their columns and their rules:
-// sealed JSON keyed by the name hash, attribution at display time, the
-// « ambiguë » mark, purge after 90 days, erasure by name (spec §7.3, §7.5,
-// §8.3, §4.5). Only the table, the import kind and T differ.
+// online_payment_lines, carnets and campaign_lines share their columns and
+// their rules: sealed JSON keyed by the name hash, attribution at display
+// time, the « ambiguë » mark, purge after 90 days, erasure by name (spec
+// §7.3, §7.5, §8.3, §4.5). Only the table, the import kind and T differ.
 type LineTable[T StoredLine] struct {
 	db   *sql.DB
 	keys *secure.Keys
@@ -55,6 +55,8 @@ func NewLineTable[T StoredLine](db *sql.DB, keys *secure.Keys, now func() time.T
 		report: `SELECT MAX(l.ambiguous), COUNT(*), (SELECT COUNT(*) FROM members m WHERE m.name_hash = l.name_hash)
 			 FROM ` + table + ` l GROUP BY l.name_hash`,
 		erase:  `DELETE FROM ` + table + ` WHERE name_hash = ?`,
+		lines:  `SELECT id, data FROM ` + table,
+		reseal: `UPDATE ` + table + ` SET data = ? WHERE id = ?`,
 		purge:  `DELETE FROM ` + table + ` WHERE (SELECT MAX(imported_at) FROM imports WHERE kind = ?) < ?`,
 		clear:  `DELETE FROM ` + table,
 		insert: `INSERT INTO ` + table + ` (import_id, name_hash, data) VALUES (?, ?, ?)`,
@@ -136,6 +138,40 @@ func (t LineTable[T]) EraseTx(ctx context.Context, tx *sql.Tx, nameHash []byte) 
 	return int(n), nil
 }
 
+// RewriteTx reseals inside tx every line edit changes: an erasure blanks
+// the member's name where another line holds it as an author.
+func (t LineTable[T]) RewriteTx(ctx context.Context, tx *sql.Tx, edit func(*T) bool) error {
+	type row struct {
+		id     int64
+		sealed []byte
+	}
+	rows, err := tx.QueryContext(ctx, t.q.lines)
+	all, err := store.Collect(rows, err, func(rows *sql.Rows) (r row, err error) {
+		err = rows.Scan(&r.id, &r.sealed)
+		return r, err
+	})
+	if err != nil {
+		return fmt.Errorf("read %s lines to rewrite: %w", t.name, err)
+	}
+	for _, r := range all {
+		l, err := openLine[T](t.keys, r.sealed)
+		if err != nil {
+			return err
+		}
+		if !edit(&l) {
+			continue
+		}
+		data, err := json.Marshal(l)
+		if err != nil {
+			return fmt.Errorf("encode %s line: %w", t.name, err)
+		}
+		if _, err := tx.ExecContext(ctx, t.q.reseal, t.keys.Seal(data), r.id); err != nil {
+			return fmt.Errorf("rewrite %s line: %w", t.name, err)
+		}
+	}
+	return nil
+}
+
 // ReplaceWith replaces the lines of t with lines, inside the import
 // transaction: the name is hashed, the rest sealed as JSON.
 func (t LineTable[T]) ReplaceWith(lines []T) func(context.Context, *sql.Tx, int64) error {
@@ -203,6 +239,31 @@ func (t LineTable[T]) NameLines(ctx context.Context, nameHash []byte) (BlockStat
 	return BlockLines, info, lines, nil
 }
 
+// Marked is a stored line with its « ambiguë » mark: an ambiguous line is
+// never attributed to one person.
+type Marked[T any] struct {
+	Line      T
+	Ambiguous bool
+}
+
+// All returns every line in place, decrypted, in file order. Only a page
+// that lists everyone reads it (design 2026-10-20 « Effacement et vie
+// privée »).
+func (t LineTable[T]) All(ctx context.Context) ([]Marked[T], error) {
+	found, err := t.sealed(ctx, t.q.all)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Marked[T], len(found))
+	for i, r := range found {
+		if out[i].Line, err = openLine[T](t.keys, r.data); err != nil {
+			return nil, err
+		}
+		out[i].Ambiguous = r.ambiguous
+	}
+	return out, nil
+}
+
 // sealed reads stored lines in id order; query selects name_hash, ambiguous
 // and data.
 func (t LineTable[T]) sealed(ctx context.Context, query string, args ...any) ([]sealedLine, error) {
@@ -220,7 +281,7 @@ func (t LineTable[T]) sealed(ctx context.Context, query string, args ...any) ([]
 // lineQueries are the statements of one table, built once from a constant
 // table name.
 type lineQueries struct {
-	exists, all, ofName, count, report, erase, purge, clear, insert string
+	exists, all, ofName, count, report, erase, lines, reseal, purge, clear, insert string
 }
 
 // sealedLine is a stored line before decryption.

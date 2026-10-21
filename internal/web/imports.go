@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/SkYNewZ/sos-vpdive/internal/calendar"
+	"github.com/SkYNewZ/sos-vpdive/internal/campaign"
 	"github.com/SkYNewZ/sos-vpdive/internal/carnets"
 	"github.com/SkYNewZ/sos-vpdive/internal/imports"
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
@@ -34,10 +35,13 @@ const (
 	kindMembers  = "membres"
 	kindPayments = "paiements"
 	kindMollie   = "mollie"
+	kindCampaign = "campagne"
 )
 
 // formKinds maps the type field of the import forms to the journal kind.
-var formKinds = map[string]imports.Kind{kindMembers: imports.Members, kindPayments: imports.Payments, kindMollie: imports.Mollie}
+var formKinds = map[string]imports.Kind{
+	kindMembers: imports.Members, kindPayments: imports.Payments, kindMollie: imports.Mollie, kindCampaign: imports.Campaign,
+}
 
 // errUnreadable wraps the errors of reading a workbook: the file is refused.
 var errUnreadable = errors.New("unreadable workbook")
@@ -48,6 +52,7 @@ type importsData struct {
 	Members  membersSection
 	Payments paymentsSection
 	Mollie   mollieSection
+	Campaign campaignSection
 	Calendar *imports.Info      // latest calendar pushed by the script (lot 8)
 	Carnets  *imports.Info      // latest cards pushed by the script (design 2026-10-09)
 	Journals map[string]journal // the runs of each kind over 30 days (design 2026-10-09)
@@ -90,6 +95,14 @@ type mollieSection struct {
 	Preview *payments.MolliePreview
 }
 
+// campaignSection is the membership campaign (design 2026-10-20): people
+// rather than payment lines, purged after 90 days like them.
+type campaignSection struct {
+	linesSection
+
+	Preview *campaign.Preview
+}
+
 // errs returns the error slots of the section of kind.
 func (d *importsData) errs(kind string) *importErrors {
 	switch kind {
@@ -97,6 +110,8 @@ func (d *importsData) errs(kind string) *importErrors {
 		return &d.Payments.importErrors
 	case kindMollie:
 		return &d.Mollie.importErrors
+	case kindCampaign:
+		return &d.Campaign.importErrors
 	}
 	return &d.Members.importErrors
 }
@@ -117,6 +132,8 @@ func (s *Server) importsPage(w http.ResponseWriter, r *http.Request) {
 		done = &notice{Kind: noticeSuccess, Text: "Paiements importés."}
 	case kindMollie:
 		done = &notice{Kind: noticeSuccess, Text: "Encaissements Mollie importés."}
+	case kindCampaign:
+		done = &notice{Kind: noticeSuccess, Text: "Campagne d'adhésion importée."}
 	}
 	s.renderImports(w, r, http.StatusOK, done, importsData{})
 }
@@ -141,6 +158,7 @@ func (s *Server) renderImports(w http.ResponseWriter, r *http.Request, status in
 
 func (s *Server) importsView(ctx context.Context, d *importsData) error {
 	d.Members.Link, d.Payments.Link, d.Mollie.Link = s.vpdive["membres"], s.vpdive["paiements"], s.vpdive["vpaydive"]
+	d.Campaign.Link = s.vpdive["campagne"] // zero until the season's link is configured
 	last, ok, err := s.members.LastImport(ctx)
 	if err != nil {
 		return err
@@ -152,6 +170,9 @@ func (s *Server) importsView(ctx context.Context, d *importsData) error {
 		return err
 	}
 	if err := fillLines(ctx, &d.Mollie.linesSection, s.mollie); err != nil {
+		return err
+	}
+	if err := fillLines(ctx, &d.Campaign.linesSection, s.campaign); err != nil {
 		return err
 	}
 	if d.Calendar, err = s.lastImport(ctx, imports.Calendar); err != nil {
@@ -184,7 +205,8 @@ func (s *Server) lastImport(ctx context.Context, kind imports.Kind) (*imports.In
 	return &info, nil
 }
 
-// lineStore is what the imports page reads of the payments and Mollie stores.
+// lineStore is what the imports page reads of the payments, Mollie and
+// campaign stores.
 type lineStore interface {
 	LastImport(ctx context.Context) (imports.Info, bool, error)
 	Report(ctx context.Context) (payments.Report, error)
@@ -239,6 +261,7 @@ type export struct {
 	mollie   *payments.MollieExport
 	calendar *calendar.Export
 	carnets  *carnets.Export
+	campaign *campaign.Export
 }
 
 // readExport reads and validates an export of kind, whatever its source:
@@ -287,6 +310,10 @@ func (s *Server) readExport(ctx context.Context, kind imports.Kind, data []byte)
 				exp.carnets.FileHash = hash
 				err = s.carnets.Resolve(ctx, exp.carnets)
 			}
+		case imports.Campaign:
+			if exp.campaign, err = campaign.Parse(rows, s.paris); err == nil {
+				exp.campaign.FileHash = hash
+			}
 		}
 		return err
 	})
@@ -304,6 +331,8 @@ func (s *Server) preview(ctx context.Context, username string, exp export) (impo
 		d.Members.Preview, err = s.members.NewPreview(ctx, username, exp.members)
 	case exp.payments != nil:
 		d.Payments.Preview, err = s.payments.NewPreview(ctx, username, exp.payments)
+	case exp.campaign != nil:
+		d.Campaign.Preview, err = s.campaign.NewPreview(ctx, username, exp.campaign)
 	default:
 		d.Mollie.Preview, err = s.mollie.NewPreview(ctx, username, exp.mollie)
 	}
@@ -376,6 +405,8 @@ func (s *Server) confirmImport(w http.ResponseWriter, r *http.Request) {
 		confirm = s.payments.Confirm
 	case kindMollie:
 		confirm = s.mollie.Confirm
+	case kindCampaign:
+		confirm = s.campaign.Confirm
 	default:
 		s.writeText(w, r, http.StatusBadRequest, "Requête refusée : type d'import inconnu.\n")
 		return
@@ -416,6 +447,9 @@ func (s *Server) livePreview(kind, id, username string) (importsData, error) {
 		d.Payments.Preview, err = s.payments.Preview(id, username)
 	case kindMollie:
 		d.Mollie.Preview, err = s.mollie.Preview(id, username)
+	case kindCampaign:
+		d.Campaign.Preview, err = s.campaign.Preview(id, username)
+		what = "des personnes en place"
 	default:
 		d.Members.Preview, err = s.members.Preview(id, username)
 		what = "des comptes de la liste actuelle"
@@ -440,6 +474,7 @@ func refusal(kind imports.Kind, err error) (code, message string, refused bool) 
 		paymentsErr *payments.ParseError
 		calendarErr *calendar.ParseError
 		carnetsErr  *carnets.ParseError
+		campaignErr *campaign.ParseError
 	)
 	switch {
 	case errors.Is(err, xlsx.ErrTooLarge):
@@ -452,6 +487,8 @@ func refusal(kind imports.Kind, err error) (code, message string, refused bool) 
 		return "invalid_calendar", calendarMessage(calendarErr), true
 	case errors.As(err, &carnetsErr):
 		return "invalid_carnets", carnetsMessage(carnetsErr), true
+	case errors.As(err, &campaignErr):
+		return string(campaignErr.Kind), campaignMessage(campaignErr), true
 	case errors.As(err, &membersErr):
 		return string(membersErr.Kind), membersMessage(membersErr), true
 	case errors.As(err, &paymentsErr) && kind == imports.Mollie:
@@ -472,6 +509,8 @@ func unreadableMessage(kind imports.Kind) string {
 		return unreadable + " Dépose l'export « Télécharger Excel » de la page des paiements."
 	case imports.Mollie:
 		return unreadable + " Dépose l'export « Exporter (Excel) » de la page VPayDive."
+	case imports.Campaign:
+		return unreadable + " Dépose l'export « Télécharger » de la page de la campagne d'adhésion."
 	}
 	return unreadable
 }
@@ -519,6 +558,16 @@ func mollieMessage(pe *payments.ParseError) string {
 	case payments.ProblemInvalidDate:
 		return "Date de paiement illisible, " + rowList(pe.Rows) + ". Refais l'export sans retoucher le fichier."
 	case payments.ProblemEmptyProduct: // the VPayDive export has no such check
+	}
+	return fileRefused
+}
+
+func campaignMessage(pe *campaign.ParseError) string {
+	switch pe.Kind {
+	case campaign.ProblemNoHeader:
+		return "Colonnes « Statut » et « Adhésion » introuvables dans les dix premières lignes. Vérifie que le fichier est bien l'export de la campagne d'adhésion."
+	case campaign.ProblemMissingColumn:
+		return "Colonne obligatoire absente : « " + pe.Column + " »."
 	}
 	return fileRefused
 }

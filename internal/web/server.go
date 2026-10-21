@@ -20,6 +20,7 @@ import (
 	"github.com/SkYNewZ/sos-vpdive/internal/admins"
 	"github.com/SkYNewZ/sos-vpdive/internal/assistant"
 	"github.com/SkYNewZ/sos-vpdive/internal/calendar"
+	"github.com/SkYNewZ/sos-vpdive/internal/campaign"
 	"github.com/SkYNewZ/sos-vpdive/internal/carnets"
 	"github.com/SkYNewZ/sos-vpdive/internal/config"
 	"github.com/SkYNewZ/sos-vpdive/internal/kb"
@@ -42,6 +43,7 @@ type Deps struct {
 	Mollie   *payments.MollieStore
 	Calendar *calendar.Store // the pushed activity calendar (lot 8)
 	Carnets  *carnets.Store  // the carnet cards pushed by the script (design 2026-10-09)
+	Campaign *campaign.Store // the membership campaign export (design 2026-10-20)
 	Admins   *admins.Registry
 	Tickets  *tickets.Store
 	Outbox   *mail.Outbox
@@ -66,6 +68,7 @@ type Server struct {
 	mollie    *payments.MollieStore
 	calendar  *calendar.Store
 	carnets   *carnets.Store
+	campaign  *campaign.Store
 	checks    *payments.CheckStore
 	admins    *admins.Registry
 	tickets   *tickets.Store
@@ -127,7 +130,7 @@ func New(d Deps) (*Server, error) {
 		return nil, fmt.Errorf("time zone: %w", err)
 	}
 	s := &Server{
-		cfg: d.Config, db: d.DB, keys: d.Keys, members: d.Members, payments: d.Payments, mollie: d.Mollie, calendar: d.Calendar, carnets: d.Carnets,
+		cfg: d.Config, db: d.DB, keys: d.Keys, members: d.Members, payments: d.Payments, mollie: d.Mollie, calendar: d.Calendar, carnets: d.Carnets, campaign: d.Campaign,
 		checks: payments.NewCheckStore(d.DB, d.Keys, d.Members, d.Now), admins: d.Admins,
 		tickets: d.Tickets, outbox: d.Outbox, push: d.Push, pushTest: d.PushTest, broker: d.Broker, kb: d.KB, suggest: suggest.New(d.Config.LLM),
 		keepAlive: keepAliveInterval,
@@ -239,6 +242,7 @@ func (s *Server) adminRoutes() *http.ServeMux {
 	s.handle(mux, "GET /fiches", s.signedIn(s.fichesPage))
 	s.handle(mux, "GET /annulations", s.signedIn(s.cancellationsPage))
 	s.handle(mux, "GET /calendrier", s.signedIn(s.calendarPage))
+	s.handle(mux, "GET /adhesions", s.signedIn(s.membershipsPage))
 	s.handle(mux, "GET /calendrier/{id}", s.signedIn(s.eventPage))
 	s.handle(mux, "GET /anomalies", s.signedIn(s.checksPage))
 	s.handle(mux, "POST /anomalies/masquer", s.signedIn(s.dismissCheck))

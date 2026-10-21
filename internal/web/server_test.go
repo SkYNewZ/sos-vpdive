@@ -196,5 +196,5 @@ func TestEmbeddedContentIsValid(t *testing.T) {
 	require.NoError(t, err)
 	links, err := loadVPDiveLinks(sosvpdive.Content, mustURL(t, "https://vpdive.example.org"))
 	require.NoError(t, err)
-	assert.Equal(t, "https://vpdive.example.org/app/admin/vpdive/%2Ff%2Fuser%2Findex?route=/f/user/index", links["membres"].URL)
+	assert.Equal(t, "https://vpdive.example.org/f/user/index", links["membres"].URL)
 }

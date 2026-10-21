@@ -153,7 +153,7 @@ fiche stops the service from starting.
 
 ## VPDive exports
 
-The committee imports three exports on the Imports page. Each upload shows a
+The committee imports four exports on the Imports page. Each upload shows a
 preview for 15 minutes, and confirming replaces what the previous import
 stored.
 
@@ -162,14 +162,17 @@ stored.
 | Members list | « Liste des membres », « Télécharger » | Who may use the form |
 | Payments | Payments page, « Télécharger Excel », with the filters the Imports page gives | Payments on each request, « Annulations », « À vérifier » |
 | VPayDive | VPayDive page, « Exporter (Excel) », over the « Du » and « Au » dates | « Encaissements Mollie » on each request, « À vérifier » |
+| Membership campaign | The campaign's follow-up page (`/f/campaign/users/<token>`), « Télécharger » | Who paid the membership and the licence, and whose file is validated |
 
 The service reads only the columns it needs. It hashes the names on payment
 lines, keeps their comments sealed with the rest of the line, and never reads
-addresses or civility.
-`MEMBERS_MAX_AGE`, `PAYMENTS_MAX_AGE`, `VPAYDIVE_MAX_AGE`, `CALENDAR_MAX_AGE`
-and `CARNETS_MAX_AGE` set when the committee is reminded to import again.
-Payment and Mollie lines and carnet cards are deleted after 90 days without a
-new import, the members list after 12 months. Calendar events are deleted 12
+addresses or civility. Of the campaign export it reads the status, names,
+validation, membership, licence and settlement columns only: never the age,
+section, medical certificate, licence number or documents.
+`MEMBERS_MAX_AGE`, `PAYMENTS_MAX_AGE`, `VPAYDIVE_MAX_AGE`, `CAMPAIGN_MAX_AGE`,
+`CALENDAR_MAX_AGE` and `CARNETS_MAX_AGE` set when the committee is reminded to
+import again. Payment and Mollie lines, campaign people and carnet cards are
+deleted after 90 days without a new import, the members list after 12 months. Calendar events are deleted 12
 months after their start.
 
 ### Pushed imports
@@ -184,7 +187,7 @@ curl --fail-with-body -X POST -H "Authorization: Bearer $IMPORT_TOKEN" \
   --data-binary @export.xlsx https://comite.example.org/api/imports/payments
 ```
 
-The type is `members`, `payments` or `vpaydive`. The body is the `.xlsx` file
+The type is `members`, `payments`, `vpaydive` or `campaign`. The body is the `.xlsx` file
 exactly as VPDive produced it. The file goes through the checks of an upload,
 without the preview, and the journal names « script » as its author. A file
 holding less than half of the data in place is refused: upload it by hand if
@@ -278,14 +281,18 @@ Off by default: set `ASSISTANT_ENABLED=true`, with `ASSISTANT_API_KEY`. It adds
 an « Assistant » page to the committee site and an « Analyser » button on each
 request. A resolver pastes a member's message or asks a question, and the model
 answers from the club's data through read-only tools: the members list, VPDive
-and Mollie payments, the carnet cards and their history, the calendar, the requests filed in the tool, cancelled
+and Mollie payments, the carnet cards and their history, the calendar, the membership campaign, the requests filed in the tool, cancelled
 outings and the fiches. It changes nothing. The resolver acts in VPDive.
 
 The model provider receives the resolver's text, the request being analysed
 (with its requester's name, seasons and licence end) and what the tools
 return: member and participant names, seasons and licence end, payment lines and their comments, carnet cards with each debit and its author,
-outings and carts, summaries of past requests and the fiches. One answer reads
-the payments, outings and requests of three people at most. An outing it opens
+outings and carts, summaries of past requests and the fiches. For the
+membership campaign of a person, it receives the file status, when and by
+whom it was validated, and each membership and licence entry with its state,
+method and date; `find_member` also returns campaign people the members list
+does not name yet. One answer reads the payments, outings, requests and
+memberships of three people at most. An outing it opens
 lists every participant with their registration, role and cart (payment status
 and amount), and the names of those who unregistered, with the author of each
 unregistration. In all of it, email addresses, phone numbers and bank

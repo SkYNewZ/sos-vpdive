@@ -193,7 +193,7 @@ func (s *Store) Find(ctx context.Context, email string) (Profile, bool, error) {
 // at least one, most words first. It decrypts the names of the whole list:
 // a few hundred rows. No typo tolerance.
 func (s *Store) Search(ctx context.Context, query string, limit int) ([]Match, error) {
-	want := nameWords(query)
+	want := NameWords(query)
 	if len(want) == 0 {
 		return nil, nil
 	}
@@ -206,7 +206,7 @@ func (s *Store) Search(ctx context.Context, query string, limit int) ([]Match, e
 		if m.FirstName, m.LastName, err = s.openNames(first, last); err != nil {
 			return m, err
 		}
-		words := nameWords(m.LastName + " " + m.FirstName)
+		words := NameWords(m.LastName + " " + m.FirstName)
 		for _, w := range want {
 			if slices.Contains(words, w) {
 				m.score++
@@ -438,11 +438,11 @@ func (s *Store) sealNonEmpty(v string) any {
 	return s.keys.SealString(v)
 }
 
-// nameWords splits a name on what is neither a letter, a combining mark nor
+// NameWords splits a name on what is neither a letter, a combining mark nor
 // an apostrophe, then normalises each word like secure.NormalizeName:
 // « Jean-Michel » is two words, « O'Connor » one, and a decomposed accent
 // stays in its word.
-func nameWords(s string) []string {
+func NameWords(s string) []string {
 	var out []string
 	for _, w := range strings.FieldsFunc(s, func(r rune) bool {
 		return !unicode.IsLetter(r) && !unicode.Is(unicode.Mn, r) && r != '\'' && r != '’'

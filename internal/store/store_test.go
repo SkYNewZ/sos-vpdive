@@ -96,7 +96,8 @@ func TestOpenCreatesSchemaAndIsIdempotent(t *testing.T) {
 	}
 	require.NoError(t, rows.Err())
 	assert.Equal(t, []string{
-		"accounts", "assistant_usage", "attachments", "calendar_events", "calendar_participants", "calendar_unregistrations", "carnets", "counters", "deflections",
+		"accounts", "assistant_usage", "attachments", "calendar_events", "calendar_participants", "calendar_unregistrations", "campaign_lines", "carnets", "counters",
+		"deflections",
 		"dismissed_checks", "events", "import_runs", "imports", "members", "messages", "meta", "online_payment_lines", "outbox", "payment_lines",
 		"push_subscriptions", "sessions", "stats_monthly", "suggest_usage", "tickets",
 	}, tables)
@@ -435,6 +436,74 @@ func TestMigration12KeepsImportsAndEveryTablePointingAtThem(t *testing.T) {
 	require.Error(t, err, "a card points at its import")
 	_, err = db.ExecContext(ctx, `INSERT INTO calendar_events (id, import_id, starts_at, ends_at, data) VALUES ('evt-2', 99, 0, 0, x'01')`)
 	require.Error(t, err, "an event still points at its import")
+	_, err = db.ExecContext(ctx, `DELETE FROM calendar_events WHERE id = 'evt-1'`)
+	require.NoError(t, err)
+	var left int
+	require.NoError(t, db.QueryRowContext(ctx,
+		`SELECT (SELECT COUNT(*) FROM calendar_participants) + (SELECT COUNT(*) FROM calendar_unregistrations)`).Scan(&left))
+	assert.Zero(t, left, "participants and unregistrations still go with their event")
+}
+
+// TestMigration16KeepsImportsAndEveryTablePointingAtThem migrates a
+// version-15 database: imports and import_runs are rebuilt for the
+// 'campaign' kind under every table pointing at imports.
+func TestMigration16KeepsImportsAndEveryTablePointingAtThem(t *testing.T) {
+	ctx := context.Background()
+	path := dbAtVersion(t, 15, `
+		INSERT INTO imports (id, kind, period_from, period_to, imported_at, imported_by, row_count, skipped_count, file_hash)
+		VALUES (3, 'payments', 10, 20, 300, 'script', 1, 0, x'aa'), (4, 'vpaydive', 0, 0, 310, 'alice', 1, 0, NULL),
+		       (5, 'calendar', 30, 40, 320, 'script', 1, 0, x'bb'), (6, 'carnets', 0, 0, 330, 'script', 1, 0, x'cc');
+		INSERT INTO payment_lines (id, import_id, name_hash, ambiguous, data) VALUES (11, 3, x'01', 1, x'02');
+		INSERT INTO online_payment_lines (id, import_id, name_hash, ambiguous, data) VALUES (21, 4, x'03', 0, x'04');
+		INSERT INTO calendar_events (id, import_id, starts_at, ends_at, data) VALUES ('evt-1', 5, 100, 200, x'05');
+		INSERT INTO calendar_participants (id, event_id, person_hash, name_hash, data) VALUES (31, 'evt-1', x'06', NULL, x'07');
+		INSERT INTO calendar_unregistrations (id, event_id, name_hash, data) VALUES (41, 'evt-1', x'08', x'09');
+		INSERT INTO carnets (id, import_id, name_hash, ambiguous, data) VALUES (51, 6, x'0a', 1, x'0b');
+		INSERT INTO import_runs (id, kind, at, run_by, result, code, detail, row_count, skipped_count)
+		VALUES (61, 'carnets', 340, 'script', 'refused', 'too_few', x'0c', 2, 1);`)
+
+	db, err := Open(ctx, path)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, db.Close()) })
+
+	var kept int
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT
+		  (SELECT COUNT(*) FROM imports WHERE id = 3 AND kind = 'payments' AND file_hash = x'aa')
+		+ (SELECT COUNT(*) FROM imports WHERE id = 6 AND kind = 'carnets' AND imported_at = 330)
+		+ (SELECT COUNT(*) FROM payment_lines WHERE id = 11 AND import_id = 3 AND ambiguous = 1)
+		+ (SELECT COUNT(*) FROM online_payment_lines WHERE id = 21 AND import_id = 4)
+		+ (SELECT COUNT(*) FROM calendar_events WHERE id = 'evt-1' AND import_id = 5 AND ends_at = 200)
+		+ (SELECT COUNT(*) FROM calendar_participants WHERE id = 31 AND event_id = 'evt-1')
+		+ (SELECT COUNT(*) FROM calendar_unregistrations WHERE id = 41 AND event_id = 'evt-1')
+		+ (SELECT COUNT(*) FROM carnets WHERE id = 51 AND import_id = 6 AND ambiguous = 1)
+		+ (SELECT COUNT(*) FROM import_runs WHERE id = 61 AND code = 'too_few' AND detail = x'0c' AND skipped_count = 1)`).Scan(&kept))
+	assert.Equal(t, 9, kept, "every row kept with its id and links")
+	assert.Empty(t, foreignKeyViolations(t, db))
+
+	var indexes int
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name IN (
+		'payment_lines_name_hash', 'online_payment_lines_name_hash', 'calendar_events_starts_at', 'calendar_participants_event',
+		'calendar_participants_name_hash', 'calendar_participants_person_hash', 'calendar_unregistrations_event',
+		'calendar_unregistrations_name_hash', 'carnets_name_hash', 'import_runs_kind_at', 'campaign_lines_name_hash')`).Scan(&indexes))
+	assert.Equal(t, 11, indexes, "the indexes of the rebuilt tables are back")
+
+	_, err = db.ExecContext(ctx, `INSERT INTO imports (id, kind, imported_at, imported_by, row_count, skipped_count)
+		VALUES (7, 'campaign', 400, 'script', 1, 0)`)
+	require.NoError(t, err, "the campaign kind is accepted")
+	_, err = db.ExecContext(ctx, `INSERT INTO import_runs (kind, at, run_by, result) VALUES ('campaign', 400, 'script', 'imported')`)
+	require.NoError(t, err, "a campaign run is accepted")
+	_, err = db.ExecContext(ctx, `INSERT INTO imports (kind, imported_at, imported_by, row_count, skipped_count) VALUES ('other', 0, 'x', 0, 0)`)
+	require.Error(t, err, "the kind is still checked")
+	_, err = db.ExecContext(ctx, `INSERT INTO import_runs (kind, at, run_by, result) VALUES ('other', 0, 'x', 'imported')`)
+	require.Error(t, err, "the run kind is still checked")
+	_, err = db.ExecContext(ctx, `INSERT INTO campaign_lines (import_id, name_hash, data) VALUES (7, x'0d', x'0e')`)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, `INSERT INTO campaign_lines (import_id, name_hash, ambiguous, data) VALUES (7, x'0d', 2, x'0e')`)
+	require.Error(t, err, "ambiguous is 0 or 1")
+	_, err = db.ExecContext(ctx, `INSERT INTO campaign_lines (import_id, name_hash, data) VALUES (99, x'0d', x'0e')`)
+	require.Error(t, err, "a campaign line points at its import")
+	_, err = db.ExecContext(ctx, `INSERT INTO carnets (import_id, name_hash, data) VALUES (99, x'0a', x'0b')`)
+	require.Error(t, err, "a card still points at its import")
 	_, err = db.ExecContext(ctx, `DELETE FROM calendar_events WHERE id = 'evt-1'`)
 	require.NoError(t, err)
 	var left int

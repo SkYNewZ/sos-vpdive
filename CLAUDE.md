@@ -113,7 +113,7 @@ is ambiguous, ask.
   - `/annulations` links an outing to its calendar page when title and
     Paris day match one event, otherwise to the day view.
 - Committee assistant (design 2026-10-08, off by default): `/assistant` and the
-  « Analyser » panel of a request; streamed Messages API calls with eight
+  « Analyser » panel of a request; streamed Messages API calls with nine
   read-only tools (`internal/web/assistant_tools.go`), conversations in memory
   bound to the session (30 min idle, 2 h max), per-account daily quota, owner
   journal `/assistant/journal` without content. The model gets masked text
@@ -154,6 +154,31 @@ is ambiguous, ask.
   answers `"recorded": true` so it is not reported twice. No mail on a
   failure: the staleness alert covers a lasting one.
 - Fiches may hold Markdown tables and one ```mermaid diagram (2026-10-09), served as `/kb/<id>.svg` on both hosts with its own CSP. The fiche `tarification` is the only source of the club's prices: the public Tarifs page wins over VPDive's price plans, whose gaps it lists for the resolver.
+- Membership campaign (design 2026-10-20): kind `campaign`, VPDive's campaign
+  export pushed or uploaded like the others; `CAMPAIGN_MAX_AGE` defaults to 48 h.
+  - Read: Statut, Nom, Prénom, Status de validation (date and author only,
+    never the raw text), Adhésion, License, Règlement. Never read: age,
+    section, CACI (health data), licence number, card, training, documents.
+  - `/adhesions` reads everyone's campaign lines, like `/anomalies`: another
+    exception to « nobody else's payment lines outside `/annulations` ».
+  - The request page's block falls back to the typed name, both orders, when
+    the requester is not in the members list, badged « à confirmer »: a
+    committee-only departure from §7.3, never for the mail, the member or the
+    payments.
+  - The acknowledgement says the file waits for the club only when the
+    category is `adhesion`, the address is a member's, their name has one
+    campaign line, not ambiguous, its Statut is `En cours` with the
+    membership or the licence unpaid (« c'est ce qui bloque le paiement »),
+    and the import is younger than `CAMPAIGN_MAX_AGE`.
+  - A person known by the campaign only has no address: erasure goes through
+    VPDive (the next import drops them, the 90-day purge covers a stop). The
+    assistant offers them as `find_member` candidates `source: "campagne"`;
+    `member_requests` answers them « pas d'adresse ». A campaign match
+    hides partial member matches, as an exact one does in `members.Search`.
+    A name the campaign holds twice is one person with `Shared: 2`:
+    `member_payments` and `member_outings` answer `ambigu` without reading.
+  - `member_membership` (the ninth tool) reads a person's campaign line and
+    counts among the three people of an answer.
 
 ## Private material: `.local/` is gitignored
 
@@ -222,7 +247,7 @@ No i18n framework.
 
 ## Layout and commands
 
-- `cmd/sos-vpdive` (subcommands) + `internal/{config,secure,telemetry,store,xlsx,imports,members,payments,calendar,admins,tickets,mail,blobs,images,kb,suggest,assistant,push,web}`.
+- `cmd/sos-vpdive` (subcommands) + `internal/{config,secure,telemetry,store,xlsx,imports,members,payments,carnets,campaign,calendar,admins,tickets,mail,blobs,images,kb,suggest,assistant,push,web}`.
   Migrations: `internal/store/migrations/NNNN_*.sql`. Content files `config/*.yaml`
   (categories, products, vpdive, robots, calendar) are embedded by the root `content.go`.
 - `sos-vpdive assistant-bench -messages DIR -out DIR [-account NAME]` answers

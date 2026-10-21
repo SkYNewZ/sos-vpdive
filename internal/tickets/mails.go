@@ -38,6 +38,9 @@ type mailData struct {
 	Reopened  bool      // member_replied: the reply reopened a closed request
 	Former    string    // released: former assignee
 	Links     []refLink // lost_link
+
+	// submitted: the membership file waits for the club (design 2026-10-20)
+	MembershipPending bool
 }
 
 type refLink struct {

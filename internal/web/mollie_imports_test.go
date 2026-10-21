@@ -33,7 +33,7 @@ func TestImportsPageShowsWhereToFindTheVPayDiveExport(t *testing.T) {
 	body := html.UnescapeString(e.do(t, http.MethodGet, adminHost, "/imports", nil, withCookie(cookie)).Body.String())
 	for _, want := range []string{
 		`id="encaissements-titre"`, "Encaissements Mollie (export VPayDive)",
-		"https://vpdive.example.org/app/admin/vpdive/%2Ff%2Fmollie%2Findex?route=/f/mollie/index",
+		"https://vpdive.example.org/f/mollie/index",
 		"« Exporter (Excel) »", "Aucun export VPayDive importé",
 	} {
 		assert.Contains(t, body, want)

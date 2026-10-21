@@ -1,0 +1,3 @@
+{{/* Campaign partials (design 2026-10-20), shared by /adhesions and the request page. */}}
+
+{{define "campaignEntries"}}{{range .}}<span class="block">{{if .Unreadable}}<span class="break-words">{{.Raw}}</span> <span class="badge badge-soft badge-warning">à vérifier</span>{{else}}{{.StateText}} · <span class="whitespace-nowrap">{{.Amount.Euros}}</span>{{with .Method}} · {{.}}{{end}}{{with .PaidOn}} ({{.}}){{end}}{{if .OddAmount}} <span class="badge badge-soft badge-warning">montant ≠ 50 €</span>{{end}}{{end}}</span>{{else}}Rien{{end}}{{end}}

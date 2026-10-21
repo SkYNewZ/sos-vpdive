@@ -21,9 +21,10 @@
 {{with .People}}<h3 class="mt-4 text-sm font-semibold text-primary">Adhérents</h3>
 <ul class="mt-2 flex flex-col gap-3">{{range .}}<li>
 <p class="font-semibold">{{.Name}}{{if gt .Shared 1}} <span class="badge badge-soft badge-warning">Homonyme</span>{{end}}</p>
-<p class="text-sm break-all">{{.Email}}</p>
+{{if .Email}}<p class="text-sm break-all">{{.Email}}</p>
 <p class="text-sm">Saisons : {{.Seasons}} · licence : {{.Licence}}</p>
-{{if gt .Shared 1}}<button type="button" class="btn btn-outline btn-sm mt-1 min-h-11" data-pick="Je parle de {{.Ref}} ({{.Name}}).">C'est cette personne</button>{{end}}
+{{else}}<p class="text-sm">Connu par la campagne d'adhésion seulement</p>{{end}}
+{{if and .Email (gt .Shared 1)}}<button type="button" class="btn btn-outline btn-sm mt-1 min-h-11" data-pick="Je parle de {{.Ref}} ({{.Name}}).">C'est cette personne</button>{{end}}
 </li>{{end}}</ul>{{end}}
 {{with .Sources}}<h3 class="mt-4 text-sm font-semibold text-primary">Données consultées</h3>
 <ul class="mt-2 flex flex-col gap-1 text-sm">{{range .}}<li>{{if .Link}}<a class="link link-primary" href="{{.Link}}">{{.Label}}</a>{{else}}{{.Label}} · {{.Date}}{{if .Stale}} <span class="badge badge-soft badge-warning">périmé</span>{{end}}{{end}}</li>{{end}}</ul>{{end}}
