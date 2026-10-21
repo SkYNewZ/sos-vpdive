@@ -329,6 +329,13 @@ answers from the club's data through read-only tools: the members list, VPDive
 and Mollie payments, the carnet cards and their history, the calendar, the membership campaign, the requests filed in the tool, cancelled
 outings and the fiches. It changes nothing. The resolver acts in VPDive.
 
+Answers can display monthly activity charts, status tiles and expandable
+tables through validated server-rendered blocks. Request pages use the same
+visuals, with the full imported evidence available below each summary.
+Charts count known registrations, not completed dives. Invalid assistant
+blocks fall back to escaped text; no frontend dependency or extra script is
+needed. Animations respect the reader's reduced-motion preference.
+
 The model provider receives the resolver's text, the request being analysed
 (with its requester's name, seasons and licence end) and what the tools
 return: member and participant names, seasons and licence end, payment lines and their comments, carnet cards with each debit and its author,

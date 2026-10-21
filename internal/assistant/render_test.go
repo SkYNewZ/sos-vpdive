@@ -1,6 +1,8 @@
 package assistant
 
 import (
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -41,4 +43,75 @@ func TestRender(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRenderVisualBlocks(t *testing.T) {
+	valid := `{"titre":"Cotisation","source":"Import club","indicateurs":[{"libelle":"Réglé","valeur":"25 €","etat":"success"}]}`
+	for name, data := range map[string]string{
+		"normal space":              valid,
+		"literal nonbreaking space": strings.ReplaceAll(valid, "25 €", "25\u00a0€"),
+		"escaped nonbreaking space": strings.ReplaceAll(valid, "25 €", `25\u00a0€`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := string(Render("Avant **gras**.\n\n```bloc:cartes\n" + data + "\n```\n\nAprès [lien](https://evil.example)."))
+			assert.Contains(t, got, `class="viz-block`)
+			assert.Contains(t, got, "<strong>gras</strong>")
+			if name == "normal space" {
+				assert.Contains(t, got, "25 €")
+			} else {
+				assert.Contains(t, got, "25\u00a0€")
+			}
+			assert.NotContains(t, got, "<pre>")
+			assert.NotContains(t, got, "href=")
+		})
+	}
+	for name, md := range map[string]string{
+		"unknown kind":       "```bloc:inconnu\n" + valid + "\n```",
+		"unknown field":      "```bloc:cartes\n" + strings.Replace(valid, `"titre"`, `"surprise":true,"titre"`, 1) + "\n```",
+		"missing field":      "```bloc:cartes\n{}\n```",
+		"invalid JSON":       "```bloc:cartes\n{\n```",
+		"unterminated fence": "```bloc:cartes\n" + valid,
+		"trailing JSON":      "```bloc:cartes\n" + valid + " {}\n```",
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := string(Render(md))
+			assert.Contains(t, got, "<pre><code>")
+			assert.NotContains(t, got, `class="viz-block`)
+			if strings.Contains(md, "25 €") {
+				assert.Contains(t, got, "25 €")
+			}
+		})
+	}
+	got := string(Render("```bloc:alerte\n" + `{"titre":"<script>bad</script>","source":"[x](https://evil.example)","note":"<img src=x> **text**"}` + "\n```"))
+	assert.Contains(t, got, "&lt;script&gt;bad&lt;/script&gt;")
+	assert.Contains(t, got, "&lt;img src=x&gt; **text**")
+	assert.NotContains(t, got, "<img")
+	assert.NotContains(t, got, "<script")
+}
+
+func TestRenderVisualFenceBoundaries(t *testing.T) {
+	data := `{"titre":"Activité","source":"Calendrier","periode":"2026","mois":[{"libelle":"Janvier","valeur":0}]}`
+	for _, md := range []string{
+		"~~~~bloc:sorties\n" + data + "\n~~~~",
+		"````bloc:sorties\n" + data + "\n````",
+		"> ```bloc:sorties\n> " + data + "\n> ```",
+		"- ```bloc:sorties\n  " + data + "\n  ```",
+	} {
+		got := string(Render(md))
+		assert.Contains(t, got, `class="viz-block`, md)
+	}
+	md := "```bloc:sorties\n" + data + "\n```\n\n```brouillon\n25 € <relire>\n```\n\n```bloc:sorties\n" + data + "\n```"
+	want := string(Render(md))
+	assert.Equal(t, 2, strings.Count(want, `class="viz-block`))
+	assert.Contains(t, want, "data-copy-draft")
+	assert.Contains(t, want, "25 € &lt;relire&gt;")
+	var wg sync.WaitGroup
+	for range 12 {
+		wg.Go(func() {
+			for range 10 {
+				assert.Equal(t, want, string(Render(md)))
+			}
+		})
+	}
+	wg.Wait()
 }
