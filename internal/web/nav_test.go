@@ -75,3 +75,31 @@ func TestCommitteeShellAssistantEntry(t *testing.T) {
 	plus := e.do(t, http.MethodGet, adminHost, "/plus", nil, withCookie(cookie)).Body.String()
 	assert.Equal(t, 2, strings.Count(plus, `href="/assistant"`), "sidebar and « Plus »")
 }
+
+func TestChatPanelVisibility(t *testing.T) {
+	e := newTestEnv(t)
+	cookie := e.login(t)
+	for _, path := range []string{"/", "/annulations", "/compte"} {
+		body := e.do(t, http.MethodGet, adminHost, path, nil, withCookie(cookie)).Body.String()
+		assert.Contains(t, body, `data-chat-session=`)
+		assert.Contains(t, body, `data-chat-user="alice"`)
+	}
+	for _, host := range []string{adminHost, publicHost} {
+		body := e.do(t, http.MethodGet, host, "/connexion", nil).Body.String()
+		assert.NotContains(t, body, `data-chat-session=`)
+	}
+	_, err := e.db.ExecContext(t.Context(), "UPDATE accounts SET must_change_password = 1 WHERE username = 'alice'")
+	require.NoError(t, err)
+	_, err = e.deps.Admins.Reload(t.Context())
+	require.NoError(t, err)
+	body := e.do(t, http.MethodGet, adminHost, "/compte", nil, withCookie(cookie)).Body.String()
+	assert.NotContains(t, body, `data-chat-session=`)
+}
+
+func TestChatPanelAccessibility(t *testing.T) {
+	e := newTestEnv(t)
+	body := e.do(t, http.MethodGet, adminHost, "/", nil, withCookie(e.login(t))).Body.String()
+	for _, attribute := range []string{`aria-controls="committee-chat-panel"`, `aria-expanded="false"`, `aria-label="Réduire le chat"`, `aria-label="Son du chat"`, `for="committee-chat-text"`, `role="log"`, `aria-live="polite"`} {
+		assert.Contains(t, body, attribute)
+	}
+}

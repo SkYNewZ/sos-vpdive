@@ -17,6 +17,7 @@ type Broker struct {
 	mu     sync.Mutex
 	subs   map[*subscriber]struct{}
 	closed bool
+	chat   *chatRoom
 }
 
 // subscriber is one open event stream.
@@ -48,6 +49,9 @@ func (b *Broker) Publish(c tickets.Change) {
 
 // Close ends every stream and refuses new ones: the server is stopping.
 func (b *Broker) Close() {
+	if b.chat != nil {
+		b.chat.close()
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.closed = true
