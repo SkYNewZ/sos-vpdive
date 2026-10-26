@@ -9,7 +9,7 @@ require (
 	github.com/getsentry/sentry-go/otel v0.50.0
 	github.com/getsentry/sentry-go/slog v0.50.0
 	github.com/minio/minio-go/v7 v7.4.1
-	github.com/openai/openai-go/v3 v3.73.0
+	github.com/openai/openai-go/v3 v3.86.0
 	github.com/stretchr/testify v1.12.1
 	github.com/yuin/goldmark v1.8.6
 	go.opentelemetry.io/otel v1.47.0
