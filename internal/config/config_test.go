@@ -338,6 +338,27 @@ func TestLoadPush(t *testing.T) {
 	require.NoError(t, err, "an https subject is accepted")
 }
 
+func TestLoadFFESSMNeedsBothVariables(t *testing.T) {
+	c, err := Load(getenv(validEnv()))
+	require.NoError(t, err)
+	assert.Nil(t, c.FFESSM, "licence search is off by default")
+
+	m := validEnv()
+	m["FFESSM_USERNAME"], m["FFESSM_PASSWORD"] = "01010001", "secret"
+	c, err = Load(getenv(m))
+	require.NoError(t, err)
+	assert.Equal(t, &FFESSM{Username: "01010001", Password: "secret"}, c.FFESSM)
+
+	for _, missing := range []string{"FFESSM_USERNAME", "FFESSM_PASSWORD"} {
+		m := validEnv()
+		m["FFESSM_USERNAME"], m["FFESSM_PASSWORD"] = "01010001", "secret"
+		m[missing] = ""
+		_, err := Load(getenv(m))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), missing)
+	}
+}
+
 func TestLoadPushRefusals(t *testing.T) {
 	public, private := vapidPair(t, 3)
 	other, _ := vapidPair(t, 4)
