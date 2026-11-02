@@ -60,6 +60,7 @@ func (s *Server) erase(w http.ResponseWriter, r *http.Request) {
 		sess, _ := sessionFrom(ctx)
 		d.Step = stepDone
 		d.Counts, err = s.tickets.Erase(ctx, email, sess.account.Username)
+		s.licenceMemo.clear()
 	} else {
 		d.Counts, err = s.tickets.PreviewErasure(ctx, email)
 	}

@@ -1,0 +1,5 @@
+{{define "licence_tuile"}}{{if .Problem}}<p>Registre indisponible, réessaie plus tard.</p>
+{{else if eq .State "valid"}}<p><span class="font-semibold">{{.Number}}</span> · jusqu'au {{.Until}}</p>
+{{else if eq .State "expired"}}<p><span class="font-semibold">{{.Number}}</span> · <span class="badge badge-soft badge-warning">non valide</span>{{with .Until}} fin le {{.}}{{end}}</p>
+{{else}}<p>{{if eq .State "several"}}Plusieurs licences à ce nom pour cette adresse mail.{{else}}Aucune licence à ce nom pour cette adresse mail.{{end}}</p>
+<form method="post" action="/licences"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="q" value="{{.Search}}"><button class="link link-primary min-h-11" type="submit">Chercher par nom</button></form>{{end}}{{end}}

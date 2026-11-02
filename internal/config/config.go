@@ -157,6 +157,12 @@ type VAPID struct {
 	Subject    string // mailto: or https: contact
 }
 
+// FFESSM is the club account that searches the federation's licence register.
+type FFESSM struct {
+	Username string // club number, such as 33830200
+	Password string
+}
+
 // Umami selects the page-view counter of spec §9.10. A site whose ID is
 // empty is not measured.
 type Umami struct {
@@ -204,6 +210,7 @@ type Config struct {
 	Assistant          *Assistant    // nil unless ASSISTANT_ENABLED with ASSISTANT_API_KEY
 	PushoverToken      string        // "" turns Pushover off; each resolver sets a user key on « Notifications »
 	VAPID              *VAPID        // nil turns Web Push off
+	FFESSM             *FFESSM       // nil turns the licence search off
 	PushAllowedHosts   []string      // push services a subscription may point at
 	SentryDSN          string        // "" turns Sentry off; always "" in development
 	SentryEnvironment  string
@@ -267,6 +274,7 @@ func Load(getenv func(string) string) (*Config, error) {
 	c.Assistant = p.assistant(c.Env)
 	c.PushoverToken = p.pushoverToken()
 	c.VAPID = p.vapid()
+	c.FFESSM = p.ffessm()
 	c.PushAllowedHosts = p.hosts("PUSH_ALLOWED_HOSTS", defaultPushHosts)
 	c.SentryEnvironment = p.optional("SENTRY_ENVIRONMENT", string(c.Env))
 	c.Umami = p.umami(c)
@@ -666,6 +674,18 @@ func (p *parser) pushoverToken() string {
 		return ""
 	}
 	return token
+}
+
+// ffessm reads the club account: both variables, or none.
+func (p *parser) ffessm() *FFESSM {
+	if p.value("FFESSM_USERNAME")+p.value("FFESSM_PASSWORD") == "" {
+		return nil
+	}
+	username, password := p.required("FFESSM_USERNAME"), p.required("FFESSM_PASSWORD")
+	if username == "" || password == "" {
+		return nil
+	}
+	return &FFESSM{Username: username, Password: password}
 }
 
 // vapid reads the three VAPID variables: all of them, or none (spec §10).

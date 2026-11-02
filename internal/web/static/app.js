@@ -164,6 +164,20 @@ for (const form of document.querySelectorAll("form[data-autosubmit]")) {
   form.addEventListener("change", () => form.requestSubmit());
 }
 
+// Request page: the register tile is fetched apart, the federation's portal
+// takes about a second to answer.
+for (const tile of document.querySelectorAll("[data-licence]")) {
+  const body = tile.querySelector("[data-licence-body]");
+  fetch(tile.dataset.licence, { credentials: "same-origin" })
+    .then((response) => (response.ok && !response.redirected ? response.text() : Promise.reject(new Error("licence"))))
+    .then((html) => {
+      body.innerHTML = html;
+    })
+    .catch(() => {
+      body.textContent = "Registre indisponible.";
+    });
+}
+
 // Committee pages: live updates over SSE (spec §4.2). An event carries a
 // type, a request id, and whether this resolver made the change: the board
 // fetches itself again and swaps its list, the request page offers to

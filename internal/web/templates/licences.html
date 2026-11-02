@@ -1,0 +1,14 @@
+{{define "main"}}
+{{$d := .Data}}
+<h1 class="text-2xl font-bold text-primary max-lg:sr-only">Licence FFESSM</h1>
+<p class="mt-4">Cherche dans le registre de la fédération par nom, prénom, adresse mail ou numéro de licence. Le registre compte beaucoup d'homonymes : vérifie la date de naissance et le club avant de lire l'état de la licence.</p>
+<form class="mt-4 flex flex-wrap items-end gap-2" method="post" action="/licences">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<label class="flex min-w-0 flex-1 flex-col gap-1"><span class="font-semibold">Nom, prénom, mail ou numéro</span><input class="input w-full" type="search" name="q" value="{{$d.Q}}" required minlength="3" autocomplete="off"></label>
+<button class="btn btn-primary min-h-11" type="submit">Chercher</button>
+</form>
+{{if $d.Problem}}<p class="alert alert-warning mt-4" role="alert">{{$d.Problem}}</p>
+{{else if $d.Searched}}{{if $d.Lines}}<ul class="panel mt-4 divide-y divide-base-300">{{range $d.Lines}}<li class="p-4"><p><span class="font-semibold">{{.Name}}</span>{{with .Born}} · né(e) le {{.}}{{end}}{{with .Club}} · {{.}}{{end}}</p>{{if .Valid}}<span class="badge badge-soft badge-success">Licence valide</span> jusqu'au {{.Until}}{{else}}<span class="badge badge-soft badge-warning">Licence non valide</span>{{with .Until}} fin le {{.}}{{end}}{{end}}</li>{{end}}</ul>
+<p class="mt-2 text-sm">Dix résultats au plus : si la personne n'y est pas, ajoute le prénom ou cherche par mail.</p>
+{{else}}<p class="mt-4">Aucune licence trouvée.</p>{{end}}{{end}}
+{{end}}

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -71,9 +72,17 @@ var toolDefs = []assistant.Tool{
 		Description: "Une sortie du calendrier par son identifiant : chaque participant avec son inscription et l'état de son panier, puis les désinscriptions."},
 	{Name: "cancellations", InputSchema: schema(nil),
 		Description: "Sorties annulées dont des lignes payées attendent la suppression dans VPDive : nombre de payeurs, total à recréditer sur les carnets, total payé en argent."},
+	{Name: licenceTool, InputSchema: schema(nil, refArg, "numero"),
+		Description: "Statut de la licence FFESSM d'une personne dans le registre de la fédération, pour savoir si elle peut plonger : donne une référence m1… (recherche par son adresse mail) ou un numéro de licence. Le registre compte beaucoup d'homonymes : ne cherche jamais par nom, et si l'adresse ne donne rien, dis-le sans conclure que la personne n'a pas de licence. Renvoie seulement valide, non valide, introuvable ou plusieurs, avec la date de fin. À ne pas confondre avec la ligne « Licence » de member_membership, qui dit si la licence a été payée dans VPDive."},
 	{Name: "read_fiche", InputSchema: schema([]string{"id"}),
 		Description: "Une fiche d'aide du club par son identifiant : réponse pour l'adhérent, procédure pour le résolveur, liens VPDive."},
 }
+
+// licenceTool is the register tool, offered only with the licence search on.
+const licenceTool = "licence_status"
+
+// licenceRefused is the step of a licence_status call the model got wrong.
+const licenceRefused = "Licence FFESSM refusée"
 
 // refArg is the argument that names a person in the member tools.
 const refArg = "ref"
@@ -101,7 +110,13 @@ type toolbox struct {
 }
 
 // tools is what the model may call during one answer.
-func (t *toolbox) tools() assistant.Tools { return assistant.Tools{Defs: toolDefs, Run: t.run} }
+func (t *toolbox) tools() assistant.Tools {
+	defs := toolDefs
+	if t.s.licences == nil {
+		defs = slices.DeleteFunc(slices.Clone(toolDefs), func(d assistant.Tool) bool { return d.Name == licenceTool })
+	}
+	return assistant.Tools{Defs: defs, Run: t.run}
+}
 
 // toolProblem is a call the model got wrong: it reads why and may try again.
 type toolProblem struct {
@@ -141,6 +156,8 @@ func (t *toolbox) run(ctx context.Context, name string, input json.RawMessage) (
 		out, step, err = t.outing(ctx, input)
 	case "cancellations":
 		out, step, err = t.cancellations(ctx)
+	case licenceTool:
+		out, step, err = t.licenceStatus(ctx, input)
 	case "read_fiche":
 		out, step = t.readFiche(input)
 	default:
@@ -1121,4 +1138,63 @@ func (t *toolbox) readFiche(input json.RawMessage) (any, string) {
 	}
 	t.addSource(assistant.Source{Label: "Fiche « " + f.Title + " »", Link: "/fiches#" + f.ID})
 	return out, "Fiche « " + f.Title + " » lue"
+}
+
+var licenceEtat = map[licenceState]string{
+	licenceNone: "introuvable", licenceValid: "valide", licenceExpired: "non valide", licenceSeveral: "plusieurs",
+}
+
+// licenceNumber is the form of a licence number: A-13-634166.
+var licenceNumber = regexp.MustCompile(`^[A-Za-z]{1,2}-\d{2}-\d+$`)
+
+type licenceInput struct {
+	Ref    string `json:"ref"`
+	Numero string `json:"numero"`
+}
+
+type licenceJSON struct {
+	Etat           string `json:"etat"`
+	ValableJusquAu string `json:"valable_jusqu_au,omitempty"`
+}
+
+// licenceStatus reads the federation's register for one person, or one
+// licence number: the verdict and the last day, no contact detail.
+func (t *toolbox) licenceStatus(ctx context.Context, input json.RawMessage) (any, string, error) {
+	if t.s.licences == nil {
+		return toolProblem{"registre de la FFESSM non configuré"}, licenceRefused, nil
+	}
+	in, ok := decode[licenceInput](input)
+	if !ok || (in.Ref == "") == (in.Numero == "") {
+		return toolProblem{"ref ou numero attendu, un seul des deux"}, licenceRefused, nil
+	}
+	var (
+		rows []licenceRow
+		err  error
+		who  = "licence " + in.Numero
+	)
+	if in.Ref != "" {
+		p, _, _, problem := t.member(input, 0)
+		if problem != nil {
+			return *problem, licenceRefused, nil
+		}
+		who = p.Name
+		if p.Email == "" {
+			return toolProblem{"pas d'adresse mail pour cette personne : demande son numéro de licence au résolveur"}, licenceRefused, nil
+		}
+		rows, err = t.s.licenceOf(ctx, p.Email, p.Name)
+	} else {
+		if !licenceNumber.MatchString(in.Numero) { // a name here would find homonyms
+			return toolProblem{"numéro de licence attendu, sous la forme A-13-634166"}, licenceRefused, nil
+		}
+		rows, err = t.s.licenceRows(ctx, in.Numero)
+	}
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, "", err
+		}
+		return toolProblem{"registre de la FFESSM injoignable, dis-le au résolveur"}, "Registre FFESSM injoignable", nil
+	}
+	t.addSource(assistant.Source{Label: "Registre FFESSM", Link: "/licences"})
+	sum := t.s.summarize(rows)
+	return licenceJSON{Etat: licenceEtat[sum.State], ValableJusquAu: sum.Until}, "Licence FFESSM de " + who + " lue", nil
 }
