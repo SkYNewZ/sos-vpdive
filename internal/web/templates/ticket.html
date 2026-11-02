@@ -253,6 +253,10 @@
 </section>
 </div>
 <div class="flex min-w-0 flex-col gap-6">
+{{if $d.Licences}}<section class="panel px-4 py-3 text-sm" aria-labelledby="licence-ffessm" data-licence="/demandes/{{$t.ID}}/licence">
+<h2 id="licence-ffessm" class="font-semibold">Licence FFESSM</h2>
+<div data-licence-body aria-live="polite">Vérification…</div>
+</section>{{end}}
 <section class="panel p-4 lg:p-5" aria-labelledby="demandeur">
 <h2 id="demandeur" class="text-xl font-semibold">Demandeur</h2>
 <dl class="mt-3 grid grid-cols-1 gap-x-4 sm:grid-cols-[auto_minmax(0,1fr)] sm:gap-y-2 lg:grid-cols-1 lg:gap-y-0">

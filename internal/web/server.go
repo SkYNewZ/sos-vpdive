@@ -23,6 +23,7 @@ import (
 	"github.com/SkYNewZ/sos-vpdive/internal/campaign"
 	"github.com/SkYNewZ/sos-vpdive/internal/carnets"
 	"github.com/SkYNewZ/sos-vpdive/internal/config"
+	"github.com/SkYNewZ/sos-vpdive/internal/ffessm"
 	"github.com/SkYNewZ/sos-vpdive/internal/kb"
 	"github.com/SkYNewZ/sos-vpdive/internal/mail"
 	"github.com/SkYNewZ/sos-vpdive/internal/members"
@@ -35,6 +36,8 @@ import (
 
 // Deps are the server's collaborators.
 type Deps struct {
+	Licences licenceSearcher // tests only: replaces the FFESSM client
+
 	Config   *config.Config
 	DB       *sql.DB
 	Keys     *secure.Keys
@@ -85,6 +88,9 @@ type Server struct {
 	now       func() time.Time
 	paris     *time.Location
 	tracer    trace.Tracer
+
+	licences    licenceSearcher // nil without FFESSM_USERNAME: no licence lookup
+	licenceMemo licenceCache
 
 	assistant       *assistant.Client // nil when the assistant is off
 	convs           *assistant.Store
@@ -146,6 +152,10 @@ func New(d Deps) (*Server, error) {
 	}
 	if s.apps, err = newInstallables(static); err != nil {
 		return nil, err
+	}
+	s.licences = d.Licences
+	if c := ffessm.New(d.Config.FFESSM); c != nil && s.licences == nil {
+		s.licences = c
 	}
 	if a := d.Config.Assistant; a != nil {
 		s.assistant = assistant.NewClient(a)
@@ -277,6 +287,11 @@ func (s *Server) adminRoutes() *http.ServeMux {
 		s.handle(mux, "GET /assistant/journal", s.ownerOnly(s.assistantJournal))
 		s.handle(mux, "GET /assistant/{id}", s.signedIn(s.assistantConversation))
 		s.handle(mux, "POST /assistant/messages", s.signedIn(s.assistantAsk))
+	}
+	if s.licences != nil {
+		s.handle(mux, "GET /licences", s.signedIn(s.licencesPage))
+		s.handle(mux, "POST /licences", s.signedIn(s.licencesPage))
+		s.handle(mux, "GET /demandes/{id}/licence", s.signedIn(s.ticketLicence))
 	}
 	s.handle(mux, "GET /{$}", s.signedIn(s.board))
 	return mux

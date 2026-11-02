@@ -44,6 +44,7 @@ type ticketData struct {
 	Assignee     *admins.Account
 	Accounts     []admins.Account
 	Profile      *profileView // nil when the address left the members list
+	Licences     bool         // the register tile is shown
 	Others       []tickets.Row
 	Fields       []tickets.FieldValue
 	Categories   []option
@@ -166,6 +167,7 @@ func (s *Server) ticketView(ctx context.Context, t *tickets.Detail) (ticketData,
 			d.Links = append(d.Links, l)
 		}
 	}
+	d.Licences = s.licences != nil
 	name := t.FirstName + " " + t.LastName
 	if found {
 		d.Profile = newProfileView(profile)
