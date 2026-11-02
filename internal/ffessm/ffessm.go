@@ -5,7 +5,6 @@ package ffessm
 
 import (
 	"bytes"
-	"cmp"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -52,19 +51,17 @@ var (
 
 var verificationToken = regexp.MustCompile(`<input[^>]*name="__RequestVerificationToken"[^>]*value="([^"]+)"`)
 
-// Licence is one register entry with the holder's contact details.
+// Licence is one register entry. The search answers everything needed; the
+// holder's contact details take one more call per entry and nothing reads them.
 type Licence struct {
 	Number     string // A-13-634166
-	Name       string // last name then first name, as the register spells it
+	LastName   string
+	FirstName  string
 	BirthDate  string // ISO date
 	ValidUntil string // ISO date
 	Club       string
 	Active     bool
 	Instructor bool
-	Email      string
-	Mobile     string
-	Phone      string
-	Address    string // one line: street, postcode, town
 }
 
 // Client searches the register, signing in again when its token expires.
@@ -92,73 +89,48 @@ func New(cfg *config.FFESSM) *Client {
 }
 
 // Search finds licences by "last first" or "first last" name, licence
-// number or email address, with each holder's contact details.
+// number or full email address.
 func (c *Client) Search(ctx context.Context, query string) ([]Licence, error) {
 	query = strings.Join(strings.Fields(query), " ")
 	if utf8.RuneCountInString(query) < minQuery {
 		return nil, ErrQueryTooShort
 	}
-	var hits []hit
-	var err error
-	if strings.Contains(query, "@") {
-		hits, err = c.byEmail(ctx, query)
-	} else {
-		hits, err = c.byText(ctx, query)
-		if words := strings.Fields(query); err == nil && len(hits) == 0 && len(words) == 2 {
-			hits, err = c.byText(ctx, words[1]+" "+words[0])
-		}
+	// The name search also matches a full email address: ListByEmail, which
+	// the portal's bundle suggests, answers nothing for a known address.
+	hits, err := c.byText(ctx, query)
+	if words := strings.Fields(query); err == nil && len(hits) == 0 && len(words) == 2 {
+		hits, err = c.byText(ctx, words[1]+" "+words[0])
 	}
 	if err != nil {
 		return nil, err
 	}
 	hits = hits[:min(len(hits), maxResults)]
-	licences := make([]Licence, 0, len(hits))
-	for _, h := range hits {
-		var d detail
-		if err := c.call(ctx, "licensee detail", http.MethodGet, "/V1/Utilisateurs/Licencie/"+url.PathEscape(h.ID), nil, &d); err != nil {
-			return nil, err
-		}
-		licences = append(licences, h.licence(d))
+	licences := make([]Licence, len(hits))
+	for i, h := range hits {
+		licences[i] = h.licence()
 	}
 	return licences, nil
 }
 
-// hit is one row of the name or the email search.
+// hit is one row of the search.
 type hit struct {
-	ID          string `json:"Id"`
-	Type        string `json:"Type"`
-	Number      string `json:"NumeroLicence"`
-	Name        string `json:"Nom"`
-	NameByEmail string `json:"NomPrenom"`
-	BirthDate   string `json:"DateDeNaissance"`
-	ValidUntil  string `json:"DateValiditeLicence"`
-	Club        string `json:"NomStructure"`
-	Active      bool   `json:"EstActif"`
-	Instructor  bool   `json:"EstMoniteur"`
-	Email       string `json:"Email"`
+	ID         string `json:"Id"`
+	Type       string `json:"Type"`
+	Number     string `json:"NumeroLicence"`
+	LastName   string `json:"NomCourt"`
+	FirstName  string `json:"Prenom"`
+	BirthDate  string `json:"DateDeNaissance"`
+	ValidUntil string `json:"DateValiditeLicence"`
+	Club       string `json:"NomStructure"`
+	Active     bool   `json:"EstActif"`
+	Instructor bool   `json:"EstMoniteur"`
 }
 
-type detail struct {
-	Address struct {
-		Email  string `json:"Email"`
-		Mobile string `json:"TelephonePortable"`
-		Phone  string `json:"TelephoneFixe"`
-		Line1  string `json:"Adresse1"`
-		Line2  string `json:"Adresse2"`
-		Line3  string `json:"Adresse3"`
-		Code   string `json:"CodePostal"`
-		Town   string `json:"Commune"`
-	} `json:"Adresse"`
-}
-
-func (h hit) licence(d detail) Licence {
-	a := d.Address
+func (h hit) licence() Licence {
 	return Licence{
-		Number: h.Number, Name: cmp.Or(h.Name, h.NameByEmail),
+		Number: h.Number, LastName: h.LastName, FirstName: h.FirstName,
 		BirthDate: date(h.BirthDate), ValidUntil: date(h.ValidUntil),
 		Club: h.Club, Active: h.Active, Instructor: h.Instructor,
-		Email: cmp.Or(a.Email, h.Email), Mobile: a.Mobile, Phone: a.Phone,
-		Address: join(", ", a.Line1, a.Line2, a.Line3, join(" ", a.Code, a.Town)),
 	}
 }
 
@@ -166,16 +138,6 @@ func (h hit) licence(d detail) Licence {
 func date(s string) string {
 	day, _, _ := strings.Cut(s, "T")
 	return day
-}
-
-func join(sep string, parts ...string) string {
-	kept := parts[:0:0]
-	for _, p := range parts {
-		if p = strings.TrimSpace(p); p != "" {
-			kept = append(kept, p)
-		}
-	}
-	return strings.Join(kept, sep)
 }
 
 func (c *Client) byText(ctx context.Context, text string) ([]hit, error) {
@@ -196,14 +158,6 @@ func (c *Client) byText(ctx context.Context, text string) ([]hit, error) {
 		}
 	}
 	return licensees, nil
-}
-
-func (c *Client) byEmail(ctx context.Context, email string) ([]hit, error) {
-	var hits []hit
-	err := c.call(ctx, "email search", http.MethodPost, "/V1/Utilisateurs/Licencie/ListByEmail", map[string]any{
-		"searchText": email, "page": 0, "pageSize": maxResults,
-	}, &hits)
-	return hits, err
 }
 
 // call sends one API request, signing in again once when the token is refused.
