@@ -106,7 +106,12 @@ func (s *Server) lookupSession(r *http.Request) (session, bool, error) {
 		Scan(&username, &credential, &expires)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
-			s.logger.ErrorContext(ctx, "read session", "error", err)
+			// A client that left is expected: below Error, out of Sentry.
+			if ctx.Err() != nil {
+				s.logger.WarnContext(ctx, "client left", "error", err)
+			} else {
+				s.logger.ErrorContext(ctx, "read session", "error", err)
+			}
 			return session{}, false, err
 		}
 		return session{}, false, nil
