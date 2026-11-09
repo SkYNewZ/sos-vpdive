@@ -113,3 +113,19 @@ func TestClientThatLeftIsNotASentryError(t *testing.T) {
 	assert.Contains(t, e.logs.String(), `"level":"WARN","msg":"client left"`)
 	assert.Empty(t, e.sentryEvents(t))
 }
+
+// The session read of a client that hung up is not a Sentry error either.
+func TestClientThatLeftDuringSessionReadIsNotASentryError(t *testing.T) {
+	e := newTestEnv(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	r := httptest.NewRequestWithContext(ctx, http.MethodGet, "/chat/session", nil)
+	r.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "any-token"})
+
+	_, ok, err := e.srv.lookupSession(r)
+
+	require.ErrorIs(t, err, context.Canceled)
+	assert.False(t, ok)
+	assert.Contains(t, e.logs.String(), `"level":"WARN","msg":"client left"`)
+	assert.Empty(t, e.sentryEvents(t))
+}
