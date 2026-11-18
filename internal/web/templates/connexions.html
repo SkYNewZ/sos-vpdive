@@ -1,0 +1,24 @@
+{{define "main"}}
+{{$d := .Data}}
+<p><a class="link link-primary inline-flex min-h-11 items-center" href="/compte">Retour à mon compte</a></p>
+<h1 class="text-2xl font-bold text-primary max-lg:sr-only">Connexions</h1>
+<p class="mt-4 max-w-2xl">Claude ou ChatGPT peuvent lire les données du comité avec ton compte, sans rien modifier. Chaque application que tu as autorisée apparaît ici.</p>
+<section class="mt-8 max-w-2xl" aria-labelledby="ajouter">
+<h2 id="ajouter" class="text-xl font-semibold">Ajouter une application</h2>
+<p class="mt-2">Dans Claude ou ChatGPT, ajoute un connecteur personnalisé et colle cette adresse :</p>
+<p class="panel mt-3 p-4"><code class="break-all">{{$d.URL}}</code></p>
+</section>
+<section class="mt-8 max-w-2xl" aria-labelledby="autorisees">
+<h2 id="autorisees" class="text-xl font-semibold">Applications autorisées</h2>
+{{if $d.Connections}}<ul class="panel mt-4 divide-y divide-base-300">
+{{range $d.Connections}}<li class="flex flex-wrap items-center gap-3 px-4 py-3">
+<span class="min-w-0 flex-1"><span class="block font-semibold">{{.Name}}</span><span class="block text-sm">{{.Host}} · {{.Access}}</span><span class="block text-sm">Autorisée le {{formatTime .Created}}, utilisée le {{formatTime .LastUsed}}</span></span>
+<form method="post" action="/compte/connexions/{{.ID}}/revoquer">
+<input type="hidden" name="csrf" value="{{$.CSRF}}">
+<button class="btn btn-outline btn-error min-h-11" type="submit" aria-label="Retirer l'accès de {{.Name}}">Retirer l'accès</button>
+</form>
+</li>
+{{end}}</ul>
+{{else}}<p class="mt-2">Aucune application autorisée pour l'instant.</p>{{end}}
+</section>
+{{end}}

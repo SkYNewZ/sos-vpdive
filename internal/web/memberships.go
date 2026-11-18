@@ -50,10 +50,26 @@ type campaignEntry struct {
 }
 
 func (s *Server) membershipsPage(w http.ResponseWriter, r *http.Request) {
-	o, err := s.campaign.Overview(r.Context())
+	d, err := s.memberships(r.Context())
 	if err != nil {
 		s.serverError(w, r, err)
 		return
+	}
+	page, err := s.adminPage(r, "Suivi des adhésions")
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	page.Data = d
+	s.render(w, r, http.StatusOK, "adhesions", page)
+}
+
+// memberships sorts the people of the campaign into the three sections of
+// « Suivi des adhésions ».
+func (s *Server) memberships(ctx context.Context) (membershipsData, error) {
+	o, err := s.campaign.Overview(ctx)
+	if err != nil {
+		return membershipsData{}, err
 	}
 	d := membershipsData{Imported: o.Imported, Purged: o.Purged, Import: o.Import, Link: s.vpdive["campagne"],
 		Sections: [3]peopleSection{
@@ -84,13 +100,7 @@ func (s *Server) membershipsPage(w http.ResponseWriter, r *http.Request) {
 		}
 		d.Sections[i].People = append(d.Sections[i].People, v)
 	}
-	page, err := s.adminPage(r, "Suivi des adhésions")
-	if err != nil {
-		s.serverError(w, r, err)
-		return
-	}
-	page.Data = d
-	s.render(w, r, http.StatusOK, "adhesions", page)
+	return d, nil
 }
 
 func (s *Server) campaignRow(m payments.Marked[campaign.Person]) campaignRow {

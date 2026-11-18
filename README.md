@@ -87,7 +87,8 @@ The image has no shell, so `exec` runs the binary itself.
   on another machine, change the binding and firewall the port.
 - You can restrict the committee site, by IP address for example. A script
   that pushes exports must then connect from an allowed address, and the
-  proxy must pass its `Authorization` header through.
+  proxy must pass its `Authorization` header through. The same goes for the
+  assistants that members connect to the MCP server.
 
 ## Adapt it to your club
 
@@ -392,6 +393,77 @@ cache writes at 1.25 times the input price.
 When an answer hits the cap, the resolver sees what it wrote, with a note that
 it was cut. The provider must support tool use through the Messages API.
 
+### MCP server
+
+Off by default: set `MCP_ENABLED=true`. Committee members can then connect
+Claude or ChatGPT to the committee site and question the club's data in their
+own words: read a request with its thread, report on last month, chart the
+requests by category. The server only reads. It has no tool that changes
+anything and it runs none of the app's own model features; the member's
+assistant works on what the tools return.
+
+#### Connect Claude or ChatGPT
+
+1. Sign in to the committee site, open « Mon compte », then « Voir mes
+   connexions », and copy the connector address. It is the committee site's
+   address followed by `/mcp`.
+2. In Claude, open « Personnaliser », then « Connecteurs », choose « Ajouter »
+   and « Ajouter un connecteur personnalisé », and paste the address. In
+   ChatGPT, open « Plugins », choose « Ajouter » and « Ajouter un serveur MCP
+   personnalisé », paste the same address and leave the authentication on
+   OAuth.
+3. The application opens the committee site in your browser. Sign in if it
+   asks, read what the application will be able to read, and choose
+   « Autoriser ».
+4. Ask something. « Quelles demandes sont encore ouvertes, et depuis quand ? »
+   is a good first question.
+
+![Adding the connector in Claude, the consent screen of the committee site, then an answer with a chart drawn from test data](docs/mcp-connecteur.gif)
+
+To take an application's access away, go back to « Connexions » and choose
+« Retirer l'accès ». Changing your password ends all your connections too.
+
+![The sign-in, step by step: the application gets a 401, reads the OAuth metadata, sends the member to the consent screen, exchanges its code for tokens, then calls the tools](docs/mcp-flux.svg)
+
+#### What the tools read
+
+| Area | Tools |
+| --- | --- |
+| Requests | The list with its filters, one request with its messages, internal notes and journal, and monthly figures by category |
+| Members | Search, payments (VPDive, Mollie and carnet cards), outings, membership campaign, FFESSM licence |
+| Club | The calendar and one outing with its participants, cancelled outings still to settle, the membership follow-up, payments to check, the state of each import |
+
+The two licence tools exist only with the club's FFESSM account configured.
+Every tool and every field carries a description, so the assistant needs no
+other documentation.
+
+#### What leaves the server
+
+What a tool returns goes to the provider of the member's assistant, under the
+member's own Claude or ChatGPT account. Names, amounts, the text of requests,
+internal notes and email addresses are sent as they are. Phone numbers and
+bank details (IBAN or French RIB) are masked by pattern. Screenshots, fiches
+and the summaries written by the app's own models are never sent. Asked about one person, a name that
+several people bear returns no payments, outings or membership. The lists
+(membership follow-up, payments to check, an outing's participants) show that
+person's row with a homonym flag, as the committee pages do.
+
+#### Operation
+
+- `MCP_CLIENT_HOSTS` lists the hosts an application may publish its OAuth
+  client document on, `claude.ai,chatgpt.com` by default. The app fetches these
+  documents over HTTPS, from those hosts only: let it reach them.
+- Applications call `/mcp`, `/oauth/token` and `/.well-known/oauth-*` from
+  their own servers, with no session. The proxy must pass their
+  `Authorization` header through. If you restrict the committee site by
+  address, let the applications' servers in; Anthropic publishes its range.
+- An access token lasts one hour. A connection ends 30 days after its last
+  use, when its owner revokes it, or when the account's password changes.
+- A connection makes 600 calls an hour at most, and 30 lookups an hour in the
+  federation's register.
+- Logs and traces name the tool that was called, never what it was asked or
+  what it returned.
+
 ### Mail
 
 Mail goes out through the SMTP relay of `SMTP_*`, always encrypted:
@@ -476,6 +548,9 @@ On a real Android phone and a real iPhone:
   details (IBAN or French RIB) masked by pattern, plus the names and data it
   reads; screenshots and internal notes are never sent (see « Committee
   assistant »).
+- With the MCP server on, what its tools return goes to the provider of each
+  member's own assistant: internal notes and email addresses included, phone
+  numbers and bank details masked, screenshots never (see « MCP server »).
 - Erasing a person on the « Effacement » page deletes their requests, their
   member entry and every payment, Mollie line, carnet card, calendar
   participation and unregistration under their name, a namesake's included.

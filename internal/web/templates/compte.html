@@ -35,7 +35,12 @@
 <h2 id="mot-de-passe" class="text-xl font-semibold">Changer de mot de passe</h2>
 {{template "passwordForm" .}}
 </section>
-{{end}}
+{{if $d.Connexions}}<section class="mt-8 max-w-md" aria-labelledby="connexions">
+<h2 id="connexions" class="text-xl font-semibold">Connexions</h2>
+<p class="mt-2">Claude ou ChatGPT peuvent lire les données du comité avec ton compte.</p>
+<p><a class="link link-primary inline-flex min-h-11 items-center" href="/compte/connexions">Voir mes connexions</a></p>
+</section>
+{{end}}{{end}}
 {{end}}
 
 {{define "passwordForm"}}{{$d := .Data}}<form method="post" action="/compte" class="mt-4 flex flex-col gap-4">

@@ -1,6 +1,7 @@
 package web
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -24,11 +25,18 @@ const (
 type loginData struct {
 	Username string
 	SiteKey  string
+	Suite    string // the authorization request to go back to once signed in
+}
+
+// afterLogin is where a sign-in leads: back to the authorization request
+// that asked for it, else to the board.
+func (s *Server) afterLogin(r *http.Request) string {
+	return cmp.Or(s.oauthReturn(r.FormValue("suite")), "/")
 }
 
 func (s *Server) loginForm(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.sessionOf(r); ok {
-		http.Redirect(w, r, "/", http.StatusSeeOther)
+		http.Redirect(w, r, s.afterLogin(r), http.StatusSeeOther)
 		return
 	}
 	s.renderLogin(w, r, http.StatusOK, "", notice{})
@@ -39,7 +47,7 @@ func (s *Server) renderLogin(w http.ResponseWriter, r *http.Request, status int,
 	if n.Kind != "" {
 		p.Notices = append(p.Notices, n)
 	}
-	data := loginData{Username: username}
+	data := loginData{Username: username, Suite: s.oauthReturn(r.FormValue("suite"))}
 	if s.turnstile != nil {
 		data.SiteKey = s.turnstile.SiteKey
 	}
@@ -93,7 +101,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	http.Redirect(w, r, s.afterLogin(r), http.StatusSeeOther)
 }
 
 // checkPassword verifies password against hash under the login's rate

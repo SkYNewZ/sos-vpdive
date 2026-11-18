@@ -211,6 +211,7 @@ type Config struct {
 	PushoverToken      string        // "" turns Pushover off; each resolver sets a user key on « Notifications »
 	VAPID              *VAPID        // nil turns Web Push off
 	FFESSM             *FFESSM       // nil turns the licence search off
+	MCP                *MCP          // nil unless MCP_ENABLED: no MCP server, no OAuth routes
 	PushAllowedHosts   []string      // push services a subscription may point at
 	SentryDSN          string        // "" turns Sentry off; always "" in development
 	SentryEnvironment  string
@@ -275,6 +276,7 @@ func Load(getenv func(string) string) (*Config, error) {
 	c.PushoverToken = p.pushoverToken()
 	c.VAPID = p.vapid()
 	c.FFESSM = p.ffessm()
+	c.MCP = p.mcp()
 	c.PushAllowedHosts = p.hosts("PUSH_ALLOWED_HOSTS", defaultPushHosts)
 	c.SentryEnvironment = p.optional("SENTRY_ENVIRONMENT", string(c.Env))
 	c.Umami = p.umami(c)
@@ -674,6 +676,26 @@ func (p *parser) pushoverToken() string {
 		return ""
 	}
 	return token
+}
+
+// MCP is the committee's read-only MCP server and the OAuth routes that
+// protect it.
+type MCP struct {
+	// ClientHosts are the hosts an OAuth client may publish its client id
+	// document on: the server fetches documents from them only.
+	ClientHosts []string
+}
+
+// defaultMCPClientHosts are the hosts of Claude's and ChatGPT's client id
+// documents.
+const defaultMCPClientHosts = "claude.ai,chatgpt.com"
+
+// mcp reads the MCP server's switch, off unless MCP_ENABLED is true.
+func (p *parser) mcp() *MCP {
+	if !p.flag("MCP_ENABLED", false) {
+		return nil
+	}
+	return &MCP{ClientHosts: p.hosts("MCP_CLIENT_HOSTS", defaultMCPClientHosts)}
 }
 
 // ffessm reads the club account: both variables, or none.

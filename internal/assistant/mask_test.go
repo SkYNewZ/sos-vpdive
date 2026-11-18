@@ -283,3 +283,38 @@ func TestMaskJSONRefusesMalformedDocuments(t *testing.T) {
 		assert.NotContains(t, err.Error(), "\\x", "nothing of the document in the error")
 	}
 }
+
+func TestMaskNumbersKeepsAddresses(t *testing.T) {
+	got := MaskNumbers("Écris à Lea.Martin@Example.ORG ou o'connor@example.org.\n" +
+		"Tél. 0612345678, +33 6 12 34 56 78.\n" +
+		"IBAN FR76 3000 6000 0112 3456 7890 189, RIB 30006 00001 12345678901 89.\n" +
+		"Garde 05/01/2026, CPP-0042, 250 €.")
+	assert.Equal(t, "Écris à Lea.Martin@Example.ORG ou o'connor@example.org.\n"+
+		"Tél. [téléphone], [téléphone].\n"+
+		"IBAN [iban], RIB [iban].\n"+
+		"Garde 05/01/2026, CPP-0042, 250 €.", got)
+}
+
+// Review finding: a number glued to an address must not ride out inside it.
+func TestMaskNumbersMasksDigitsGluedToAnAddress(t *testing.T) {
+	for in, want := range map[string]string{
+		"06.12.34.56.78-jean@club.fr":                "[téléphone]-jean@club.fr",
+		"tel=0612345678/jean@club.fr":                "tel=[téléphone]/jean@club.fr",
+		"+33612345678/jean@club.fr":                  "[téléphone]/jean@club.fr",
+		"FR7630006000011234567890189-jean@club.fr":   "[iban]-jean@club.fr",
+		"0612345678@example.org puis 06 12 34 56 78": "[téléphone]@example.org puis [téléphone]",
+		"jean.dupont2@club.fr, lea+club@example.org": "jean.dupont2@club.fr, lea+club@example.org",
+	} {
+		assert.Equal(t, want, MaskNumbers(in), in)
+	}
+}
+
+func TestMaskJSONNumbers(t *testing.T) {
+	doc := `{"ref":"lea@example.org","id":"FR76-3000-6000-0112","note":"lea@example.org\n0612345678","n":612345678,"liste":["FR7630006000011234567890189"]}`
+	got, err := MaskJSONNumbers([]byte(doc))
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"ref":"lea@example.org","id":"FR76-3000-6000-0112","note":"lea@example.org\n[téléphone]","n":612345678,"liste":["[iban]"]}`, string(got))
+
+	_, err = MaskJSONNumbers([]byte(`{"note":"sans fin`))
+	assert.Error(t, err)
+}

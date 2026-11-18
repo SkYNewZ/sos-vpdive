@@ -184,10 +184,13 @@ func (t *toolbox) run(ctx context.Context, name string, input json.RawMessage) (
 	}
 	t.c.Emails = emails
 	if _, refused := out.(toolProblem); refused {
-		outcome = "refused"
+		outcome = outcomeRefused
 	}
 	return string(raw), step, nil
 }
+
+// outcomeRefused is the outcome of a tool call its caller got wrong.
+const outcomeRefused = "refused"
 
 // failureCode is the stable code of a failed call: the deadline or the
 // resolver's leaving when ctx is done, else the store.
@@ -220,11 +223,11 @@ func appendSource(sources []assistant.Source, src assistant.Source) []assistant.
 
 // importState is an import as the model reads it.
 type importState struct {
-	Recu   string `json:"recu,omitempty"` // Paris date and time
-	Du     string `json:"periode_du,omitempty"`
-	Au     string `json:"periode_au,omitempty"`
-	Perime bool   `json:"perime"`
-	Aucun  bool   `json:"aucun_import,omitempty"`
+	Recu   string `json:"recu,omitempty"         jsonschema:"Date et heure de réception du dernier import, JJ/MM/AAAA HH:MM ; absent sans import."`
+	Du     string `json:"periode_du,omitempty"   jsonschema:"Premier jour que couvre l'export, JJ/MM/AAAA, quand il porte une période."`
+	Au     string `json:"periode_au,omitempty"   jsonschema:"Dernier jour que couvre l'export, JJ/MM/AAAA."`
+	Perime bool   `json:"perime"                 jsonschema:"Vrai quand le dernier import a dépassé son âge maximal : les données peuvent être en retard sur VPDive."`
+	Aucun  bool   `json:"aucun_import,omitempty" jsonschema:"Vrai quand cet export n'a jamais été importé."`
 }
 
 // importState reads the latest import of kind.
@@ -304,14 +307,16 @@ func euros(a payments.Amount) string { return plainSpaces(a.Euros()) }
 
 // --- find_member
 
+// candidate omits what is empty or false: a member's seasons never are, and
+// a false homonyme would have the model say « pas d'homonyme ».
 type candidate struct {
-	Ref          string `json:"ref"`
-	Nom          string `json:"nom"`
-	Saisons      string `json:"saisons,omitzero"` // a member's are never empty
-	Licence      string `json:"licence,omitzero"`
-	Organisation string `json:"organisation,omitzero"` // VPDive groups
-	Source       string `json:"source,omitzero"`       // sourceCampaign for someone the members list does not name
-	Homonyme     bool   `json:"homonyme,omitzero"`     // absent when false: the model would say « pas d'homonyme »
+	Ref          string `json:"ref"                   jsonschema:"Référence de la personne pour le champ « adherent » des autres outils : son adresse mail, ou « campagne:… » pour une personne sans adresse."`
+	Nom          string `json:"nom"                   jsonschema:"Prénom puis nom."`
+	Saisons      string `json:"saisons,omitzero"      jsonschema:"Saisons d'adhésion que la liste des membres connaît."`
+	Licence      string `json:"licence,omitzero"      jsonschema:"Fin de licence selon la liste des membres VPDive, qui n'est pas le registre de la fédération."`
+	Organisation string `json:"organisation,omitzero" jsonschema:"Groupes VPDive de la personne ; « aucune », ou « non fournie par l'export »."`
+	Source       string `json:"source,omitzero"       jsonschema:"« campagne » pour une personne connue de la seule campagne d'adhésion, sans adresse ; absent pour un membre."`
+	Homonyme     bool   `json:"homonyme,omitzero"     jsonschema:"Vrai quand plusieurs personnes portent ce nom : ses paiements, ses sorties et son adhésion ne sont pas lisibles."`
 }
 
 // sourceCampaign marks a candidate known by the membership campaign only:
@@ -319,9 +324,9 @@ type candidate struct {
 const sourceCampaign = "campagne"
 
 type findMemberResult struct {
-	Import         importState `json:"import_membres"`
-	Correspondance string      `json:"correspondance"` // exacte, partielle or aucune
-	Candidats      []candidate `json:"candidats"`
+	Import         importState `json:"import_membres" jsonschema:"État de l'import de la liste des membres."`
+	Correspondance string      `json:"correspondance" jsonschema:"exacte, partielle ou aucune."`
+	Candidats      []candidate `json:"candidats"      jsonschema:"Personnes trouvées, 10 au plus."`
 }
 
 func (t *toolbox) findMember(ctx context.Context, input json.RawMessage) (any, string, error) {
@@ -331,24 +336,36 @@ func (t *toolbox) findMember(ctx context.Context, input json.RawMessage) (any, s
 	if !ok || strings.TrimSpace(in.Query) == "" {
 		return toolProblem{"query attendu : un nom, un prénom ou [email N]"}, "Recherche d'adhérent refusée", nil
 	}
-	st, err := t.importOf(ctx, imports.Members)
+	email, _ := assistant.Placeholder(in.Query, t.c.Emails)
+	out, err := t.candidates(ctx, in.Query, email, t.c.AddPerson)
 	if err != nil {
 		return nil, "", err
 	}
+	return out, "Recherche « " + strings.TrimSpace(in.Query) + " » : " + plural(len(out.Candidats), "candidat", "candidats"), nil
+}
+
+// candidates are the people query names: the member of email when one is
+// given, else the members and the campaign people whose name holds its
+// words. ref names each of them for the caller's later calls.
+func (t *toolbox) candidates(ctx context.Context, query, email string, ref func(assistant.Person) string) (findMemberResult, error) {
+	st, err := t.importOf(ctx, imports.Members)
+	if err != nil {
+		return findMemberResult{}, err
+	}
 	var matches []members.Match
-	email, byEmail := assistant.Placeholder(in.Query, t.c.Emails)
+	byEmail := email != ""
 	if byEmail {
 		matches, err = t.s.memberOf(ctx, email)
 	} else {
-		matches, err = t.s.members.Search(ctx, in.Query, maxCandidates)
+		matches, err = t.s.members.Search(ctx, query, maxCandidates)
 	}
 	if err != nil {
-		return nil, "", err
+		return findMemberResult{}, err
 	}
 	var extra []assistant.Person
 	if !byEmail { // the campaign holds no address
-		if extra, err = t.campaignPeople(ctx, in.Query); err != nil {
-			return nil, "", err
+		if extra, err = t.campaignPeople(ctx, query); err != nil {
+			return findMemberResult{}, err
 		}
 		// Search's rule across both sources: an exact match hides the partial
 		// ones, whose names then never reach the conversation.
@@ -362,14 +379,13 @@ func (t *toolbox) findMember(ctx context.Context, input json.RawMessage) (any, s
 		if m.Exact {
 			out.Correspondance = "exacte"
 		}
-		out.Candidats = append(out.Candidats, candidateOf(t.c, m))
+		out.Candidats = append(out.Candidats, candidateOf(m, ref))
 	}
 	for _, p := range extra[:min(len(extra), maxCandidates-len(out.Candidats))] {
-		ref := t.c.AddPerson(p)
-		out.Candidats = append(out.Candidats, candidate{Ref: ref, Nom: p.Name, Source: sourceCampaign, Homonyme: p.Shared > 1})
+		out.Candidats = append(out.Candidats, candidate{Ref: ref(p), Nom: p.Name, Source: sourceCampaign, Homonyme: p.Shared > 1})
 		out.Correspondance = "exacte"
 	}
-	return out, "Recherche « " + strings.TrimSpace(in.Query) + " » : " + plural(len(out.Candidats), "candidat", "candidats"), nil
+	return out, nil
 }
 
 // memberOf is the member of email (an address the resolver typed, which
@@ -387,17 +403,17 @@ func (s *Server) memberOf(ctx context.Context, email string) ([]members.Match, e
 	return []members.Match{{Profile: p, Email: email, Shared: n, Exact: true}}, nil
 }
 
-// candidateOf adds m to the people of c and describes them for the model.
-func candidateOf(c *assistant.Conversation, m members.Match) candidate {
+// candidateOf describes m for the model, under the name ref gives them.
+func candidateOf(m members.Match, ref func(assistant.Person) string) candidate {
 	view := newProfileView(m.Profile)
 	name := strings.TrimSpace(m.FirstName + " " + m.LastName)
-	ref := c.AddPerson(assistant.Person{Name: name, Email: m.Email, NameHash: m.NameHash,
-		Seasons: view.Seasons, Licence: view.Licence, Shared: m.Shared})
 	orgs := "non fournie par l'export"
 	if m.Organisation != nil {
 		orgs = cmp.Or(*m.Organisation, "aucune")
 	}
-	return candidate{Ref: ref, Nom: name, Saisons: view.Seasons, Licence: view.Licence, Organisation: orgs, Homonyme: m.Shared > 1}
+	return candidate{Ref: ref(assistant.Person{Name: name, Email: m.Email, NameHash: m.NameHash,
+		Seasons: view.Seasons, Licence: view.Licence, Shared: m.Shared}),
+		Nom: name, Saisons: view.Seasons, Licence: view.Licence, Organisation: orgs, Homonyme: m.Shared > 1}
 }
 
 // campaignPeople are the people of the campaign whose name holds every word
@@ -491,29 +507,18 @@ func (t *toolbox) member(input json.RawMessage, back int) (assistant.Person, tim
 // period reads du and au, Paris days: from defaults to back days before
 // today, to (exclusive) to none.
 func (s *Server) period(du, au string, back int) (from, to time.Time, ok bool) {
-	from = midnight(s.now(), s.paris).AddDate(0, 0, -back)
-	if du != "" {
-		d, err := time.ParseInLocation(time.DateOnly, du, s.paris)
-		if err != nil {
-			return from, to, false
-		}
-		from = d
+	from, to, err := s.days(du, au)
+	if du == "" {
+		from = midnight(s.now(), s.paris).AddDate(0, 0, -back)
 	}
-	if au != "" {
-		d, err := time.ParseInLocation(time.DateOnly, au, s.paris)
-		if err != nil {
-			return from, to, false
-		}
-		to = d.AddDate(0, 0, 1)
-	}
-	return from, to, to.IsZero() || to.After(from)
+	return from, to, err == nil && (to.IsZero() || to.After(from))
 }
 
 // periodJSON is the window a member tool read, Paris days, both included:
 // what lies outside it was not read, which is not to say it is absent.
 type periodJSON struct {
-	Du string `json:"du"`
-	Au string `json:"au"` // « sans fin » when the call gave none
+	Du string `json:"du" jsonschema:"Premier jour lu, JJ/MM/AAAA."`
+	Au string `json:"au" jsonschema:"Dernier jour lu, inclus, JJ/MM/AAAA ; « sans fin » quand l'appel n'en donnait pas."`
 }
 
 // periodRead describes the window [from, to) of period.
@@ -546,18 +551,18 @@ var blockState = map[payments.BlockState]string{
 }
 
 type lineJSON struct {
-	Date         string `json:"date,omitempty"` // « Du », the outing's start
-	Creee        string `json:"creee"`
-	Intitule     string `json:"intitule"`
-	Type         string `json:"type,omitempty"`
-	Etat         string `json:"etat"`
-	Methode      string `json:"methode,omitempty"`
-	PrixUnitaire string `json:"prix_unitaire"`
-	Quantite     string `json:"quantite"`
-	MontantPaye  string `json:"montant_paye"`
-	Reduction    string `json:"reduction,omitempty"`
-	PayeLe       string `json:"paye_le,omitempty"`
-	Commentaire  string `json:"commentaire,omitempty"` // « Commentaire » of the export
+	Date         string `json:"date,omitempty"        jsonschema:"Début de la sortie ou de la prestation payée (colonne « Du » de l'export), quand la ligne en a un."`
+	Creee        string `json:"creee"                 jsonschema:"Date et heure de création de la ligne dans VPDive."`
+	Intitule     string `json:"intitule"              jsonschema:"Produit ou prestation payés."`
+	Type         string `json:"type,omitempty"        jsonschema:"Type de produit VPDive : carte, formation, sortie, etc."`
+	Etat         string `json:"etat"                  jsonschema:"État de la ligne dans VPDive, tel qu'exporté."`
+	Methode      string `json:"methode,omitempty"     jsonschema:"Moyen de paiement."`
+	PrixUnitaire string `json:"prix_unitaire"         jsonschema:"Prix unitaire, en euros."`
+	Quantite     string `json:"quantite"              jsonschema:"Quantité."`
+	MontantPaye  string `json:"montant_paye"          jsonschema:"Montant déjà payé, en euros."`
+	Reduction    string `json:"reduction,omitempty"   jsonschema:"Réduction appliquée, en euros, quand il y en a une."`
+	PayeLe       string `json:"paye_le,omitempty"     jsonschema:"Date et heure du paiement, quand la ligne est payée."`
+	Commentaire  string `json:"commentaire,omitempty" jsonschema:"Commentaire saisi dans VPDive sur la ligne."`
 }
 
 func (s *Server) lineJSON(l payments.Line) lineJSON {
@@ -571,13 +576,13 @@ func (s *Server) lineJSON(l payments.Line) lineJSON {
 }
 
 type mollieJSON struct {
-	PayeLe      string `json:"paye_le"`
-	Produit     string `json:"produit"`
-	Prestation  string `json:"prestation,omitempty"`
-	Date        string `json:"date,omitempty"`
-	Montant     string `json:"montant"`
-	SoldeVPDive string `json:"solde_dans_vpdive"` // « Payé » as read: Oui, Non, or else
-	Methode     string `json:"methode,omitempty"`
+	PayeLe      string `json:"paye_le"              jsonschema:"Date et heure de l'encaissement en ligne."`
+	Produit     string `json:"produit"              jsonschema:"Produit VPDive payé."`
+	Prestation  string `json:"prestation,omitempty" jsonschema:"Sortie ou location que la ligne paie."`
+	Date        string `json:"date,omitempty"       jsonschema:"Date de la prestation, JJ/MM/AAAA."`
+	Montant     string `json:"montant"              jsonschema:"Montant encaissé, en euros."`
+	SoldeVPDive string `json:"solde_dans_vpdive"    jsonschema:"Ce que VPDive dit du solde de la ligne : Oui, Non, ou « vide » quand l'export ne dit rien."`
+	Methode     string `json:"methode,omitempty"    jsonschema:"Moyen de paiement en ligne."`
 }
 
 func (s *Server) mollieJSON(l payments.MollieLine) mollieJSON {
@@ -588,19 +593,19 @@ func (s *Server) mollieJSON(l payments.MollieLine) mollieJSON {
 // --- member_payments
 
 type paymentsResult struct {
-	Import        importState  `json:"import_vpdive"`
-	Etat          string       `json:"etat"`
-	Periode       periodJSON   `json:"periode_lue"` // of the lines; balances and cards always come
-	Soldes        []lineJSON   `json:"soldes"`
-	Lignes        []lineJSON   `json:"lignes"`
-	Tronque       bool         `json:"tronque,omitempty"`
-	ImportMollie  importState  `json:"import_mollie"`
-	EtatMollie    string       `json:"etat_mollie"`
-	Mollie        []mollieJSON `json:"mollie"`
-	MollieTronque bool         `json:"mollie_tronque,omitempty"`
-	ImportCartes  importState  `json:"import_cartes"`
-	EtatCartes    string       `json:"etat_cartes"`
-	Cartes        []carteJSON  `json:"cartes"` // every card, whatever the period
+	Import        importState  `json:"import_vpdive"            jsonschema:"État de l'import des paiements VPDive."`
+	Etat          string       `json:"etat"                     jsonschema:"État des lignes VPDive : ok, vide, hors_liste, ambigu, purge ou aucun_import."`
+	Periode       periodJSON   `json:"periode_lue"              jsonschema:"Période des lignes lues ; les soldes et les cartes viennent toujours, quelle que soit la période."`
+	Soldes        []lineJSON   `json:"soldes"                   jsonschema:"Soldes de carnet et de formation de la personne."`
+	Lignes        []lineJSON   `json:"lignes"                   jsonschema:"Lignes de paiement VPDive de la période, plus tous les achats de carte et de formation ; 100 au plus."`
+	Tronque       bool         `json:"tronque,omitempty"        jsonschema:"Vrai quand il y avait plus de 100 lignes : resserre la période."`
+	ImportMollie  importState  `json:"import_mollie"            jsonschema:"État de l'import des encaissements Mollie."`
+	EtatMollie    string       `json:"etat_mollie"              jsonschema:"État des encaissements Mollie : mêmes valeurs que etat."`
+	Mollie        []mollieJSON `json:"mollie"                   jsonschema:"Encaissements en ligne de la période, 100 au plus."`
+	MollieTronque bool         `json:"mollie_tronque,omitempty" jsonschema:"Vrai quand il y avait plus de 100 encaissements : resserre la période."`
+	ImportCartes  importState  `json:"import_cartes"            jsonschema:"État de l'import des cartes de plongées."`
+	EtatCartes    string       `json:"etat_cartes"              jsonschema:"État des cartes : mêmes valeurs que etat."`
+	Cartes        []carteJSON  `json:"cartes"                   jsonschema:"Toutes les cartes de plongées de la personne, quelle que soit la période."`
 }
 
 func (t *toolbox) memberPayments(ctx context.Context, input json.RawMessage) (any, string, error) {
@@ -608,17 +613,27 @@ func (t *toolbox) memberPayments(ctx context.Context, input json.RawMessage) (an
 	if problem != nil {
 		return *problem, "Lecture de paiements refusée", nil
 	}
+	out, err := t.payments(ctx, p, from, to)
+	if err != nil {
+		return nil, "", err
+	}
+	return out, "Paiements de " + p.Name + " lus", nil
+}
+
+// payments reads the lines of p between from and to, with their balances
+// and every card.
+func (t *toolbox) payments(ctx context.Context, p assistant.Person, from, to time.Time) (paymentsResult, error) {
 	if p.Shared > 1 { // a campaign homonym, whom no members count marks
-		return t.ambiguousPayments(ctx, p, from, to)
+		return t.ambiguousPayments(ctx, from, to)
 	}
 	pay, mol, err := t.s.paymentBlocks(ctx, p.NameHash)
 	if err != nil {
-		return nil, "", err
+		return paymentsResult{}, err
 	}
 	out := paymentsResult{Etat: blockState[pay.State], EtatMollie: blockState[mol.State], Periode: t.s.periodRead(from, to),
 		Soldes: []lineJSON{}, Lignes: []lineJSON{}, Mollie: []mollieJSON{}}
 	if out.Import, out.ImportMollie, err = t.paymentImports(ctx); err != nil {
-		return nil, "", err
+		return paymentsResult{}, err
 	}
 	for _, l := range pay.Balances {
 		out.Soldes = append(out.Soldes, t.s.lineJSON(l))
@@ -649,56 +664,56 @@ mollie:
 	}
 	cards, err := t.s.carnets.Block(ctx, p.NameHash)
 	if err != nil {
-		return nil, "", err
+		return paymentsResult{}, err
 	}
 	out.ImportCartes = t.importSource(imports.Carnets, t.s.stateOf(cards.Import, cards.Import.ID != 0))
 	out.EtatCartes, out.Cartes = blockState[cards.State], make([]carteJSON, 0, len(cards.Cards))
 	for _, v := range cards.Cards {
 		out.Cartes = append(out.Cartes, t.s.carteJSON(v))
 	}
-	return out, "Paiements de " + p.Name + " lus", nil
+	return out, nil
 }
 
 // ambiguousPayments answers a homonym without reading any line.
-func (t *toolbox) ambiguousPayments(ctx context.Context, p assistant.Person, from, to time.Time) (any, string, error) {
+func (t *toolbox) ambiguousPayments(ctx context.Context, from, to time.Time) (paymentsResult, error) {
 	amb := blockState[payments.BlockAmbiguous]
 	out := paymentsResult{Etat: amb, EtatMollie: amb, EtatCartes: amb, Periode: t.s.periodRead(from, to),
 		Soldes: []lineJSON{}, Lignes: []lineJSON{}, Mollie: []mollieJSON{}, Cartes: []carteJSON{}}
 	var err error
 	if out.Import, out.ImportMollie, err = t.paymentImports(ctx); err != nil {
-		return nil, "", err
+		return paymentsResult{}, err
 	}
 	if out.ImportCartes, err = t.importOf(ctx, imports.Carnets); err != nil {
-		return nil, "", err
+		return paymentsResult{}, err
 	}
-	return out, "Paiements de " + p.Name + " lus", nil
+	return out, nil
 }
 
 // carteJSON is a card as the model reads it (design 2026-10-09 §7).
 type carteJSON struct {
-	Produit             string      `json:"produit"`
-	Etat                string      `json:"etat,omitempty"` // VPDive's state of the card, as received
-	SoldeVPDive         string      `json:"solde_vpdive"`   // as VPDive shows it: negative while credit is left
-	DebiteNet           string      `json:"debite_net"`
-	Debits              int         `json:"debits"`
-	Recredits           int         `json:"recredits"`
-	MontantsInhabituels int         `json:"montants_inhabituels"`
-	LignesNonLues       int         `json:"lignes_non_lues"`
-	TotauxPartiels      bool        `json:"totaux_partiels,omitempty"`
-	Historique          []entryJSON `json:"historique"`
+	Produit             string      `json:"produit"                   jsonschema:"Nom de la carte."`
+	Etat                string      `json:"etat,omitempty"            jsonschema:"État de la carte dans VPDive, tel que reçu."`
+	SoldeVPDive         string      `json:"solde_vpdive"              jsonschema:"Solde affiché par VPDive, en euros : négatif tant qu'il reste du crédit."`
+	DebiteNet           string      `json:"debite_net"                jsonschema:"Total débité moins total recrédité, en euros."`
+	Debits              int         `json:"debits"                    jsonschema:"Nombre de plongées débitées."`
+	Recredits           int         `json:"recredits"                 jsonschema:"Nombre de plongées recréditées."`
+	MontantsInhabituels int         `json:"montants_inhabituels"      jsonschema:"Nombre de lignes dont le montant diffère du prix habituel d'une plongée."`
+	LignesNonLues       int         `json:"lignes_non_lues"           jsonschema:"Nombre de lignes de l'historique que l'outil n'a pas su lire."`
+	TotauxPartiels      bool        `json:"totaux_partiels,omitempty" jsonschema:"Vrai quand des lignes non lues rendent les totaux incomplets."`
+	Historique          []entryJSON `json:"historique"                jsonschema:"Lignes de l'historique de la carte."`
 }
 
 // entryJSON is a line of a card's history, absent fields omitted.
 type entryJSON struct {
-	Le         string `json:"le,omitempty"`
-	Par        string `json:"par,omitempty"`
-	Action     string `json:"action"`
-	Sortie     string `json:"sortie,omitempty"`
-	DateSortie string `json:"date_sortie,omitempty"`
-	Montant    string `json:"montant,omitempty"`
-	Repartie   string `json:"repartie,omitempty"` // a dive taken from two cards: the sum of its parts
-	Inhabituel bool   `json:"inhabituel,omitempty"`
-	Texte      string `json:"texte,omitempty"`
+	Le         string `json:"le,omitempty"          jsonschema:"Date et heure de la ligne."`
+	Par        string `json:"par,omitempty"         jsonschema:"Auteur de la ligne dans VPDive."`
+	Action     string `json:"action"                jsonschema:"débit, recrédit, changement de prix, commentaire, ou l'action telle que VPDive la nomme."`
+	Sortie     string `json:"sortie,omitempty"      jsonschema:"Sortie débitée ou recréditée."`
+	DateSortie string `json:"date_sortie,omitempty" jsonschema:"Date de cette sortie."`
+	Montant    string `json:"montant,omitempty"     jsonschema:"Montant de la ligne, en euros."`
+	Repartie   string `json:"repartie,omitempty"    jsonschema:"Plongée payée sur deux cartes : la somme de ses deux parts, en euros."`
+	Inhabituel bool   `json:"inhabituel,omitempty"  jsonschema:"Vrai quand le montant diffère du prix habituel d'une plongée."`
+	Texte      string `json:"texte,omitempty"       jsonschema:"Changement de prix (ancien -> nouveau), ou texte du commentaire."`
 }
 
 // entryAction names a line's kind for the model; other lines keep VPDive's
@@ -732,35 +747,35 @@ func (s *Server) carteJSON(v carnets.View) carteJSON {
 // --- member_outings
 
 type unregJSON struct {
-	Nom string `json:"nom,omitempty"`
-	Le  string `json:"le"`
-	Par string `json:"par,omitempty"`
+	Nom string `json:"nom,omitempty" jsonschema:"Personne désinscrite ; absent quand c'est la personne demandée."`
+	Le  string `json:"le"            jsonschema:"Date et heure de la désinscription."`
+	Par string `json:"par,omitempty" jsonschema:"Qui a désinscrit."`
 }
 
 type outingJSON struct {
-	ID              string       `json:"id"`
-	Titre           string       `json:"titre"`
-	Debut           string       `json:"debut"`
-	Annulee         bool         `json:"annulee,omitempty"`
-	Participation   string       `json:"participation,omitempty"` // inscrit, liste_attente, non_inscrit
-	Personnes       string       `json:"personnes,omitempty"`
-	InscritInvite   bool         `json:"inscrit_en_invite,omitempty"`
-	Roles           string       `json:"roles,omitempty"`
-	Panier          string       `json:"panier,omitempty"`
-	Desinscriptions []unregJSON  `json:"desinscriptions,omitempty"`
-	LignesVPDive    []lineJSON   `json:"lignes_vpdive,omitempty"`
-	LignesMollie    []mollieJSON `json:"lignes_mollie,omitempty"`
-	Signaux         []string     `json:"signaux,omitempty"`
+	ID              string       `json:"id"                          jsonschema:"Identifiant de la sortie, à passer à comite_get_outing."`
+	Titre           string       `json:"titre"                       jsonschema:"Titre de la sortie."`
+	Debut           string       `json:"debut"                       jsonschema:"Date et heure de début."`
+	Annulee         bool         `json:"annulee,omitempty"           jsonschema:"Vrai quand la sortie est annulée."`
+	Participation   string       `json:"participation,omitempty"     jsonschema:"inscrit, liste_attente ou non_inscrit ; absent quand la personne n'est plus parmi les participants."`
+	Personnes       string       `json:"personnes,omitempty"         jsonschema:"Nombre de places de l'inscription quand elle en compte plusieurs, invités compris."`
+	InscritInvite   bool         `json:"inscrit_en_invite,omitempty" jsonschema:"Vrai quand la personne est inscrite comme invitée d'un autre membre."`
+	Roles           string       `json:"roles,omitempty"             jsonschema:"Rôles de la personne sur la sortie."`
+	Panier          string       `json:"panier,omitempty"            jsonschema:"État du panier de l'inscription : ce qui est payé et ce qui reste dû."`
+	Desinscriptions []unregJSON  `json:"desinscriptions,omitempty"   jsonschema:"Désinscriptions de la personne pour cette sortie."`
+	LignesVPDive    []lineJSON   `json:"lignes_vpdive,omitempty"     jsonschema:"Lignes de paiement VPDive rattachées à la sortie."`
+	LignesMollie    []mollieJSON `json:"lignes_mollie,omitempty"     jsonschema:"Encaissements Mollie rattachés à la sortie."`
+	Signaux         []string     `json:"signaux,omitempty"           jsonschema:"Incohérences repérées entre l'inscription et les paiements, en clair."`
 }
 
 type outingsResult struct {
-	Import       importState  `json:"import_calendrier"`
-	ImportVPDive importState  `json:"import_vpdive"` // the lines and signals of the outings come from it
-	ImportMollie importState  `json:"import_mollie"`
-	Etat         string       `json:"etat"`
-	Periode      periodJSON   `json:"periode_lue"`
-	Sorties      []outingJSON `json:"sorties"`
-	Tronque      bool         `json:"tronque,omitempty"`
+	Import       importState  `json:"import_calendrier" jsonschema:"État de l'import du calendrier."`
+	ImportVPDive importState  `json:"import_vpdive"     jsonschema:"État de l'import des paiements VPDive : les lignes et les signaux des sorties en viennent."`
+	ImportMollie importState  `json:"import_mollie"     jsonschema:"État de l'import des encaissements Mollie."`
+	Etat         string       `json:"etat"              jsonschema:"ok, vide, hors_liste, ambigu (homonyme) ou aucun_calendrier."`
+	Periode      periodJSON   `json:"periode_lue"       jsonschema:"Période des sorties lues."`
+	Sorties      []outingJSON `json:"sorties"           jsonschema:"Sorties de la personne sur la période, 50 au plus."`
+	Tronque      bool         `json:"tronque,omitempty" jsonschema:"Vrai quand il y avait plus de 50 sorties : resserre la période."`
 }
 
 var outingsStateName = map[outingsState]string{
@@ -823,16 +838,25 @@ func (t *toolbox) memberOutings(ctx context.Context, input json.RawMessage) (any
 	if problem != nil {
 		return *problem, "Lecture de sorties refusée", nil
 	}
-	b, err := t.outingsOf(ctx, p)
+	out, err := t.outings(ctx, p, from, to)
 	if err != nil {
 		return nil, "", err
 	}
+	return out, "Sorties de " + p.Name + " lues", nil
+}
+
+// outings reads the outings of p that overlap [from, to).
+func (t *toolbox) outings(ctx context.Context, p assistant.Person, from, to time.Time) (outingsResult, error) {
+	b, err := t.outingsOf(ctx, p)
+	if err != nil {
+		return outingsResult{}, err
+	}
 	out := outingsResult{Etat: outingsStateName[b.State], Periode: t.s.periodRead(from, to), Sorties: []outingJSON{}}
 	if out.Import, err = t.importOf(ctx, imports.Calendar); err != nil {
-		return nil, "", err
+		return outingsResult{}, err
 	}
 	if out.ImportVPDive, out.ImportMollie, err = t.paymentImports(ctx); err != nil {
-		return nil, "", err
+		return outingsResult{}, err
 	}
 	for _, o := range append(b.Recent, b.Older...) {
 		if o.Event.Until().Before(from) || (!to.IsZero() && !o.Event.Start.Before(to)) {
@@ -844,7 +868,7 @@ func (t *toolbox) memberOutings(ctx context.Context, input json.RawMessage) (any
 		}
 		out.Sorties = append(out.Sorties, t.s.outingJSON(o))
 	}
-	return out, "Sorties de " + p.Name + " lues", nil
+	return out, nil
 }
 
 // --- member_requests
@@ -894,29 +918,29 @@ func (t *toolbox) memberRequests(ctx context.Context, input json.RawMessage) (an
 
 // campaignEntryJSON is an entry of the « Adhésion » or « License » cell.
 type campaignEntryJSON struct {
-	Libelle   string `json:"libelle,omitempty"`
-	Etat      string `json:"etat,omitempty"` // Réglé, Au panier, état inconnu : …
-	Montant   string `json:"montant,omitempty"`
-	Moyen     string `json:"moyen,omitempty"`
-	Le        string `json:"le,omitempty"`
-	AVerifier string `json:"a_verifier,omitempty"` // an unreadable entry, as received
+	Libelle   string `json:"libelle,omitempty"    jsonschema:"Intitulé de l'adhésion ou de la licence."`
+	Etat      string `json:"etat,omitempty"       jsonschema:"Réglé, Au panier, ou « état inconnu : … »."`
+	Montant   string `json:"montant,omitempty"    jsonschema:"Montant, en euros."`
+	Moyen     string `json:"moyen,omitempty"      jsonschema:"Moyen de paiement, connu pour un paiement saisi à la main ou passé par VPayDive."`
+	Le        string `json:"le,omitempty"         jsonschema:"Date du paiement, quand elle est connue."`
+	AVerifier string `json:"a_verifier,omitempty" jsonschema:"Entrée que l'outil n'a pas su lire, telle que reçue."`
 }
 
 // membershipJSON is a campaign line, with the fields of the request block.
 type membershipJSON struct {
-	Nom        string              `json:"nom"`
-	Statut     string              `json:"statut"`
-	Validation string              `json:"validation"`
-	Adhesion   []campaignEntryJSON `json:"adhesion"`
-	Licence    []campaignEntryJSON `json:"licence"`
-	Reglement  string              `json:"reglement,omitempty"`
+	Nom        string              `json:"nom"                 jsonschema:"Prénom puis nom."`
+	Statut     string              `json:"statut"              jsonschema:"Statut du dossier dans VPDive : En cours ou Validé."`
+	Validation string              `json:"validation"          jsonschema:"Quand et par qui le dossier a été validé, ou « Pas encore validé »."`
+	Adhesion   []campaignEntryJSON `json:"adhesion"            jsonschema:"Entrées d'adhésion."`
+	Licence    []campaignEntryJSON `json:"licence"             jsonschema:"Entrées de licence : ce qui a été payé dans VPDive, pas la validité à la fédération."`
+	Reglement  string              `json:"reglement,omitempty" jsonschema:"Règlement, tel que l'export le résume."`
 }
 
 type membershipResult struct {
-	Import   importState      `json:"import_campagne"`
-	ExportDu string           `json:"export_du,omitempty"`
-	Etat     string           `json:"etat"`
-	Lignes   []membershipJSON `json:"lignes"`
+	Import   importState      `json:"import_campagne"     jsonschema:"État de l'import de la campagne d'adhésion."`
+	ExportDu string           `json:"export_du,omitempty" jsonschema:"Date et heure de l'export VPDive : ce qui est plus récent n'y figure pas."`
+	Etat     string           `json:"etat"                jsonschema:"ok, vide, hors_liste, purge, aucun_import, ou homonyme (nom porté par plusieurs personnes : aucun détail)."`
+	Lignes   []membershipJSON `json:"lignes"              jsonschema:"Lignes de la personne dans la campagne."`
 }
 
 func (t *toolbox) memberMembership(ctx context.Context, input json.RawMessage) (any, string, error) {
@@ -924,9 +948,18 @@ func (t *toolbox) memberMembership(ctx context.Context, input json.RawMessage) (
 	if problem != nil {
 		return *problem, "Lecture de campagne refusée", nil
 	}
-	state, info, people, err := t.s.campaign.NameLines(ctx, p.NameHash)
+	out, err := t.membership(ctx, p)
 	if err != nil {
 		return nil, "", err
+	}
+	return out, "Campagne d'adhésion de " + p.Name + " lue", nil
+}
+
+// membership reads the campaign lines of p: none in detail for a homonym.
+func (t *toolbox) membership(ctx context.Context, p assistant.Person) (membershipResult, error) {
+	state, info, people, err := t.s.campaign.NameLines(ctx, p.NameHash)
+	if err != nil {
+		return membershipResult{}, err
 	}
 	out := membershipResult{Import: t.importSource(imports.Campaign, t.s.stateOf(info, info.ID != 0)),
 		ExportDu: t.s.formatTime(info.ExportedAt), Etat: blockState[state], Lignes: []membershipJSON{}}
@@ -941,7 +974,7 @@ func (t *toolbox) memberMembership(ctx context.Context, input json.RawMessage) (
 		}
 		out.Lignes = append(out.Lignes, j)
 	}
-	return out, "Campagne d'adhésion de " + p.Name + " lue", nil
+	return out, nil
 }
 
 func (s *Server) entriesJSON(entries []campaign.Entry) []campaignEntryJSON {
@@ -959,14 +992,14 @@ func (s *Server) entriesJSON(entries []campaign.Entry) []campaignEntryJSON {
 // --- find_outings and outing
 
 type eventJSON struct {
-	ID           string `json:"id"`
-	Titre        string `json:"titre"`
-	Debut        string `json:"debut"`
-	Categorie    string `json:"categorie,omitempty"`
-	Activite     string `json:"activite,omitempty"`
-	Annulee      bool   `json:"annulee,omitempty"`
-	Inscrits     int    `json:"inscrits"`
-	ListeAttente int    `json:"liste_attente,omitempty"`
+	ID           string `json:"id"                      jsonschema:"Identifiant de la sortie, à passer à comite_get_outing."`
+	Titre        string `json:"titre"                   jsonschema:"Titre de la sortie."`
+	Debut        string `json:"debut"                   jsonschema:"Date et heure de début."`
+	Categorie    string `json:"categorie,omitempty"     jsonschema:"Catégorie du calendrier."`
+	Activite     string `json:"activite,omitempty"      jsonschema:"Activité."`
+	Annulee      bool   `json:"annulee,omitempty"       jsonschema:"Vrai quand la sortie est annulée."`
+	Inscrits     int    `json:"inscrits"                jsonschema:"Personnes inscrites, invités compris."`
+	ListeAttente int    `json:"liste_attente,omitempty" jsonschema:"Personnes en liste d'attente, invités compris."`
 }
 
 // eventJSON describes ev with its head count: the people registered, and
@@ -986,9 +1019,9 @@ func (s *Server) eventJSON(ev calendar.Event) eventJSON {
 }
 
 type eventsResult struct {
-	Import  importState `json:"import_calendrier"`
-	Sorties []eventJSON `json:"sorties"`
-	Tronque bool        `json:"tronque,omitempty"`
+	Import  importState `json:"import_calendrier" jsonschema:"État de l'import du calendrier."`
+	Sorties []eventJSON `json:"sorties"           jsonschema:"Sorties de la période, 50 au plus."`
+	Tronque bool        `json:"tronque,omitempty" jsonschema:"Vrai quand il y avait plus de 50 sorties : resserre la période ou précise le texte."`
 }
 
 func (t *toolbox) findOutings(ctx context.Context, input json.RawMessage) (any, string, error) {
@@ -997,25 +1030,47 @@ func (t *toolbox) findOutings(ctx context.Context, input json.RawMessage) (any, 
 		Au    string `json:"au"`
 		Texte string `json:"texte"`
 	}](input)
-	if !ok || in.Du == "" || in.Au == "" {
+	if !ok {
 		return toolProblem{"du et au attendus, au format AAAA-MM-JJ"}, findOutingsRefused, nil
 	}
-	from, to, ok := t.s.period(in.Du, in.Au, 0)
-	if !ok {
-		return toolProblem{"dates au format AAAA-MM-JJ, du avant au"}, findOutingsRefused, nil
+	from, to, problem := t.s.outingsPeriod(in.Du, in.Au)
+	if problem != nil {
+		return *problem, findOutingsRefused, nil
 	}
-	if to.Sub(from) > maxOutingsRange*24*time.Hour+time.Hour { // an hour of slack for a time change
-		return toolProblem{"62 jours au plus entre du et au"}, findOutingsRefused, nil
-	}
-	events, err := t.s.calendar.Range(ctx, from, to, true)
+	out, err := t.events(ctx, from, to, in.Texte)
 	if err != nil {
 		return nil, "", err
 	}
+	return out, "Recherche des sorties du " + t.s.formatDate(from) + " : " + plural(len(out.Sorties), "sortie", "sorties"), nil
+}
+
+// outingsPeriod reads the window of a calendar search: both days given, 62
+// days at most.
+func (s *Server) outingsPeriod(du, au string) (from, to time.Time, problem *toolProblem) {
+	if du == "" || au == "" {
+		return from, to, &toolProblem{"du et au attendus, au format AAAA-MM-JJ"}
+	}
+	from, to, ok := s.period(du, au, 0)
+	if !ok {
+		return from, to, &toolProblem{"dates au format AAAA-MM-JJ, du avant au"}
+	}
+	if to.Sub(from) > maxOutingsRange*24*time.Hour+time.Hour { // an hour of slack for a time change
+		return from, to, &toolProblem{"62 jours au plus entre du et au"}
+	}
+	return from, to, nil
+}
+
+// events are the calendar's outings of [from, to) whose title holds texte.
+func (t *toolbox) events(ctx context.Context, from, to time.Time, texte string) (eventsResult, error) {
+	events, err := t.s.calendar.Range(ctx, from, to, true)
+	if err != nil {
+		return eventsResult{}, err
+	}
 	out := eventsResult{Sorties: []eventJSON{}}
 	if out.Import, err = t.importOf(ctx, imports.Calendar); err != nil {
-		return nil, "", err
+		return eventsResult{}, err
 	}
-	text := normTitle(in.Texte)
+	text := normTitle(texte)
 	for _, ev := range events {
 		if text != "" && !strings.Contains(normTitle(ev.Title), text) {
 			continue
@@ -1026,24 +1081,24 @@ func (t *toolbox) findOutings(ctx context.Context, input json.RawMessage) (any, 
 		}
 		out.Sorties = append(out.Sorties, t.s.eventJSON(ev))
 	}
-	return out, "Recherche des sorties du " + t.s.formatDate(from) + " : " + plural(len(out.Sorties), "sortie", "sorties"), nil
+	return out, nil
 }
 
 type participantJSON struct {
-	Nom           string `json:"nom"`
-	Participation string `json:"participation"`
-	Personnes     string `json:"personnes,omitempty"`
-	InscritInvite bool   `json:"inscrit_en_invite,omitempty"`
-	Roles         string `json:"roles,omitempty"`
-	Panier        string `json:"panier"`
-	Homonyme      bool   `json:"homonyme,omitempty"`
+	Nom           string `json:"nom"                         jsonschema:"Nom du participant, tel que le calendrier le donne."`
+	Participation string `json:"participation"               jsonschema:"inscrit, liste_attente ou non_inscrit."`
+	Personnes     string `json:"personnes,omitempty"         jsonschema:"Nombre de places de l'inscription quand elle en compte plusieurs, invités compris."`
+	InscritInvite bool   `json:"inscrit_en_invite,omitempty" jsonschema:"Vrai quand la personne est inscrite comme invitée d'un autre membre."`
+	Roles         string `json:"roles,omitempty"             jsonschema:"Rôles sur la sortie."`
+	Panier        string `json:"panier"                      jsonschema:"État du panier de l'inscription : ce qui est payé et ce qui reste dû."`
+	Homonyme      bool   `json:"homonyme,omitempty"          jsonschema:"Vrai quand plusieurs membres portent ce nom."`
 }
 
 type outingResult struct {
-	Import          importState       `json:"import_calendrier"`
-	Sortie          eventJSON         `json:"sortie"`
-	Participants    []participantJSON `json:"participants"`
-	Desinscriptions []unregJSON       `json:"desinscriptions"`
+	Import          importState       `json:"import_calendrier" jsonschema:"État de l'import du calendrier."`
+	Sortie          eventJSON         `json:"sortie"            jsonschema:"La sortie."`
+	Participants    []participantJSON `json:"participants"      jsonschema:"Participants de la sortie."`
+	Desinscriptions []unregJSON       `json:"desinscriptions"   jsonschema:"Désinscriptions de la sortie."`
 }
 
 func (t *toolbox) outing(ctx context.Context, input json.RawMessage) (any, string, error) {
@@ -1053,12 +1108,22 @@ func (t *toolbox) outing(ctx context.Context, input json.RawMessage) (any, strin
 	if !ok || in.ID == "" {
 		return toolProblem{"id attendu"}, "Lecture de sortie refusée", nil
 	}
-	o, err := t.s.calendar.Outing(ctx, in.ID) // one snapshot: a push in between never mixes two exports
+	out, err := t.outingByID(ctx, in.ID)
 	if errors.Is(err, calendar.ErrNotFound) {
 		return toolProblem{"sortie inconnue : cherche-la avec find_outings"}, "Sortie inconnue", nil
 	}
 	if err != nil {
 		return nil, "", err
+	}
+	return out, "Sortie « " + out.Sortie.Titre + " » lue", nil
+}
+
+// outingByID reads one outing with its participants and unregistrations;
+// calendar.ErrNotFound when the calendar holds no such id.
+func (t *toolbox) outingByID(ctx context.Context, id string) (outingResult, error) {
+	o, err := t.s.calendar.Outing(ctx, id) // one snapshot: a push in between never mixes two exports
+	if err != nil {
+		return outingResult{}, err
 	}
 	out := outingResult{Participants: []participantJSON{}, Desinscriptions: []unregJSON{},
 		Sortie: t.s.eventJSON(o.Event), Import: t.importSource(imports.Calendar, t.s.stateOf(o.Import, o.Imported))}
@@ -1071,40 +1136,49 @@ func (t *toolbox) outing(ctx context.Context, input json.RawMessage) (any, strin
 			Le: t.s.formatTime(u.Time), Par: u.By})
 	}
 	t.addSource(assistant.Source{Label: o.Title, Link: "/calendrier/" + o.ID})
-	return out, "Sortie « " + o.Title + " » lue", nil
+	return out, nil
 }
 
 // --- cancellations
 
 type cancelledJSON struct {
-	Titre     string `json:"titre"`
-	Date      string `json:"date,omitempty"`
-	Payeurs   int    `json:"payeurs"`
-	Lignes    int    `json:"lignes"`
-	ParCarnet string `json:"a_recrediter_sur_carnets"`
-	EnArgent  string `json:"paye_en_argent"`
+	Titre     string `json:"titre"                    jsonschema:"Titre de la sortie annulée."`
+	Date      string `json:"date,omitempty"           jsonschema:"Date de la sortie, JJ/MM/AAAA."`
+	Payeurs   int    `json:"payeurs"                  jsonschema:"Nombre de personnes qui ont payé."`
+	Lignes    int    `json:"lignes"                   jsonschema:"Nombre de lignes payées à supprimer dans VPDive."`
+	ParCarnet string `json:"a_recrediter_sur_carnets" jsonschema:"Total payé par carnet, à recréditer, en euros."`
+	EnArgent  string `json:"paye_en_argent"           jsonschema:"Total payé en argent, en euros."`
 }
 
 type cancellationsResult struct {
-	Import  importState     `json:"import_vpdive"`
-	Sorties []cancelledJSON `json:"sorties"`
+	Import  importState     `json:"import_vpdive" jsonschema:"État de l'import des paiements VPDive."`
+	Sorties []cancelledJSON `json:"sorties"       jsonschema:"Sorties annulées à régulariser."`
 }
 
 func (t *toolbox) cancellations(ctx context.Context) (any, string, error) {
-	c, err := t.s.payments.Cancellations(ctx)
+	out, err := t.cancelled(ctx)
 	if err != nil {
 		return nil, "", err
 	}
+	return out, "Sorties annulées lues", nil
+}
+
+// cancelled are the cancelled outings whose paid lines await removal.
+func (t *toolbox) cancelled(ctx context.Context) (cancellationsResult, error) {
+	c, err := t.s.payments.Cancellations(ctx)
+	if err != nil {
+		return cancellationsResult{}, err
+	}
 	out := cancellationsResult{Sorties: []cancelledJSON{}}
 	if out.Import, err = t.importOf(ctx, imports.Payments); err != nil {
-		return nil, "", err
+		return cancellationsResult{}, err
 	}
 	for _, o := range c.Outings {
 		out.Sorties = append(out.Sorties, cancelledJSON{Titre: o.Title, Date: t.s.formatDate(o.Starts), Payeurs: o.Persons,
 			Lignes: o.Lines, ParCarnet: euros(o.ByCarnet), EnArgent: euros(o.ByMoney)})
 	}
 	t.addSource(assistant.Source{Label: "Annulations", Link: "/annulations"})
-	return out, "Sorties annulées lues", nil
+	return out, nil
 }
 
 // --- read_fiche
@@ -1153,8 +1227,8 @@ type licenceInput struct {
 }
 
 type licenceJSON struct {
-	Etat           string `json:"etat"`
-	ValableJusquAu string `json:"valable_jusqu_au,omitempty"`
+	Etat           string `json:"etat"                       jsonschema:"valide, non valide, introuvable, ou plusieurs (plusieurs licences correspondent)."`
+	ValableJusquAu string `json:"valable_jusqu_au,omitempty" jsonschema:"Dernier jour de validité, JJ/MM/AAAA, quand une seule licence correspond."`
 }
 
 // licenceStatus reads the federation's register for one person, or one
@@ -1168,33 +1242,61 @@ func (t *toolbox) licenceStatus(ctx context.Context, input json.RawMessage) (any
 		return toolProblem{"ref ou numero attendu, un seul des deux"}, licenceRefused, nil
 	}
 	var (
-		rows []licenceRow
-		err  error
-		who  = "licence " + in.Numero
+		person *assistant.Person
+		who    = "licence " + in.Numero
 	)
 	if in.Ref != "" {
 		p, _, _, problem := t.member(input, 0)
 		if problem != nil {
 			return *problem, licenceRefused, nil
 		}
-		who = p.Name
-		if p.Email == "" {
-			return toolProblem{"pas d'adresse mail pour cette personne : demande son numéro de licence au résolveur"}, licenceRefused, nil
-		}
+		person, who = &p, p.Name
+	}
+	out, err := t.licence(ctx, person, in.Numero)
+	switch {
+	case errors.Is(err, errLicenceNoEmail):
+		return toolProblem{"pas d'adresse mail pour cette personne : demande son numéro de licence au résolveur"}, licenceRefused, nil
+	case errors.Is(err, errLicenceNumber):
+		return toolProblem{"numéro de licence attendu, sous la forme A-13-634166"}, licenceRefused, nil
+	case errors.Is(err, errLicenceUnreachable):
+		return toolProblem{"registre de la FFESSM injoignable, dis-le au résolveur"}, "Registre FFESSM injoignable", nil
+	case err != nil:
+		return nil, "", err
+	}
+	return out, "Licence FFESSM de " + who + " lue", nil
+}
+
+// What a licence lookup cannot answer, for its caller to put in words.
+var (
+	errLicenceNoEmail     = errors.New("no address to search the register by")
+	errLicenceNumber      = errors.New("not a licence number")
+	errLicenceUnreachable = errors.New("register unreachable")
+)
+
+// licence reads the register for p, by their address, or for a licence
+// number when p is nil.
+func (t *toolbox) licence(ctx context.Context, p *assistant.Person, numero string) (licenceJSON, error) {
+	var (
+		rows []licenceRow
+		err  error
+	)
+	switch {
+	case p == nil && !licenceNumber.MatchString(numero): // a name here would find homonyms
+		return licenceJSON{}, errLicenceNumber
+	case p == nil:
+		rows, err = t.s.licenceRows(ctx, numero)
+	case p.Email == "":
+		return licenceJSON{}, errLicenceNoEmail
+	default:
 		rows, err = t.s.licenceOf(ctx, p.Email, p.Name)
-	} else {
-		if !licenceNumber.MatchString(in.Numero) { // a name here would find homonyms
-			return toolProblem{"numéro de licence attendu, sous la forme A-13-634166"}, licenceRefused, nil
-		}
-		rows, err = t.s.licenceRows(ctx, in.Numero)
 	}
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil, "", err
+			return licenceJSON{}, err
 		}
-		return toolProblem{"registre de la FFESSM injoignable, dis-le au résolveur"}, "Registre FFESSM injoignable", nil
+		return licenceJSON{}, errLicenceUnreachable
 	}
 	t.addSource(assistant.Source{Label: "Registre FFESSM", Link: "/licences"})
 	sum := t.s.summarize(rows)
-	return licenceJSON{Etat: licenceEtat[sum.State], ValableJusquAu: sum.Until}, "Licence FFESSM de " + who + " lue", nil
+	return licenceJSON{Etat: licenceEtat[sum.State], ValableJusquAu: sum.Until}, nil
 }

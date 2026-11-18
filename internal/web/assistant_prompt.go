@@ -213,7 +213,7 @@ func (s *Server) demandeText(ctx context.Context, c *assistant.Conversation, t *
 		return "", err
 	}
 	if len(matches) > 0 {
-		m := candidateOf(c, matches[0])
+		m := candidateOf(matches[0], c.AddPerson)
 		d.Adherent = requesterJSON{candidate: &m, Identification: "par l'adresse de la demande"}
 	}
 	raw, err := json.Marshal(d)
