@@ -283,3 +283,31 @@ func TestMaskJSONRefusesMalformedDocuments(t *testing.T) {
 		assert.NotContains(t, err.Error(), "\\x", "nothing of the document in the error")
 	}
 }
+
+func TestMaskNumbersKeepsAddresses(t *testing.T) {
+	got := MaskNumbers("Écris à Lea.Martin@Example.ORG ou o'connor@example.org.\n" +
+		"Tél. 0612345678, +33 6 12 34 56 78.\n" +
+		"IBAN FR76 3000 6000 0112 3456 7890 189, RIB 30006 00001 12345678901 89.\n" +
+		"Garde 05/01/2026, CPP-0042, 250 €.")
+	assert.Equal(t, "Écris à Lea.Martin@Example.ORG ou o'connor@example.org.\n"+
+		"Tél. [téléphone], [téléphone].\n"+
+		"IBAN [iban], RIB [iban].\n"+
+		"Garde 05/01/2026, CPP-0042, 250 €.", got)
+}
+
+// An address made of a phone number or an IBAN stays whole: masking half of
+// it would leave a broken address and still show the rest.
+func TestMaskNumbersShieldsDigitsInsideAnAddress(t *testing.T) {
+	got := MaskNumbers("0612345678@example.org puis 06 12 34 56 78, fr7630006000011234567890189@example.org")
+	assert.Equal(t, "0612345678@example.org puis [téléphone], fr7630006000011234567890189@example.org", got)
+}
+
+func TestMaskJSONNumbers(t *testing.T) {
+	doc := `{"ref":"lea@example.org","id":"FR76-3000-6000-0112","note":"lea@example.org\n0612345678","n":612345678,"liste":["FR7630006000011234567890189"]}`
+	got, err := MaskJSONNumbers([]byte(doc))
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"ref":"lea@example.org","id":"FR76-3000-6000-0112","note":"lea@example.org\n[téléphone]","n":612345678,"liste":["[iban]"]}`, string(got))
+
+	_, err = MaskJSONNumbers([]byte(`{"note":"sans fin`))
+	assert.Error(t, err)
+}

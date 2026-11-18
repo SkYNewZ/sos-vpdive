@@ -74,6 +74,24 @@ func Mask(text string, emails []string) (string, []string) {
 	return phonePattern.ReplaceAllString(text, "[téléphone]"), emails
 }
 
+// MaskNumbers hides phone numbers, IBANs and RIBs and leaves addresses as
+// written, for a reader who may see them. It masks the text between
+// addresses only: a number pattern never bites into one.
+func MaskNumbers(text string) string {
+	var b strings.Builder
+	last := 0
+	for _, loc := range emailPattern.FindAllStringIndex(text, -1) {
+		b.WriteString(maskNumbers(text[last:loc[0]]) + text[loc[0]:loc[1]])
+		last = loc[1]
+	}
+	b.WriteString(maskNumbers(text[last:]))
+	return b.String()
+}
+
+func maskNumbers(text string) string {
+	return phonePattern.ReplaceAllString(maskIBANs(ribPattern.ReplaceAllString(text, "[iban]")), "[téléphone]")
+}
+
 // maskIBANs replaces the IBANs of text. A match that is none (a dive level
 // and the words after it) may run into the head of one, or stop inside one
 // when its groups run out: the search starts again after its first
@@ -153,6 +171,21 @@ var idKeys = []string{`"id"`, `"ref"`}
 // u003c, and either sticks to the number or the address after it, which Mask
 // would then miss or misread. On error the results are nil.
 func MaskJSON(doc []byte, emails []string) ([]byte, []string, error) {
+	out, err := maskJSON(doc, func(value string) string {
+		value, emails = Mask(value, emails)
+		return value
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return out, emails, nil
+}
+
+// MaskJSONNumbers is MaskJSON with MaskNumbers: addresses stay.
+func MaskJSONNumbers(doc []byte) ([]byte, error) { return maskJSON(doc, MaskNumbers) }
+
+// maskJSON rewrites every string value of doc but those of idKeys with mask.
+func maskJSON(doc []byte, mask func(string) string) ([]byte, error) {
 	out := make([]byte, 0, len(doc))
 	keep := false // the next string is the value of an idKeys key
 	for i := 0; i < len(doc); {
@@ -169,7 +202,7 @@ func MaskJSON(doc []byte, emails []string) ([]byte, []string, error) {
 			end++
 		}
 		if end >= len(doc) {
-			return nil, nil, errMaskJSON
+			return nil, errMaskJSON
 		}
 		literal := doc[i : end+1]
 		i = end + 1
@@ -181,19 +214,18 @@ func MaskJSON(doc []byte, emails []string) ([]byte, []string, error) {
 		}
 		var value string
 		if err := json.Unmarshal(literal, &value); err != nil {
-			return nil, nil, errMaskJSON
+			return nil, errMaskJSON
 		}
 		if keep {
 			keep = false
 			out = append(out, literal...)
 			continue
 		}
-		value, emails = Mask(value, emails)
-		masked, err := json.Marshal(value)
+		masked, err := json.Marshal(mask(value))
 		if err != nil {
-			return nil, nil, errMaskJSON
+			return nil, errMaskJSON
 		}
 		out = append(out, masked...)
 	}
-	return out, emails, nil
+	return out, nil
 }
