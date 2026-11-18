@@ -36,7 +36,7 @@ func pkceChallenge() string {
 // newMCPEnv is a server with the MCP routes on and a host that serves
 // client id documents: /client.json is a sound one, the others are wrong in
 // one way each. It returns that host's base URL.
-func newMCPEnv(t *testing.T) (*testEnv, string) {
+func newMCPEnv(t *testing.T, opts ...func(*Deps)) (*testEnv, string) {
 	t.Helper()
 	var base string
 	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -66,7 +66,7 @@ func newMCPEnv(t *testing.T) (*testEnv, string) {
 		d.Config.MCP = &config.MCP{ClientHosts: []string{"127.0.0.1"}}
 		d.OAuthHTTP = client
 	}
-	return newTestEnv(t, on), base
+	return newTestEnv(t, append([]func(*Deps){on}, opts...)...), base
 }
 
 // authorizeTarget is a sound authorization request of the client at

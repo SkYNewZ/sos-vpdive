@@ -325,6 +325,7 @@ func (s *Server) apiRoutes(site http.Handler) *http.ServeMux {
 		s.handle(mux, "/api/imports/", s.notFound)
 	}
 	if s.cfg.MCP != nil {
+		s.handle(mux, mcpPath, s.mcpHandler())
 		s.handle(mux, "POST "+oauthTokenPath, s.oauthToken)
 		s.handle(mux, "GET "+oauthServerMeta, s.oauthServerMetadata)
 		s.handle(mux, "GET "+oauthResourceMeta, s.oauthResourceMetadata)
