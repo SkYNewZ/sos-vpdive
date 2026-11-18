@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -29,85 +28,63 @@ type Stats struct {
 	Months   []MonthStat // by month, then category
 }
 
+// MonthLayout is how a month is written in stats_monthly and in Stats.
+const MonthLayout = "2006-01"
+
 // Stats counts what the committee has to report on. A closed request that
 // was deleted or purged lives on in stats_monthly only (spec §8.3): it still
 // counts as closed in its month, no longer as submitted.
 func (s *Store) Stats(ctx context.Context) (Stats, error) {
 	months := map[[2]string]*MonthStat{}
-	at := func(t time.Time, category string) *MonthStat {
-		key := [2]string{t.In(s.paris).Format("2006-01"), category}
+	at := func(month, category string) *MonthStat {
+		key := [2]string{month, category}
 		if months[key] == nil {
-			months[key] = &MonthStat{Month: key[0], Category: category}
+			months[key] = &MonthStat{Month: month, Category: category}
 		}
 		return months[key]
 	}
+	monthOf := func(unix int64) string { return time.Unix(unix, 0).In(s.paris).Format(MonthLayout) }
 	out := Stats{ByStatus: map[Status]int{}}
 
-	rows, err := s.DB.QueryContext(ctx, `SELECT category, status, submitted_at, closed_at FROM submitted_tickets`)
-	if err == nil {
-		err = scanEach(rows, func() error {
-			var (
-				category          string
-				status            Status
-				submitted, closed sql.NullInt64
-			)
-			if err := rows.Scan(&category, &status, &submitted, &closed); err != nil {
-				return err
-			}
-			out.ByStatus[status]++
-			at(store.UnixTime(submitted), category).Submitted++
-			if status == StatusDone && closed.Valid {
-				m := at(store.UnixTime(closed), category)
-				m.Closed++
-				m.HoursToClose += (closed.Int64 - submitted.Int64) / 3600
-			}
-			return nil
-		})
+	type live struct {
+		category          string
+		status            Status
+		submitted, closed sql.NullInt64
 	}
+	rows, err := s.DB.QueryContext(ctx, `SELECT category, status, submitted_at, closed_at FROM submitted_tickets`)
+	requests, err := store.Collect(rows, err, func(rows *sql.Rows) (r live, err error) {
+		return r, rows.Scan(&r.category, &r.status, &r.submitted, &r.closed)
+	})
 	if err != nil {
 		return Stats{}, fmt.Errorf("count requests: %w", err)
 	}
-
-	rows, err = s.DB.QueryContext(ctx, `SELECT month, category, closed_count, hours_to_close_total FROM stats_monthly`)
-	if err == nil {
-		err = scanEach(rows, func() error {
-			var (
-				month, category string
-				count           int
-				hours           int64
-			)
-			if err := rows.Scan(&month, &category, &count, &hours); err != nil {
-				return err
-			}
-			key := [2]string{month, category}
-			if months[key] == nil {
-				months[key] = &MonthStat{Month: month, Category: category}
-			}
-			months[key].Closed += count
-			months[key].HoursToClose += hours
-			return nil
-		})
+	for _, r := range requests {
+		out.ByStatus[r.status]++
+		at(monthOf(r.submitted.Int64), r.category).Submitted++
+		if r.status == StatusDone && r.closed.Valid {
+			m := at(monthOf(r.closed.Int64), r.category)
+			m.Closed++
+			m.HoursToClose += (r.closed.Int64 - r.submitted.Int64) / 3600 // as addStats counts them
+		}
 	}
+
+	rows, err = s.DB.QueryContext(ctx, `SELECT month, category, closed_count, hours_to_close_total, 0 FROM stats_monthly
+		UNION ALL SELECT '', category, 0, 0, created_at FROM deflections`)
+	archived, err := store.Collect(rows, err, func(rows *sql.Rows) (m MonthStat, err error) {
+		var avoidedAt int64
+		if err = rows.Scan(&m.Month, &m.Category, &m.Closed, &m.HoursToClose, &avoidedAt); err == nil && m.Month == "" {
+			m.Month, m.Avoided = monthOf(avoidedAt), 1
+		}
+		return m, err
+	})
 	if err != nil {
 		return Stats{}, fmt.Errorf("read monthly stats: %w", err)
 	}
-
-	rows, err = s.DB.QueryContext(ctx, `SELECT category, created_at FROM deflections`)
-	if err == nil {
-		err = scanEach(rows, func() error {
-			var (
-				category string
-				created  int64
-			)
-			if err := rows.Scan(&category, &created); err != nil {
-				return err
-			}
-			at(time.Unix(created, 0), category).Avoided++
-			return nil
-		})
-	}
-	if err != nil {
-		return Stats{}, fmt.Errorf("count avoided requests: %w", err)
+	for _, a := range archived {
+		m := at(a.Month, a.Category)
+		m.Closed += a.Closed
+		m.HoursToClose += a.HoursToClose
+		m.Avoided += a.Avoided
 	}
 
 	for _, m := range months {
@@ -117,15 +94,4 @@ func (s *Store) Stats(ctx context.Context) (Stats, error) {
 		return cmp.Or(cmp.Compare(a.Month, b.Month), cmp.Compare(a.Category, b.Category))
 	})
 	return out, nil
-}
-
-// scanEach calls read for each row of rows and closes them.
-func scanEach(rows *sql.Rows, read func() error) (err error) {
-	defer func() { err = errors.Join(err, rows.Close()) }()
-	for rows.Next() {
-		if err := read(); err != nil {
-			return err
-		}
-	}
-	return rows.Err()
 }

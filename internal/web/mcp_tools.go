@@ -345,10 +345,9 @@ func (c mcpCall) listMemberships(ctx context.Context, in listMembershipsIn) (mem
 		return membershipsResult{}, problem
 	}
 	out.Total = len(all)
-	if offset < len(all) {
-		out.Personnes = all[offset:min(len(all), offset+limit)]
+	if shown, more := pageSlice(all, limit, offset); len(shown) > 0 {
+		out.Personnes, out.HasMore = shown, more
 	}
-	out.HasMore = offset+len(out.Personnes) < len(all)
 	return out, nil
 }
 
@@ -370,6 +369,12 @@ func pageOf(limit, offset, def, maximum int) (int, int, error) {
 		limit = def
 	}
 	return min(limit, maximum), offset, nil
+}
+
+// pageSlice is the slice of all a page request shows, and whether more follows.
+func pageSlice[T any](all []T, limit, offset int) ([]T, bool) {
+	shown := all[min(offset, len(all)):min(offset+limit, len(all))]
+	return shown, offset+len(shown) < len(all)
 }
 
 // --- payments to check

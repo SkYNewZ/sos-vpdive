@@ -507,22 +507,11 @@ func (t *toolbox) member(input json.RawMessage, back int) (assistant.Person, tim
 // period reads du and au, Paris days: from defaults to back days before
 // today, to (exclusive) to none.
 func (s *Server) period(du, au string, back int) (from, to time.Time, ok bool) {
-	from = midnight(s.now(), s.paris).AddDate(0, 0, -back)
-	if du != "" {
-		d, err := time.ParseInLocation(time.DateOnly, du, s.paris)
-		if err != nil {
-			return from, to, false
-		}
-		from = d
+	from, to, err := s.days(du, au)
+	if du == "" {
+		from = midnight(s.now(), s.paris).AddDate(0, 0, -back)
 	}
-	if au != "" {
-		d, err := time.ParseInLocation(time.DateOnly, au, s.paris)
-		if err != nil {
-			return from, to, false
-		}
-		to = d.AddDate(0, 0, 1)
-	}
-	return from, to, to.IsZero() || to.After(from)
+	return from, to, err == nil && (to.IsZero() || to.After(from))
 }
 
 // periodJSON is the window a member tool read, Paris days, both included:

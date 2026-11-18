@@ -17,12 +17,10 @@ import (
 
 // Limits of the request tools.
 const (
-	ticketsPage     = 50
-	ticketsPageMax  = 100
-	ticketMessages  = 100 // of a request's thread: the latest
-	statsMonths     = 12  // months comite_ticket_stats covers by default
-	monthFormat     = "2006-01"
-	ticketRefPrefix = "CPP-"
+	ticketsPage    = 50
+	ticketsPageMax = 100
+	ticketMessages = 100 // of a request's thread: the latest
+	statsMonths    = 12  // months comite_ticket_stats covers by default
 )
 
 // ticketStatuses are the statuses a confirmed request goes through.
@@ -153,10 +151,10 @@ func (c mcpCall) listTickets(ctx context.Context, in listTicketsIn) (ticketsResu
 		return cmp.Or(b.SubmittedAt.Compare(a.SubmittedAt), cmp.Compare(b.ID, a.ID))
 	})
 	out := ticketsResult{Total: len(rows), Demandes: []ticketRowJSON{}}
-	for _, r := range rows[min(offset, len(rows)):min(offset+limit, len(rows))] {
+	rows, out.HasMore = pageSlice(rows, limit, offset)
+	for _, r := range rows {
 		out.Demandes = append(out.Demandes, s.ticketRowJSON(r))
 	}
-	out.HasMore = offset+len(out.Demandes) < len(rows)
 	return out, nil
 }
 
@@ -201,7 +199,7 @@ func (c mcpCall) ticketID(ctx context.Context, raw string) (int64, error) {
 	if id, err := strconv.ParseInt(raw, 10, 64); err == nil {
 		return id, nil
 	}
-	if !strings.HasPrefix(raw, ticketRefPrefix) {
+	if !refPattern.MatchString(raw) {
 		return 0, refusalError("demande attendue : un identifiant numérique ou une référence sous la forme CPP-0042")
 	}
 	return c.s.tickets.IDByRef(ctx, raw)
@@ -300,22 +298,22 @@ type ticketStatsResult struct {
 
 func (c mcpCall) ticketStats(ctx context.Context, in ticketStatsIn) (ticketStatsResult, error) {
 	s := c.s
+	month := func(raw string, def time.Time) (time.Time, error) {
+		if raw == "" {
+			return def, nil
+		}
+		return time.ParseInLocation(tickets.MonthLayout, raw, s.paris)
+	}
 	refused := refusalError("du et au : format AAAA-MM, du avant au")
-	to := s.now().In(s.paris)
-	if in.Au != "" {
-		var err error
-		if to, err = time.ParseInLocation(monthFormat, in.Au, s.paris); err != nil {
-			return ticketStatsResult{}, refused
-		}
+	to, err := month(in.Au, s.now().In(s.paris))
+	if err != nil {
+		return ticketStatsResult{}, refused
 	}
-	from := time.Date(to.Year(), to.Month(), 1, 0, 0, 0, 0, s.paris).AddDate(0, 1-statsMonths, 0)
-	if in.Du != "" {
-		var err error
-		if from, err = time.ParseInLocation(monthFormat, in.Du, s.paris); err != nil {
-			return ticketStatsResult{}, refused
-		}
+	from, err := month(in.Du, time.Date(to.Year(), to.Month(), 1, 0, 0, 0, 0, s.paris).AddDate(0, 1-statsMonths, 0))
+	if err != nil {
+		return ticketStatsResult{}, refused
 	}
-	du, au := from.Format(monthFormat), to.Format(monthFormat)
+	du, au := from.Format(tickets.MonthLayout), to.Format(tickets.MonthLayout)
 	if du > au {
 		return ticketStatsResult{}, refused
 	}

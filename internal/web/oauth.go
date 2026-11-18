@@ -126,6 +126,7 @@ func (g *oauthGrants) take(kind grantKind, token string) (oauthRequest, bool) {
 // oauthClient is what a client id document says of its client.
 type oauthClient struct {
 	name      string
+	host      string // of its document
 	redirects []string
 }
 
@@ -182,7 +183,7 @@ func (s *Server) fetchClient(ctx context.Context, clientID string) (_ oauthClien
 	if utf8.RuneCountInString(name) > clientNameMax {
 		name = string([]rune(name)[:clientNameMax])
 	}
-	return oauthClient{name: name, redirects: doc.RedirectURIs}, nil
+	return oauthClient{name: name, host: u.Hostname(), redirects: doc.RedirectURIs}, nil
 }
 
 // redirectAllowed reports whether got is one of the client's redirect URIs,
@@ -261,11 +262,7 @@ func (s *Server) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	host := req.clientID
-	if u, err := url.Parse(req.clientID); err == nil {
-		host = u.Hostname()
-	}
-	s.renderConsent(w, r, http.StatusOK, consentData{Client: client.name, Host: host, Demande: nonce})
+	s.renderConsent(w, r, http.StatusOK, consentData{Client: client.name, Host: client.host, Demande: nonce})
 }
 
 // oauthInvalid is the error code of a request the client got wrong, "" for

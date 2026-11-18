@@ -117,7 +117,7 @@ func (s *Store) drop(ctx context.Context, tx *sql.Tx, list []ticketRow) ([]strin
 
 // addStats counts a closed request in its month (Europe/Paris) and category.
 func (s *Store) addStats(ctx context.Context, tx *sql.Tx, d ticketRow) error {
-	month := time.Unix(d.closedAt, 0).In(s.paris).Format("2006-01")
+	month := time.Unix(d.closedAt, 0).In(s.paris).Format(MonthLayout)
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO stats_monthly (month, category, closed_count, hours_to_close_total) VALUES (?, ?, 1, ?)
 		 ON CONFLICT (month, category) DO UPDATE SET closed_count = closed_count + 1,

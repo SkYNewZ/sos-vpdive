@@ -38,6 +38,9 @@ const (
 // connectionKey is where a token's connection id sits in its TokenInfo.
 const connectionKey = "connection"
 
+// lastUsedKey is where its last use sits, as read with the token.
+const lastUsedKey = "last_used"
+
 // mcpHandler serves the MCP endpoint: a foreign Origin is refused, then the
 // bearer token names the connection, whose calls are counted.
 func (s *Server) mcpHandler() http.HandlerFunc {
@@ -58,7 +61,8 @@ func (s *Server) mcpHandler() http.HandlerFunc {
 	})
 	next := bearer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
-		id := connectionOf(auth.TokenInfoFromContext(ctx))
+		info := auth.TokenInfoFromContext(ctx)
+		id := connectionOf(info)
 		ok, err := s.limiter.allow(ctx, "mcp:"+strconv.FormatInt(id, 10), mcpCallLimit, time.Hour)
 		if err != nil {
 			s.serverError(w, r, err)
@@ -69,10 +73,11 @@ func (s *Server) mcpHandler() http.HandlerFunc {
 			s.writeText(w, r, http.StatusTooManyRequests, "Trop d'appels pour cette connexion : réessaie dans une heure.\n")
 			return
 		}
-		now := s.now()
-		if _, err := s.db.ExecContext(ctx, `UPDATE mcp_connections SET last_used_at = ? WHERE id = ? AND last_used_at <= ?`,
-			now.Unix(), id, now.Add(-mcpTouchEvery).Unix()); err != nil {
-			s.logger.ErrorContext(ctx, "touch connection", "error", err)
+		// A write only when the page's « utilisée le » would change.
+		if used, _ := info.Extra[lastUsedKey].(int64); s.now().Unix()-used >= int64(mcpTouchEvery/time.Second) {
+			if _, err := s.db.ExecContext(ctx, `UPDATE mcp_connections SET last_used_at = ? WHERE id = ?`, s.now().Unix(), id); err != nil {
+				s.logger.ErrorContext(ctx, "touch connection", "error", err)
+			}
 		}
 		streamable.ServeHTTP(w, r)
 	}))
@@ -109,10 +114,11 @@ func (s *Server) verifyAccess(ctx context.Context, token string, _ *http.Request
 		credential []byte
 		scope      string
 		expires    int64
+		used       int64
 	)
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, username, credential_hash, scope, access_expires_at FROM mcp_connections WHERE access_hash = ?`, secure.TokenHash(token)).
-		Scan(&id, &username, &credential, &scope, &expires)
+		`SELECT id, username, credential_hash, scope, access_expires_at, last_used_at FROM mcp_connections WHERE access_hash = ?`, secure.TokenHash(token)).
+		Scan(&id, &username, &credential, &scope, &expires, &used)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, auth.ErrInvalidToken
 	}
@@ -127,7 +133,7 @@ func (s *Server) verifyAccess(ctx context.Context, token string, _ *http.Request
 	if _, live := s.admins.Current(username, credential); !live || s.now().Unix() >= expires {
 		return nil, auth.ErrInvalidToken
 	}
-	return &auth.TokenInfo{Scopes: strings.Fields(scope), UserID: username, Extra: map[string]any{connectionKey: id}}, nil
+	return &auth.TokenInfo{Scopes: strings.Fields(scope), UserID: username, Extra: map[string]any{connectionKey: id, lastUsedKey: used}}, nil
 }
 
 // mcpCall is one tool call of a connection.
