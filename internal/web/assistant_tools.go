@@ -331,24 +331,36 @@ func (t *toolbox) findMember(ctx context.Context, input json.RawMessage) (any, s
 	if !ok || strings.TrimSpace(in.Query) == "" {
 		return toolProblem{"query attendu : un nom, un prénom ou [email N]"}, "Recherche d'adhérent refusée", nil
 	}
-	st, err := t.importOf(ctx, imports.Members)
+	email, _ := assistant.Placeholder(in.Query, t.c.Emails)
+	out, err := t.candidates(ctx, in.Query, email, t.c.AddPerson)
 	if err != nil {
 		return nil, "", err
 	}
+	return out, "Recherche « " + strings.TrimSpace(in.Query) + " » : " + plural(len(out.Candidats), "candidat", "candidats"), nil
+}
+
+// candidates are the people query names: the member of email when one is
+// given, else the members and the campaign people whose name holds its
+// words. ref names each of them for the caller's later calls.
+func (t *toolbox) candidates(ctx context.Context, query, email string, ref func(assistant.Person) string) (findMemberResult, error) {
+	st, err := t.importOf(ctx, imports.Members)
+	if err != nil {
+		return findMemberResult{}, err
+	}
 	var matches []members.Match
-	email, byEmail := assistant.Placeholder(in.Query, t.c.Emails)
+	byEmail := email != ""
 	if byEmail {
 		matches, err = t.s.memberOf(ctx, email)
 	} else {
-		matches, err = t.s.members.Search(ctx, in.Query, maxCandidates)
+		matches, err = t.s.members.Search(ctx, query, maxCandidates)
 	}
 	if err != nil {
-		return nil, "", err
+		return findMemberResult{}, err
 	}
 	var extra []assistant.Person
 	if !byEmail { // the campaign holds no address
-		if extra, err = t.campaignPeople(ctx, in.Query); err != nil {
-			return nil, "", err
+		if extra, err = t.campaignPeople(ctx, query); err != nil {
+			return findMemberResult{}, err
 		}
 		// Search's rule across both sources: an exact match hides the partial
 		// ones, whose names then never reach the conversation.
@@ -362,14 +374,13 @@ func (t *toolbox) findMember(ctx context.Context, input json.RawMessage) (any, s
 		if m.Exact {
 			out.Correspondance = "exacte"
 		}
-		out.Candidats = append(out.Candidats, candidateOf(t.c, m))
+		out.Candidats = append(out.Candidats, candidateOf(m, ref))
 	}
 	for _, p := range extra[:min(len(extra), maxCandidates-len(out.Candidats))] {
-		ref := t.c.AddPerson(p)
-		out.Candidats = append(out.Candidats, candidate{Ref: ref, Nom: p.Name, Source: sourceCampaign, Homonyme: p.Shared > 1})
+		out.Candidats = append(out.Candidats, candidate{Ref: ref(p), Nom: p.Name, Source: sourceCampaign, Homonyme: p.Shared > 1})
 		out.Correspondance = "exacte"
 	}
-	return out, "Recherche « " + strings.TrimSpace(in.Query) + " » : " + plural(len(out.Candidats), "candidat", "candidats"), nil
+	return out, nil
 }
 
 // memberOf is the member of email (an address the resolver typed, which
@@ -387,17 +398,17 @@ func (s *Server) memberOf(ctx context.Context, email string) ([]members.Match, e
 	return []members.Match{{Profile: p, Email: email, Shared: n, Exact: true}}, nil
 }
 
-// candidateOf adds m to the people of c and describes them for the model.
-func candidateOf(c *assistant.Conversation, m members.Match) candidate {
+// candidateOf describes m for the model, under the name ref gives them.
+func candidateOf(m members.Match, ref func(assistant.Person) string) candidate {
 	view := newProfileView(m.Profile)
 	name := strings.TrimSpace(m.FirstName + " " + m.LastName)
-	ref := c.AddPerson(assistant.Person{Name: name, Email: m.Email, NameHash: m.NameHash,
-		Seasons: view.Seasons, Licence: view.Licence, Shared: m.Shared})
 	orgs := "non fournie par l'export"
 	if m.Organisation != nil {
 		orgs = cmp.Or(*m.Organisation, "aucune")
 	}
-	return candidate{Ref: ref, Nom: name, Saisons: view.Seasons, Licence: view.Licence, Organisation: orgs, Homonyme: m.Shared > 1}
+	return candidate{Ref: ref(assistant.Person{Name: name, Email: m.Email, NameHash: m.NameHash,
+		Seasons: view.Seasons, Licence: view.Licence, Shared: m.Shared}),
+		Nom: name, Saisons: view.Seasons, Licence: view.Licence, Organisation: orgs, Homonyme: m.Shared > 1}
 }
 
 // campaignPeople are the people of the campaign whose name holds every word
@@ -608,17 +619,27 @@ func (t *toolbox) memberPayments(ctx context.Context, input json.RawMessage) (an
 	if problem != nil {
 		return *problem, "Lecture de paiements refusée", nil
 	}
+	out, err := t.payments(ctx, p, from, to)
+	if err != nil {
+		return nil, "", err
+	}
+	return out, "Paiements de " + p.Name + " lus", nil
+}
+
+// payments reads the lines of p between from and to, with their balances
+// and every card.
+func (t *toolbox) payments(ctx context.Context, p assistant.Person, from, to time.Time) (paymentsResult, error) {
 	if p.Shared > 1 { // a campaign homonym, whom no members count marks
-		return t.ambiguousPayments(ctx, p, from, to)
+		return t.ambiguousPayments(ctx, from, to)
 	}
 	pay, mol, err := t.s.paymentBlocks(ctx, p.NameHash)
 	if err != nil {
-		return nil, "", err
+		return paymentsResult{}, err
 	}
 	out := paymentsResult{Etat: blockState[pay.State], EtatMollie: blockState[mol.State], Periode: t.s.periodRead(from, to),
 		Soldes: []lineJSON{}, Lignes: []lineJSON{}, Mollie: []mollieJSON{}}
 	if out.Import, out.ImportMollie, err = t.paymentImports(ctx); err != nil {
-		return nil, "", err
+		return paymentsResult{}, err
 	}
 	for _, l := range pay.Balances {
 		out.Soldes = append(out.Soldes, t.s.lineJSON(l))
@@ -649,29 +670,29 @@ mollie:
 	}
 	cards, err := t.s.carnets.Block(ctx, p.NameHash)
 	if err != nil {
-		return nil, "", err
+		return paymentsResult{}, err
 	}
 	out.ImportCartes = t.importSource(imports.Carnets, t.s.stateOf(cards.Import, cards.Import.ID != 0))
 	out.EtatCartes, out.Cartes = blockState[cards.State], make([]carteJSON, 0, len(cards.Cards))
 	for _, v := range cards.Cards {
 		out.Cartes = append(out.Cartes, t.s.carteJSON(v))
 	}
-	return out, "Paiements de " + p.Name + " lus", nil
+	return out, nil
 }
 
 // ambiguousPayments answers a homonym without reading any line.
-func (t *toolbox) ambiguousPayments(ctx context.Context, p assistant.Person, from, to time.Time) (any, string, error) {
+func (t *toolbox) ambiguousPayments(ctx context.Context, from, to time.Time) (paymentsResult, error) {
 	amb := blockState[payments.BlockAmbiguous]
 	out := paymentsResult{Etat: amb, EtatMollie: amb, EtatCartes: amb, Periode: t.s.periodRead(from, to),
 		Soldes: []lineJSON{}, Lignes: []lineJSON{}, Mollie: []mollieJSON{}, Cartes: []carteJSON{}}
 	var err error
 	if out.Import, out.ImportMollie, err = t.paymentImports(ctx); err != nil {
-		return nil, "", err
+		return paymentsResult{}, err
 	}
 	if out.ImportCartes, err = t.importOf(ctx, imports.Carnets); err != nil {
-		return nil, "", err
+		return paymentsResult{}, err
 	}
-	return out, "Paiements de " + p.Name + " lus", nil
+	return out, nil
 }
 
 // carteJSON is a card as the model reads it (design 2026-10-09 §7).
@@ -823,16 +844,25 @@ func (t *toolbox) memberOutings(ctx context.Context, input json.RawMessage) (any
 	if problem != nil {
 		return *problem, "Lecture de sorties refusée", nil
 	}
-	b, err := t.outingsOf(ctx, p)
+	out, err := t.outings(ctx, p, from, to)
 	if err != nil {
 		return nil, "", err
 	}
+	return out, "Sorties de " + p.Name + " lues", nil
+}
+
+// outings reads the outings of p that overlap [from, to).
+func (t *toolbox) outings(ctx context.Context, p assistant.Person, from, to time.Time) (outingsResult, error) {
+	b, err := t.outingsOf(ctx, p)
+	if err != nil {
+		return outingsResult{}, err
+	}
 	out := outingsResult{Etat: outingsStateName[b.State], Periode: t.s.periodRead(from, to), Sorties: []outingJSON{}}
 	if out.Import, err = t.importOf(ctx, imports.Calendar); err != nil {
-		return nil, "", err
+		return outingsResult{}, err
 	}
 	if out.ImportVPDive, out.ImportMollie, err = t.paymentImports(ctx); err != nil {
-		return nil, "", err
+		return outingsResult{}, err
 	}
 	for _, o := range append(b.Recent, b.Older...) {
 		if o.Event.Until().Before(from) || (!to.IsZero() && !o.Event.Start.Before(to)) {
@@ -844,7 +874,7 @@ func (t *toolbox) memberOutings(ctx context.Context, input json.RawMessage) (any
 		}
 		out.Sorties = append(out.Sorties, t.s.outingJSON(o))
 	}
-	return out, "Sorties de " + p.Name + " lues", nil
+	return out, nil
 }
 
 // --- member_requests
@@ -924,9 +954,18 @@ func (t *toolbox) memberMembership(ctx context.Context, input json.RawMessage) (
 	if problem != nil {
 		return *problem, "Lecture de campagne refusée", nil
 	}
-	state, info, people, err := t.s.campaign.NameLines(ctx, p.NameHash)
+	out, err := t.membership(ctx, p)
 	if err != nil {
 		return nil, "", err
+	}
+	return out, "Campagne d'adhésion de " + p.Name + " lue", nil
+}
+
+// membership reads the campaign lines of p: none in detail for a homonym.
+func (t *toolbox) membership(ctx context.Context, p assistant.Person) (membershipResult, error) {
+	state, info, people, err := t.s.campaign.NameLines(ctx, p.NameHash)
+	if err != nil {
+		return membershipResult{}, err
 	}
 	out := membershipResult{Import: t.importSource(imports.Campaign, t.s.stateOf(info, info.ID != 0)),
 		ExportDu: t.s.formatTime(info.ExportedAt), Etat: blockState[state], Lignes: []membershipJSON{}}
@@ -941,7 +980,7 @@ func (t *toolbox) memberMembership(ctx context.Context, input json.RawMessage) (
 		}
 		out.Lignes = append(out.Lignes, j)
 	}
-	return out, "Campagne d'adhésion de " + p.Name + " lue", nil
+	return out, nil
 }
 
 func (s *Server) entriesJSON(entries []campaign.Entry) []campaignEntryJSON {
@@ -997,25 +1036,47 @@ func (t *toolbox) findOutings(ctx context.Context, input json.RawMessage) (any, 
 		Au    string `json:"au"`
 		Texte string `json:"texte"`
 	}](input)
-	if !ok || in.Du == "" || in.Au == "" {
+	if !ok {
 		return toolProblem{"du et au attendus, au format AAAA-MM-JJ"}, findOutingsRefused, nil
 	}
-	from, to, ok := t.s.period(in.Du, in.Au, 0)
-	if !ok {
-		return toolProblem{"dates au format AAAA-MM-JJ, du avant au"}, findOutingsRefused, nil
+	from, to, problem := t.s.outingsPeriod(in.Du, in.Au)
+	if problem != nil {
+		return *problem, findOutingsRefused, nil
 	}
-	if to.Sub(from) > maxOutingsRange*24*time.Hour+time.Hour { // an hour of slack for a time change
-		return toolProblem{"62 jours au plus entre du et au"}, findOutingsRefused, nil
-	}
-	events, err := t.s.calendar.Range(ctx, from, to, true)
+	out, err := t.events(ctx, from, to, in.Texte)
 	if err != nil {
 		return nil, "", err
 	}
+	return out, "Recherche des sorties du " + t.s.formatDate(from) + " : " + plural(len(out.Sorties), "sortie", "sorties"), nil
+}
+
+// outingsPeriod reads the window of a calendar search: both days given, 62
+// days at most.
+func (s *Server) outingsPeriod(du, au string) (from, to time.Time, problem *toolProblem) {
+	if du == "" || au == "" {
+		return from, to, &toolProblem{"du et au attendus, au format AAAA-MM-JJ"}
+	}
+	from, to, ok := s.period(du, au, 0)
+	if !ok {
+		return from, to, &toolProblem{"dates au format AAAA-MM-JJ, du avant au"}
+	}
+	if to.Sub(from) > maxOutingsRange*24*time.Hour+time.Hour { // an hour of slack for a time change
+		return from, to, &toolProblem{"62 jours au plus entre du et au"}
+	}
+	return from, to, nil
+}
+
+// events are the calendar's outings of [from, to) whose title holds texte.
+func (t *toolbox) events(ctx context.Context, from, to time.Time, texte string) (eventsResult, error) {
+	events, err := t.s.calendar.Range(ctx, from, to, true)
+	if err != nil {
+		return eventsResult{}, err
+	}
 	out := eventsResult{Sorties: []eventJSON{}}
 	if out.Import, err = t.importOf(ctx, imports.Calendar); err != nil {
-		return nil, "", err
+		return eventsResult{}, err
 	}
-	text := normTitle(in.Texte)
+	text := normTitle(texte)
 	for _, ev := range events {
 		if text != "" && !strings.Contains(normTitle(ev.Title), text) {
 			continue
@@ -1026,7 +1087,7 @@ func (t *toolbox) findOutings(ctx context.Context, input json.RawMessage) (any, 
 		}
 		out.Sorties = append(out.Sorties, t.s.eventJSON(ev))
 	}
-	return out, "Recherche des sorties du " + t.s.formatDate(from) + " : " + plural(len(out.Sorties), "sortie", "sorties"), nil
+	return out, nil
 }
 
 type participantJSON struct {
@@ -1053,12 +1114,22 @@ func (t *toolbox) outing(ctx context.Context, input json.RawMessage) (any, strin
 	if !ok || in.ID == "" {
 		return toolProblem{"id attendu"}, "Lecture de sortie refusée", nil
 	}
-	o, err := t.s.calendar.Outing(ctx, in.ID) // one snapshot: a push in between never mixes two exports
+	out, err := t.outingByID(ctx, in.ID)
 	if errors.Is(err, calendar.ErrNotFound) {
 		return toolProblem{"sortie inconnue : cherche-la avec find_outings"}, "Sortie inconnue", nil
 	}
 	if err != nil {
 		return nil, "", err
+	}
+	return out, "Sortie « " + out.Sortie.Titre + " » lue", nil
+}
+
+// outingByID reads one outing with its participants and unregistrations;
+// calendar.ErrNotFound when the calendar holds no such id.
+func (t *toolbox) outingByID(ctx context.Context, id string) (outingResult, error) {
+	o, err := t.s.calendar.Outing(ctx, id) // one snapshot: a push in between never mixes two exports
+	if err != nil {
+		return outingResult{}, err
 	}
 	out := outingResult{Participants: []participantJSON{}, Desinscriptions: []unregJSON{},
 		Sortie: t.s.eventJSON(o.Event), Import: t.importSource(imports.Calendar, t.s.stateOf(o.Import, o.Imported))}
@@ -1071,7 +1142,7 @@ func (t *toolbox) outing(ctx context.Context, input json.RawMessage) (any, strin
 			Le: t.s.formatTime(u.Time), Par: u.By})
 	}
 	t.addSource(assistant.Source{Label: o.Title, Link: "/calendrier/" + o.ID})
-	return out, "Sortie « " + o.Title + " » lue", nil
+	return out, nil
 }
 
 // --- cancellations
@@ -1091,20 +1162,29 @@ type cancellationsResult struct {
 }
 
 func (t *toolbox) cancellations(ctx context.Context) (any, string, error) {
-	c, err := t.s.payments.Cancellations(ctx)
+	out, err := t.cancelled(ctx)
 	if err != nil {
 		return nil, "", err
 	}
+	return out, "Sorties annulées lues", nil
+}
+
+// cancelled are the cancelled outings whose paid lines await removal.
+func (t *toolbox) cancelled(ctx context.Context) (cancellationsResult, error) {
+	c, err := t.s.payments.Cancellations(ctx)
+	if err != nil {
+		return cancellationsResult{}, err
+	}
 	out := cancellationsResult{Sorties: []cancelledJSON{}}
 	if out.Import, err = t.importOf(ctx, imports.Payments); err != nil {
-		return nil, "", err
+		return cancellationsResult{}, err
 	}
 	for _, o := range c.Outings {
 		out.Sorties = append(out.Sorties, cancelledJSON{Titre: o.Title, Date: t.s.formatDate(o.Starts), Payeurs: o.Persons,
 			Lignes: o.Lines, ParCarnet: euros(o.ByCarnet), EnArgent: euros(o.ByMoney)})
 	}
 	t.addSource(assistant.Source{Label: "Annulations", Link: "/annulations"})
-	return out, "Sorties annulées lues", nil
+	return out, nil
 }
 
 // --- read_fiche
@@ -1168,33 +1248,61 @@ func (t *toolbox) licenceStatus(ctx context.Context, input json.RawMessage) (any
 		return toolProblem{"ref ou numero attendu, un seul des deux"}, licenceRefused, nil
 	}
 	var (
-		rows []licenceRow
-		err  error
-		who  = "licence " + in.Numero
+		person *assistant.Person
+		who    = "licence " + in.Numero
 	)
 	if in.Ref != "" {
 		p, _, _, problem := t.member(input, 0)
 		if problem != nil {
 			return *problem, licenceRefused, nil
 		}
-		who = p.Name
-		if p.Email == "" {
-			return toolProblem{"pas d'adresse mail pour cette personne : demande son numéro de licence au résolveur"}, licenceRefused, nil
-		}
+		person, who = &p, p.Name
+	}
+	out, err := t.licence(ctx, person, in.Numero)
+	switch {
+	case errors.Is(err, errLicenceNoEmail):
+		return toolProblem{"pas d'adresse mail pour cette personne : demande son numéro de licence au résolveur"}, licenceRefused, nil
+	case errors.Is(err, errLicenceNumber):
+		return toolProblem{"numéro de licence attendu, sous la forme A-13-634166"}, licenceRefused, nil
+	case errors.Is(err, errLicenceUnreachable):
+		return toolProblem{"registre de la FFESSM injoignable, dis-le au résolveur"}, "Registre FFESSM injoignable", nil
+	case err != nil:
+		return nil, "", err
+	}
+	return out, "Licence FFESSM de " + who + " lue", nil
+}
+
+// What a licence lookup cannot answer, for its caller to put in words.
+var (
+	errLicenceNoEmail     = errors.New("no address to search the register by")
+	errLicenceNumber      = errors.New("not a licence number")
+	errLicenceUnreachable = errors.New("register unreachable")
+)
+
+// licence reads the register for p, by their address, or for a licence
+// number when p is nil.
+func (t *toolbox) licence(ctx context.Context, p *assistant.Person, numero string) (licenceJSON, error) {
+	var (
+		rows []licenceRow
+		err  error
+	)
+	switch {
+	case p == nil && !licenceNumber.MatchString(numero): // a name here would find homonyms
+		return licenceJSON{}, errLicenceNumber
+	case p == nil:
+		rows, err = t.s.licenceRows(ctx, numero)
+	case p.Email == "":
+		return licenceJSON{}, errLicenceNoEmail
+	default:
 		rows, err = t.s.licenceOf(ctx, p.Email, p.Name)
-	} else {
-		if !licenceNumber.MatchString(in.Numero) { // a name here would find homonyms
-			return toolProblem{"numéro de licence attendu, sous la forme A-13-634166"}, licenceRefused, nil
-		}
-		rows, err = t.s.licenceRows(ctx, in.Numero)
 	}
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil, "", err
+			return licenceJSON{}, err
 		}
-		return toolProblem{"registre de la FFESSM injoignable, dis-le au résolveur"}, "Registre FFESSM injoignable", nil
+		return licenceJSON{}, errLicenceUnreachable
 	}
 	t.addSource(assistant.Source{Label: "Registre FFESSM", Link: "/licences"})
 	sum := t.s.summarize(rows)
-	return licenceJSON{Etat: licenceEtat[sum.State], ValableJusquAu: sum.Until}, "Licence FFESSM de " + who + " lue", nil
+	return licenceJSON{Etat: licenceEtat[sum.State], ValableJusquAu: sum.Until}, nil
 }
