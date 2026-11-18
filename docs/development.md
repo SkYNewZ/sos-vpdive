@@ -35,8 +35,8 @@ the SSE broker. Preserve transaction boundaries and retry behavior.
 Never put personal data, tracking tokens or object keys in logs or spans. Record
 route templates, not raw paths. Encrypt personal data before SQLite or blob
 storage; keep object-store errors behind `internal/blobs` sanitization. Browser
-mutations require Origin validation; import APIs authenticate with bearer tokens
-instead. Do not introduce state-changing GET actions. Preserve
+mutations require Origin validation; import APIs and the MCP routes that
+programs call authenticate with bearer tokens instead. Do not introduce state-changing GET actions. Preserve
 `Referrer-Policy: same-origin`: `no-referrer` breaks form Origin validation.
 
 Committee accounts live in SQLite. `OWNER_USERNAME` controls owner-only account
@@ -187,6 +187,51 @@ with `assistant.Mask`/`MaskJSON`; masking encoded JSON misses escaped boundaries
 Render answers only through `assistant.Render`, neutralizing links and images.
 Never send screenshots or internal notes. Usage journals contain metadata, never
 conversation or request text; show monetary totals only when every call is priced.
+These limits are the assistant's; the MCP server has its own, below.
+
+## MCP Server
+
+`MCP_ENABLED` mounts a read-only MCP server at `/mcp` on the committee host, with
+the OAuth 2.1 authorization server that protects it; off, every route of both
+answers 404. It serves tools only, over stateless Streamable HTTP with JSON
+answers, through `github.com/modelcontextprotocol/go-sdk`. It runs none of the
+app's model features: the client's model works on what the tools return.
+`docs/mcp-flux.svg` draws the sign-in.
+
+Clients are public and name themselves by a client id document on a host of
+`MCP_CLIENT_HOSTS`. That allowlist is the only defence against being sent to
+fetch an internal address: never fetch a document off it or follow a redirect,
+and do not add dynamic registration without an equivalent bound. Authorization
+needs a committee session, PKCE S256 and a redirect URI the document lists,
+character for character (loopback ports aside). A wrong client or redirect URI
+stops on a page, never on a redirect. The consent form answers with a page that
+redirects, not a 303: Chrome applies `form-action 'self'` to the redirects that
+follow a form. Codes and pending consents live in memory, for a minute and ten.
+
+A connection (`mcp_connections`) binds an account, a client and a scope to
+hashed tokens and to the account's credential hash, like a session:
+`RevokeStale` and `Purge` end it, and `verifyAccess` checks the account and the
+expiry on the server's clock at each call. Refresh tokens rotate; a replaced one
+that comes back after `refreshLeeway` ends the connection. `/mcp`,
+`/oauth/token` and the metadata sit before `requireOrigin` and pass
+`refuseAIRobots`: clients call them from their servers, some under an AI
+robot's user agent. A foreign `Origin` on `/mcp` is refused.
+
+Every tool goes through `addTool`: scope check, a span and a log line that name
+the tool and nothing else, `MaskJSONNumbers` on the result. What may leave is
+the owner's decision. Names, amounts, request text, internal notes and email
+addresses leave; phone numbers and bank details are masked; screenshots, fiches
+and stored model output (`summary`, `suggested_category`, `kb_ids`) never leave.
+Do not add a tool that returns them, or one that calls a model. The assistant's
+three-person limit does not apply; the homonym rule does. Tools reuse the
+assistant's bodies (`toolbox`). A person is named by a stateless handle, their
+address or `campagne:` and their name hash, looked up again at each call.
+
+Tools are read-only (`scopeRead`). A write tool needs its own scope, a consent
+screen that says so, `readOnlyHint` false and an owner decision. Tool and field
+descriptions are all the client's model knows of the app:
+`TestMCPEveryToolIsDocumented` fails on a missing one. Describe behaviour;
+never instruct the model.
 
 ## Verification and Tooling
 

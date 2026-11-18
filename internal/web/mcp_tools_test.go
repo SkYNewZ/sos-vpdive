@@ -79,6 +79,7 @@ func TestMCPEveryToolIsDocumented(t *testing.T) {
 		"comite_find_member", "comite_member_payments", "comite_member_outings", "comite_member_membership",
 		"comite_member_licence", "comite_search_licences", "comite_find_outings", "comite_get_outing",
 		"comite_list_cancellations", "comite_list_memberships", "comite_list_anomalies", "comite_import_status",
+		"comite_list_tickets", "comite_get_ticket", "comite_ticket_stats",
 	}, names)
 
 	off, tok := mcpEnv(t)
@@ -111,6 +112,8 @@ func TestMCPToolsAnswerOnAnEmptyDatabase(t *testing.T) {
 		"comite_list_memberships":   nil,
 		"comite_list_anomalies":     nil,
 		"comite_import_status":      nil,
+		"comite_list_tickets":       nil,
+		"comite_ticket_stats":       nil,
 		"comite_search_licences":    {"query": "Bernard Hugo"},
 		"comite_member_licence":     {"numero": "A-13-000001"},
 	} {
@@ -123,6 +126,7 @@ func TestMCPToolsAnswerOnAnEmptyDatabase(t *testing.T) {
 		"comite_member_outings":    {"adherent": "hugo.bernard@example.org"},
 		"comite_member_membership": {"adherent": "hugo.bernard@example.org"},
 		"comite_get_outing":        {"id": "inconnue"},
+		"comite_get_ticket":        {"demande": "CPP-0001"},
 	} {
 		_, refusal := callTool(t, session, name, args)
 		assert.NotEmpty(t, refusal, name)

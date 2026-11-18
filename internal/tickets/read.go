@@ -147,6 +147,20 @@ func (s *Store) Row(ctx context.Context, id int64) (Row, error) {
 	return out[0], nil
 }
 
+// IDByRef returns the id of the confirmed request of ref (CPP-0042);
+// ErrNotFound when none bears it.
+func (s *Store) IDByRef(ctx context.Context, ref string) (int64, error) {
+	var id int64
+	err := s.DB.QueryRowContext(ctx, `SELECT id FROM submitted_tickets WHERE ref = ?`, ref).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, ErrNotFound
+	}
+	if err != nil {
+		return 0, fmt.Errorf("find ticket by ref: %w", err)
+	}
+	return id, nil
+}
+
 // Others lists the other requests of the same address: open first, then newest.
 func (s *Store) Others(ctx context.Context, id int64) ([]Row, error) {
 	rows, err := s.DB.QueryContext(ctx, `SELECT `+rowColumns+` FROM submitted_tickets t

@@ -12,6 +12,10 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 // mcpEnv is a server with the MCP routes on, every import in place and
@@ -187,4 +191,28 @@ func TestMCPLogsToolNameOnly(t *testing.T) {
 		assert.NotContains(t, logs, secret)
 	}
 	assert.Empty(t, e.sentryEvents(t), "a refused call is expected")
+}
+
+// Spec §9.9: spans name routes and tools; a code, a state, a token or an
+// argument never rides on one.
+func TestMCPSpansNameToolsNeverArguments(t *testing.T) {
+	rec := tracetest.NewSpanRecorder()
+	otel.SetTracerProvider(sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec)))
+	t.Cleanup(func() { otel.SetTracerProvider(noop.NewTracerProvider()) })
+	e, tok := mcpEnv(t)
+	_, refusal := callTool(t, e.session(t, tok.AccessToken), "comite_find_member", map[string]any{"query": "hugo.bernard@example.org"})
+	require.Empty(t, refusal)
+
+	names := map[string]bool{}
+	for _, s := range rec.Ended() {
+		names[s.Name()] = true
+		for _, a := range s.Attributes() {
+			for _, secret := range []string{"hugo", clientState, pkceVerifier, tok.AccessToken, tok.RefreshToken, "client.json"} {
+				assert.NotContains(t, a.Value.String(), secret, s.Name())
+			}
+		}
+	}
+	for _, want := range []string{"GET /oauth/authorize", "POST /oauth/authorize", "POST /oauth/token", "/mcp", "mcp.tool"} {
+		assert.True(t, names[want], want)
+	}
 }

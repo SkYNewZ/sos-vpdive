@@ -76,6 +76,7 @@ func (s *Server) newMCPServer() *mcp.Server {
 		Description: "État de chacun des six imports de VPDive (liste des membres, paiements, encaissements Mollie, calendrier, cartes de plongées, campagne d'adhésion) : date du dernier import, auteur (un compte du comité, ou « script » pour l'import automatique), période couverte, nombre de lignes, âge maximal avant rappel et « perime » quand il est dépassé. « passages » liste les 10 derniers passages des 30 derniers jours, réussis ou non, avec leur résultat : « imported » (données remplacées), « unchanged » (fichier identique au précédent), « refused » (fichier refusé par l'outil) ou « failed » (le script n'a pas pu lire VPDive ou envoyer le fichier).",
 	}, mcpCall.importStatus)
 
+	s.addTicketTools(server)
 	if s.licences != nil {
 		addTool(s, server, toolSpec{Name: "comite_member_licence", Title: "Licence FFESSM d'une personne", Scope: scopeRead,
 			Description: "Statut de la licence d'une personne dans le registre de la fédération (FFESSM), interrogé en direct : « valide », « non valide », « introuvable » ou « plusieurs » (plusieurs licences correspondent), avec le dernier jour de validité. Donne soit « adherent » (la recherche se fait par l'adresse mail du membre, puis ne garde que les licences à son nom), soit « numero » (un numéro de licence sous la forme A-13-634166), jamais les deux. Une adresse inconnue du registre répond « introuvable » : la personne peut avoir pris sa licence sous une autre adresse. À ne pas confondre avec la ligne « licence » de comite_member_membership, qui dit si la licence a été payée dans VPDive. 30 recherches par heure au plus par connexion, avec comite_search_licences.",
@@ -126,7 +127,7 @@ func (c mcpCall) memberPeriod(ctx context.Context, in memberPeriodIn, back int) 
 	}
 	from, to, ok := c.s.period(in.Du, in.Au, back)
 	if !ok {
-		return assistant.Person{}, time.Time{}, time.Time{}, refusalError("du et au format AAAA-MM-JJ, du avant au")
+		return assistant.Person{}, time.Time{}, time.Time{}, refusalError("du et au : format AAAA-MM-JJ, du avant au")
 	}
 	return p, from, to, nil
 }
