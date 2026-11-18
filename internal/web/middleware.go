@@ -122,15 +122,21 @@ func securityHeaders(csp string, next http.Handler) http.Handler {
 }
 
 // refuseAIRobots answers 403 to AI robots that announce themselves, except
-// on robots.txt.
+// on robots.txt and, with the MCP server on, on the routes its clients call
+// with a token: an assistant's connector may announce itself as one.
 func (s *Server) refuseAIRobots(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/robots.txt" && s.robots.refuses(r.UserAgent()) {
+		if r.URL.Path != "/robots.txt" && !s.mcpClientPath(r.URL.Path) && s.robots.refuses(r.UserAgent()) {
 			s.writeText(w, r, http.StatusForbidden, "Accès refusé aux robots d'IA.\n")
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// mcpClientPath reports a route MCP clients call from their servers.
+func (s *Server) mcpClientPath(path string) bool {
+	return s.cfg.MCP != nil && (path == mcpPath || path == oauthTokenPath || strings.HasPrefix(path, "/.well-known/oauth-"))
 }
 
 // requireOrigin refuses any mutation whose Origin is not exactly the domain's

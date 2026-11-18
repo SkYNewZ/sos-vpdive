@@ -36,7 +36,8 @@ import (
 
 // Deps are the server's collaborators.
 type Deps struct {
-	Licences licenceSearcher // tests only: replaces the FFESSM client
+	Licences  licenceSearcher // tests only: replaces the FFESSM client
+	OAuthHTTP *http.Client    // tests only: fetches the client id documents
 
 	Config   *config.Config
 	DB       *sql.DB
@@ -96,6 +97,9 @@ type Server struct {
 	convs           *assistant.Store
 	assistantPrompt string
 	titleJobs       sync.WaitGroup
+
+	grants    *oauthGrants // OAuth consents and codes of the MCP server
+	oauthHTTP *http.Client // fetches client id documents
 
 	turnstile *Turnstile
 	limiter   *limiter
@@ -161,6 +165,10 @@ func New(d Deps) (*Server, error) {
 		s.assistant = assistant.NewClient(a)
 		s.convs = assistant.NewStore(d.DB, d.Keys, d.Now)
 		s.assistantPrompt = assistantSystem(d.KB)
+	}
+	s.grants, s.oauthHTTP = newOAuthGrants(d.Now), d.OAuthHTTP
+	if s.oauthHTTP == nil {
+		s.oauthHTTP = newOAuthHTTP()
 	}
 	s.tickets.OnContentDeleted = s.forgetConversations
 	s.chat = newChatRoom(d.Now)
@@ -293,13 +301,21 @@ func (s *Server) adminRoutes() *http.ServeMux {
 		s.handle(mux, "POST /licences", s.signedIn(s.licencesPage))
 		s.handle(mux, "GET /demandes/{id}/licence", s.signedIn(s.ticketLicence))
 	}
+	if s.cfg.MCP != nil {
+		s.handle(mux, "GET "+oauthAuthorizePath, s.oauthAuthorize)
+		s.handle(mux, "POST "+oauthAuthorizePath, s.signedIn(s.oauthDecide))
+		s.handle(mux, "GET "+connectionsPath, s.signedIn(s.connectionsPage))
+		s.handle(mux, "POST "+connectionsPath+"/{id}/revoquer", s.signedIn(s.revokeConnection))
+	}
 	s.handle(mux, "GET /{$}", s.signedIn(s.board))
 	return mux
 }
 
-// apiRoutes puts the pushed import before the committee site: it escapes the
-// session and the Origin check, a script sends neither and its token protects
-// it (spec §11.2). Without IMPORT_TOKEN the route answers 404 (spec §7.6).
+// apiRoutes puts the routes that programs call before the committee site:
+// they escape the session and the Origin check, a program sends neither and
+// its token protects it (spec §11.2). These are the pushed import and, for
+// MCP clients, the token endpoint and the OAuth metadata. A route that is
+// turned off answers 404 (spec §7.6), not the 403 of the Origin check.
 func (s *Server) apiRoutes(site http.Handler) *http.ServeMux {
 	mux := http.NewServeMux()
 	if s.cfg.ImportToken != "" {
@@ -307,6 +323,15 @@ func (s *Server) apiRoutes(site http.Handler) *http.ServeMux {
 		s.handle(mux, "POST /api/imports/{type}/failure", s.apiImportFailure)
 	} else {
 		s.handle(mux, "/api/imports/", s.notFound)
+	}
+	if s.cfg.MCP != nil {
+		s.handle(mux, "POST "+oauthTokenPath, s.oauthToken)
+		s.handle(mux, "GET "+oauthServerMeta, s.oauthServerMetadata)
+		s.handle(mux, "GET "+oauthResourceMeta, s.oauthResourceMetadata)
+		s.handle(mux, "GET "+oauthResourceMeta+mcpPath, s.oauthResourceMetadata)
+	} else {
+		s.handle(mux, mcpPath, s.notFound)
+		s.handle(mux, "/oauth/", s.notFound)
 	}
 	mux.Handle("/", site)
 	return mux

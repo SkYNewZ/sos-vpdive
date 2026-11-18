@@ -195,7 +195,7 @@ func (s *Server) AccountsChanged(ctx context.Context) {
 
 // RevokeStale deletes the sessions whose account is gone or whose password
 // changed, and ends them (endSessions). Their push subscriptions go with
-// them (ON DELETE CASCADE). It runs at startup, for changes made while the
+// them (ON DELETE CASCADE). The MCP connections of those accounts end too. It runs at startup, for changes made while the
 // service was stopped (reset-password, a restored backup), and after every
 // account change.
 func (s *Server) RevokeStale(ctx context.Context) error {
@@ -233,7 +233,7 @@ func (s *Server) RevokeStale(ctx context.Context) error {
 		return err
 	}
 	s.endSessions(gone...)
-	return nil
+	return s.revokeStaleConnections(ctx)
 }
 
 // Purge applies the retention of spec §8.3 to sessions (expired for a day)
@@ -242,6 +242,9 @@ func (s *Server) Purge(ctx context.Context) error {
 	cutoff := s.now().Add(-sessionRetention).Unix()
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE expires_at < ?`, cutoff); err != nil {
 		return fmt.Errorf("purge sessions: %w", err)
+	}
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM mcp_connections WHERE expires_at < ?`, s.now().Unix()); err != nil {
+		return fmt.Errorf("purge connections: %w", err)
 	}
 	for _, query := range []string{`DELETE FROM assistant_usage WHERE at < ?`, `DELETE FROM suggest_usage WHERE at < ?`} {
 		if _, err := s.db.ExecContext(ctx, query, s.now().AddDate(0, -usageRetention, 0).Unix()); err != nil {

@@ -1,0 +1,26 @@
+{{define "head"}}{{with .Data.Retour}}<meta http-equiv="refresh" content="0; url={{.}}">{{end}}{{end}}
+{{define "main"}}
+{{$d := .Data}}
+<div class="panel mx-auto max-w-md p-6">
+{{if $d.Retour}}<h1 class="text-2xl font-bold text-primary">Retour vers {{$d.Client}}</h1>
+<p class="mt-2">Tu y retournes tout de suite. Si rien ne se passe, continue toi-même.</p>
+<p class="mt-4"><a class="btn btn-primary min-h-11" href="{{$d.Retour}}">Continuer vers {{$d.Client}}</a></p>
+{{else if $d.Refus}}<h1 class="text-2xl font-bold text-primary">Connexion impossible</h1>
+<p class="mt-2">{{$d.Refus}}</p>
+{{else}}<h1 class="text-2xl font-bold text-primary">Autoriser {{$d.Client}} ?</h1>
+<p class="mt-2">{{$d.Client}} ({{$d.Host}}) demande à lire les données du comité avec ton compte.</p>
+<div class="mt-4 flex items-center gap-3">{{template "identity" .Account}}</div>
+<ul class="mt-4 list-disc space-y-1 pl-5">
+<li>Lecture seule : l'application ne peut rien modifier.</li>
+<li>Elle lit les demandes avec leurs messages et leurs notes internes, les adhérents, leurs paiements et leurs sorties, les adhésions, les licences et l'état des imports.</li>
+<li>Ce qu'elle lit part chez son éditeur. Les téléphones et les IBAN sont masqués, les captures d'écran ne sont pas envoyées.</li>
+<li>Tu peux retirer cet accès quand tu veux dans « Mon compte », rubrique Connexions.</li>
+</ul>
+<form method="post" action="/oauth/authorize" class="mt-6 flex flex-wrap gap-2">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<input type="hidden" name="demande" value="{{$d.Demande}}">
+<button class="btn btn-primary min-h-11" type="submit" name="action" value="autoriser">Autoriser</button>
+<button class="btn btn-outline min-h-11" type="submit" name="action" value="refuser">Refuser</button>
+</form>
+{{end}}</div>
+{{end}}

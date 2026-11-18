@@ -359,6 +359,33 @@ func TestLoadFFESSMNeedsBothVariables(t *testing.T) {
 	}
 }
 
+func TestLoadMCPIsOffUnlessEnabled(t *testing.T) {
+	c, err := Load(getenv(validEnv()))
+	require.NoError(t, err)
+	assert.Nil(t, c.MCP, "the MCP server is off by default")
+
+	m := validEnv()
+	m["MCP_ENABLED"] = "true"
+	c, err = Load(getenv(m))
+	require.NoError(t, err)
+	assert.Equal(t, &MCP{ClientHosts: []string{"claude.ai", "chatgpt.com"}}, c.MCP)
+
+	m["MCP_CLIENT_HOSTS"] = "Claude.ai, dev.example.org"
+	c, err = Load(getenv(m))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"claude.ai", "dev.example.org"}, c.MCP.ClientHosts)
+
+	m["MCP_CLIENT_HOSTS"] = "https://claude.ai/oauth"
+	_, err = Load(getenv(m))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "MCP_CLIENT_HOSTS")
+
+	m["MCP_ENABLED"] = "false"
+	c, err = Load(getenv(m))
+	require.NoError(t, err, "the hosts are not read while the server is off")
+	assert.Nil(t, c.MCP)
+}
+
 func TestLoadPushRefusals(t *testing.T) {
 	public, private := vapidPair(t, 3)
 	other, _ := vapidPair(t, 4)

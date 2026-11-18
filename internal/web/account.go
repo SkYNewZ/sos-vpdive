@@ -18,8 +18,9 @@ const photoField = "photo"
 
 // accountData feeds templates/compte.html.
 type accountData struct {
-	MinLen int               // shortest password accepted
-	Errors map[string]string // by field: actuel, nouveau, confirmation, photo
+	MinLen     int               // shortest password accepted
+	Errors     map[string]string // by field: actuel, nouveau, confirmation, photo
+	Connexions bool              // the MCP server is on: link to « Connexions »
 }
 
 func (s *Server) accountPage(w http.ResponseWriter, r *http.Request) {
@@ -91,7 +92,7 @@ func (s *Server) renderPhotoError(w http.ResponseWriter, r *http.Request, msg st
 
 func (s *Server) renderAccount(w http.ResponseWriter, r *http.Request, status int, d accountData, n *notice) {
 	sess, _ := sessionFrom(r.Context())
-	d.MinLen = admins.MinPasswordLength
+	d.MinLen, d.Connexions = admins.MinPasswordLength, s.cfg.MCP != nil
 	var p page
 	if sess.account.MustChangePassword { // a temporary password is in place: the page stands alone
 		p = s.newPage(r, "Choisis ton mot de passe")

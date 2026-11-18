@@ -98,7 +98,7 @@ func TestOpenCreatesSchemaAndIsIdempotent(t *testing.T) {
 	assert.Equal(t, []string{
 		"accounts", "assistant_conversations", "assistant_usage", "attachments", "calendar_events", "calendar_participants", "calendar_unregistrations", "campaign_lines", "carnets", "counters",
 		"deflections",
-		"dismissed_checks", "events", "import_runs", "imports", "members", "messages", "meta", "online_payment_lines", "outbox", "payment_lines",
+		"dismissed_checks", "events", "import_runs", "imports", "mcp_connections", "members", "messages", "meta", "online_payment_lines", "outbox", "payment_lines",
 		"push_subscriptions", "sessions", "stats_monthly", "suggest_usage", "tickets",
 	}, tables)
 
