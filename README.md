@@ -407,14 +407,18 @@ assistant works on what the tools return.
 1. Sign in to the committee site, open « Mon compte », then « Voir mes
    connexions », and copy the connector address. It is the committee site's
    address followed by `/mcp`.
-2. In Claude, open the connectors settings, choose « Add custom connector » and
-   paste the address. In ChatGPT, add a custom MCP server from the apps
-   settings and paste the same address.
+2. In Claude, open « Personnaliser », then « Connecteurs », choose « Ajouter »
+   and « Ajouter un connecteur personnalisé », and paste the address. In
+   ChatGPT, open « Plugins », choose « Ajouter » and « Ajouter un serveur MCP
+   personnalisé », paste the same address and leave the authentication on
+   OAuth.
 3. The application opens the committee site in your browser. Sign in if it
    asks, read what the application will be able to read, and choose
    « Autoriser ».
 4. Ask something. « Quelles demandes sont encore ouvertes, et depuis quand ? »
    is a good first question.
+
+![Adding the connector in Claude, the consent screen of the committee site, then an answer with a chart drawn from test data](docs/mcp-connecteur.gif)
 
 To take an application's access away, go back to « Mes connexions » and choose
 « Retirer l'accès ». Changing your password ends all your connections too.

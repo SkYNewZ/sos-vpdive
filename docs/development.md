@@ -196,7 +196,9 @@ the OAuth 2.1 authorization server that protects it; off, every route of both
 answers 404. It serves tools only, over stateless Streamable HTTP with JSON
 answers, through `github.com/modelcontextprotocol/go-sdk`. It runs none of the
 app's model features: the client's model works on what the tools return.
-`docs/mcp-flux.svg` draws the sign-in.
+`docs/mcp-flux.svg` draws the sign-in. `docs/mcp-evaluation.xml` holds ten
+questions with checked answers on the fixtures, to ask an assistant after a
+change to the tools or their descriptions.
 
 Clients are public and name themselves by a client id document on a host of
 `MCP_CLIENT_HOSTS`. That allowlist is the only defence against being sent to
@@ -207,6 +209,19 @@ character for character (loopback ports aside). A wrong client or redirect URI
 stops on a page, never on a redirect. The consent form answers with a page that
 redirects, not a 303: Chrome applies `form-action 'self'` to the redirects that
 follow a form. Codes and pending consents live in memory, for a minute and ten.
+
+Seen from the real clients in November 2026, both through client id documents
+and without dynamic registration:
+
+| Client | Client id document | Redirect URI | User-Agent on `/mcp` | On `/oauth/token` |
+| --- | --- | --- | --- | --- |
+| Claude | `https://claude.ai/oauth/mcp-oauth-client-metadata` | `https://claude.ai/api/mcp/auth_callback` | `Claude-User` | `python-httpx` |
+| Claude Code | `https://claude.ai/oauth/claude-code-client-metadata` | a loopback port | its own | its own |
+| ChatGPT | `https://chatgpt.com/oauth/client.json` | `https://chatgpt.com/connector_platform_oauth_redirect` | `openai-mcp` | `openai-connectors-oauth` |
+
+`Claude-User` is why `refuseAIRobots` lets the MCP paths through. Both clients
+refresh on a 401 without asking the member, and offer to reconnect once the
+connection is revoked.
 
 A connection (`mcp_connections`) binds an account, a client and a scope to
 hashed tokens and to the account's credential hash, like a session:

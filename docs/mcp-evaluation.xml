@@ -1,0 +1,52 @@
+<!--
+  Evaluation of the committee MCP server: ten read-only questions whose answers
+  were checked against the tools on 2026-11-18.
+
+  Data: the synthetic fixtures of testdata/fixtures/ loaded through the import
+  API (members_valid.xlsx, payments_valid.xlsx, vpaydive_valid.xlsx,
+  carnets_valid.json, calendar_view.json, campaign_valid.xlsx), no request
+  filed. Every question names its dates: the tools' default periods follow the
+  clock.
+-->
+<evaluation>
+  <qa_pair>
+    <question>Parmi les sorties annulées qui restent à régulariser, combien faut-il recréditer sur les carnets pour celle de l'Île du Levant ? Réponds par le montant en euros.</question>
+    <answer>90,00 €</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Une ligne des paiements à vérifier est signalée comme paiement partiel. Quel produit concerne-t-elle ?</question>
+    <answer>Formation RIFAP</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Combien de lignes des paiements à vérifier ont été encaissées par Mollie sans être soldées dans VPDive ?</question>
+    <answer>3</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Dans le suivi des adhésions, qui a validé le dossier de Chloé Petit ?</question>
+    <answer>Hugo Bernard</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Dans le suivi des adhésions, une seule personne a un dossier incomplet. Dans quel état est sa licence fédérale ?</question>
+    <answer>Au panier</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Le prix de la carte 10 plongées de hugo.bernard@example.org a été modifié après son ajout au panier. Qui a fait ce changement ?</question>
+    <answer>Alice COMITE</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Un débit de la carte 10 plongées de hugo.bernard@example.org a été recrédité. Pour quelle sortie ?</question>
+    <answer>Sortie Porquerolles</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Entre le 1er et le 30 septembre 2026, une sortie du calendrier a une liste d'attente. Quel adhérent y est inscrit, panier payé ? Réponds par son prénom et son nom.</question>
+    <answer>Noé Durand</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Deux sorties ont été annulées entre le 1er mai et le 30 juin 2026. Combien d'inscrits comptait celle qui a eu lieu un dimanche ?</question>
+    <answer>3</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>La recherche d'adhérent « Martin » renvoie deux homonymes. À quelle date expire la licence de celle qui est inscrite pour la saison 2026 ? Réponds au format JJ/MM/AAAA.</question>
+    <answer>31/12/2026</answer>
+  </qa_pair>
+</evaluation>
