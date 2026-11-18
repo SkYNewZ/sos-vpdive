@@ -133,7 +133,7 @@ func (c *Client) Choose(ctx context.Context, req Request, fiches []Fiche, catego
 		}
 		choices = append(choices, decisionChoiceParam(noArticle, "Aucune fiche ne répond directement au problème décrit."))
 		questions = append(questions, openai.DecisionNewParamsQuestionUnion{OfChoice: &openai.DecisionNewParamsQuestionChoice{
-			Name: openai.String("fiche"), Instructions: decisionInstructions, Choices: choices,
+			Name: openai.String("fiche"), Instructions: openai.DecisionNewParamsQuestionChoiceInstructionsUnion{OfString: openai.String(decisionInstructions)}, Choices: choices,
 		}})
 	}
 	if len(categories) > 0 {
@@ -143,7 +143,7 @@ func (c *Client) Choose(ctx context.Context, req Request, fiches []Fiche, catego
 		}
 		choices = append(choices, decisionChoiceParam(noCategory, "Le texte ne permet pas de proposer une catégorie."))
 		questions = append(questions, openai.DecisionNewParamsQuestionUnion{OfChoice: &openai.DecisionNewParamsQuestionChoice{
-			Name: openai.String("categorie"), Instructions: categoryInstructions, Choices: choices,
+			Name: openai.String("categorie"), Instructions: openai.DecisionNewParamsQuestionChoiceInstructionsUnion{OfString: openai.String(categoryInstructions)}, Choices: choices,
 		}})
 	}
 	var httpResponse *http.Response
