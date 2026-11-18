@@ -84,7 +84,7 @@ func TestMCPListTicketsPaginates(t *testing.T) {
 		"AAAA-MM-JJ":            {"du": "03/09/2026"},
 		"du avant au":           {"du": "2026-09-05", "au": "2026-09-01"},
 		"entiers positifs":      {"offset": -1},
-		"adresse mail invalide": {"email": "deux mots@example.org"},
+		"adresse mail invalide": {"email": "deux\nmots@example.org"},
 	} {
 		_, refusal := callTool(t, session, "comite_list_tickets", args)
 		assert.Contains(t, refusal, want)

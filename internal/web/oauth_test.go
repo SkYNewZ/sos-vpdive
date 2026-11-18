@@ -451,10 +451,25 @@ func TestOAuthReplayedRefreshRevokesTheConnection(t *testing.T) {
 	assert.Zero(t, e.count(t, "mcp_connections"), "a replaced token that comes back late is a stolen one")
 	rec, _ = e.token(t, refreshForm(clientID, second.RefreshToken))
 	assert.Equal(t, "invalid_grant", tokenRefusal(t, rec), "the thief's tokens end with it")
+	assert.Zero(t, e.count(t, "mcp_retired_tokens"))
+
+	// Review finding: a thief who refreshed twice must not outrun the owner.
+	first = e.connect(t, e.login(t), clientID)
+	_, second = e.token(t, refreshForm(clientID, first.RefreshToken))
+	e.clock.advance(refreshLeeway)
+	rec, third := e.token(t, refreshForm(clientID, second.RefreshToken))
+	require.Equal(t, http.StatusOK, rec.Code)
+	e.clock.advance(refreshLeeway)
+	rec, _ = e.token(t, refreshForm(clientID, first.RefreshToken))
+	assert.Equal(t, "invalid_grant", tokenRefusal(t, rec))
+	assert.Zero(t, e.count(t, "mcp_connections"), "any replaced token ends the connection, not only the last")
+	rec, _ = e.token(t, refreshForm(clientID, third.RefreshToken))
+	assert.Equal(t, "invalid_grant", tokenRefusal(t, rec))
 }
 
 func TestOAuthTokenEndpointIsRateLimited(t *testing.T) {
-	e, _ := newMCPEnv(t)
+	e, base := newMCPEnv(t)
+	tok := e.connect(t, e.login(t), base+"/client.json")
 	for range oauthTokenLimit {
 		rec, _ := e.token(t, url.Values{"grant_type": {"refresh_token"}, "refresh_token": {"x"}})
 		require.Equal(t, http.StatusBadRequest, rec.Code)
@@ -462,6 +477,8 @@ func TestOAuthTokenEndpointIsRateLimited(t *testing.T) {
 	rec, _ := e.token(t, url.Values{"grant_type": {"refresh_token"}, "refresh_token": {"x"}})
 	assert.Equal(t, http.StatusTooManyRequests, rec.Code)
 	assert.Equal(t, "3600", rec.Header().Get("Retry-After"))
+	rec, _ = e.token(t, refreshForm(base+"/client.json", tok.RefreshToken))
+	assert.Equal(t, http.StatusOK, rec.Code, "a sound refresh from the same address still gets through")
 }
 
 // Clients read both documents from their servers, some under an AI robot's

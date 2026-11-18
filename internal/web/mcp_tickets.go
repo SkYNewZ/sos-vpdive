@@ -11,6 +11,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/SkYNewZ/sos-vpdive/internal/secure"
 	"github.com/SkYNewZ/sos-vpdive/internal/tickets"
 )
 
@@ -132,7 +133,7 @@ func (c mcpCall) listTickets(ctx context.Context, in listTicketsIn) (ticketsResu
 	}
 	var rows []tickets.Row
 	if email := strings.TrimSpace(in.Email); email != "" {
-		if strings.ContainsFunc(email, func(r rune) bool { return r == ' ' || r == '\t' }) {
+		if _, err := secure.NormalizeEmail(email); err != nil {
 			return ticketsResult{}, refusalError("adresse mail invalide : elle ne doit pas contenir d'espace")
 		}
 		rows, err = s.tickets.ByEmail(ctx, email)

@@ -75,20 +75,10 @@ func Mask(text string, emails []string) (string, []string) {
 }
 
 // MaskNumbers hides phone numbers, IBANs and RIBs and leaves addresses as
-// written, for a reader who may see them. It masks the text between
-// addresses only: a number pattern never bites into one.
+// written, for a reader who may see them. A number glued to an address, or
+// one that is its local part, is masked all the same: the address breaks
+// rather than the number getting through.
 func MaskNumbers(text string) string {
-	var b strings.Builder
-	last := 0
-	for _, loc := range emailPattern.FindAllStringIndex(text, -1) {
-		b.WriteString(maskNumbers(text[last:loc[0]]) + text[loc[0]:loc[1]])
-		last = loc[1]
-	}
-	b.WriteString(maskNumbers(text[last:]))
-	return b.String()
-}
-
-func maskNumbers(text string) string {
 	return phonePattern.ReplaceAllString(maskIBANs(ribPattern.ReplaceAllString(text, "[iban]")), "[téléphone]")
 }
 

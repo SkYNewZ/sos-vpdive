@@ -211,8 +211,10 @@ follow a form. Codes and pending consents live in memory, for a minute and ten.
 A connection (`mcp_connections`) binds an account, a client and a scope to
 hashed tokens and to the account's credential hash, like a session:
 `RevokeStale` and `Purge` end it, and `verifyAccess` checks the account and the
-expiry on the server's clock at each call. Refresh tokens rotate; a replaced one
-that comes back after `refreshLeeway` ends the connection. `/mcp`,
+expiry on the server's clock at each call. Refresh tokens rotate; any replaced
+one (`mcp_retired_tokens`) that comes back after `refreshLeeway` ends the
+connection. The token endpoint counts refused grants only: members of one
+assistant share its servers' addresses. `/mcp`,
 `/oauth/token` and the metadata sit before `requireOrigin` and pass
 `refuseAIRobots`: clients call them from their servers, some under an AI
 robot's user agent. A foreign `Origin` on `/mcp` is refused.
@@ -223,7 +225,9 @@ the owner's decision. Names, amounts, request text, internal notes and email
 addresses leave; phone numbers and bank details are masked; screenshots, fiches
 and stored model output (`summary`, `suggested_category`, `kb_ids`) never leave.
 Do not add a tool that returns them, or one that calls a model. The assistant's
-three-person limit does not apply; the homonym rule does. Tools reuse the
+three-person limit does not apply; the homonym rule does, for the per-person
+tools. The club-wide lists mirror `/adhesions`, `/anomalies` and an outing's
+page, which show a homonym's row with its flag. Tools reuse the
 assistant's bodies (`toolbox`). A person is named by a stateless handle, their
 address or `campagne:` and their name hash, looked up again at each call.
 

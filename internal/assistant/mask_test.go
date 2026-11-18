@@ -295,11 +295,18 @@ func TestMaskNumbersKeepsAddresses(t *testing.T) {
 		"Garde 05/01/2026, CPP-0042, 250 €.", got)
 }
 
-// An address made of a phone number or an IBAN stays whole: masking half of
-// it would leave a broken address and still show the rest.
-func TestMaskNumbersShieldsDigitsInsideAnAddress(t *testing.T) {
-	got := MaskNumbers("0612345678@example.org puis 06 12 34 56 78, fr7630006000011234567890189@example.org")
-	assert.Equal(t, "0612345678@example.org puis [téléphone], fr7630006000011234567890189@example.org", got)
+// Review finding: a number glued to an address must not ride out inside it.
+func TestMaskNumbersMasksDigitsGluedToAnAddress(t *testing.T) {
+	for in, want := range map[string]string{
+		"06.12.34.56.78-jean@club.fr":                "[téléphone]-jean@club.fr",
+		"tel=0612345678/jean@club.fr":                "tel=[téléphone]/jean@club.fr",
+		"+33612345678/jean@club.fr":                  "[téléphone]/jean@club.fr",
+		"FR7630006000011234567890189-jean@club.fr":   "[iban]-jean@club.fr",
+		"0612345678@example.org puis 06 12 34 56 78": "[téléphone]@example.org puis [téléphone]",
+		"jean.dupont2@club.fr, lea+club@example.org": "jean.dupont2@club.fr, lea+club@example.org",
+	} {
+		assert.Equal(t, want, MaskNumbers(in), in)
+	}
 }
 
 func TestMaskJSONNumbers(t *testing.T) {

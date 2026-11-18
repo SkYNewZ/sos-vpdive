@@ -12,9 +12,16 @@ CREATE TABLE mcp_connections (
     access_hash BLOB NOT NULL UNIQUE,
     access_expires_at INTEGER NOT NULL,
     refresh_hash BLOB NOT NULL UNIQUE,
-    previous_refresh_hash BLOB UNIQUE,    -- the token the last refresh replaced: a late replay revokes
     created_at INTEGER NOT NULL,
     last_used_at INTEGER NOT NULL,
     expires_at INTEGER NOT NULL           -- of the refresh token: 30 days after its last use
 );
 CREATE INDEX mcp_connections_username ON mcp_connections (username);
+
+-- Every refresh token a connection replaced. One that comes back later than
+-- a crossed refresh would is a stolen one: it ends the connection.
+CREATE TABLE mcp_retired_tokens (
+    refresh_hash BLOB PRIMARY KEY,
+    connection_id INTEGER NOT NULL REFERENCES mcp_connections(id) ON DELETE CASCADE,
+    retired_at INTEGER NOT NULL
+);

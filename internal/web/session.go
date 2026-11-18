@@ -246,6 +246,10 @@ func (s *Server) Purge(ctx context.Context) error {
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM mcp_connections WHERE expires_at < ?`, s.now().Unix()); err != nil {
 		return fmt.Errorf("purge connections: %w", err)
 	}
+	// A token retired for longer than a connection lives unused names nothing.
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM mcp_retired_tokens WHERE retired_at < ?`, s.now().Add(-connectionTTL).Unix()); err != nil {
+		return fmt.Errorf("purge retired tokens: %w", err)
+	}
 	for _, query := range []string{`DELETE FROM assistant_usage WHERE at < ?`, `DELETE FROM suggest_usage WHERE at < ?`} {
 		if _, err := s.db.ExecContext(ctx, query, s.now().AddDate(0, -usageRetention, 0).Unix()); err != nil {
 			return fmt.Errorf("purge usage: %w", err)

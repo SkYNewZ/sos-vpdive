@@ -70,16 +70,17 @@ func (s *Server) rotateConnection(ctx context.Context, refresh, clientID string)
 	hash, now, refused := secure.TokenHash(refresh), s.now(), false
 	err = store.Tx(ctx, s.db, "mcp.refresh", func(ctx context.Context, tx *sql.Tx) error {
 		var (
-			id                     int64
-			username, client       string
-			credential             []byte
-			expires, accessExpires int64
-			current                bool
+			id               int64
+			username, client string
+			credential       []byte
+			expires          int64
+			retired          sql.NullInt64 // when hash was replaced; NULL for the token in force
 		)
 		err := tx.QueryRowContext(ctx,
-			`SELECT id, username, credential_hash, client_id, expires_at, access_expires_at, refresh_hash = ?
-			 FROM mcp_connections WHERE refresh_hash = ? OR previous_refresh_hash = ?`, hash, hash, hash).
-			Scan(&id, &username, &credential, &client, &expires, &accessExpires, &current)
+			`SELECT c.id, c.username, c.credential_hash, c.client_id, c.expires_at, r.retired_at
+			 FROM mcp_connections c LEFT JOIN mcp_retired_tokens r ON r.connection_id = c.id AND r.refresh_hash = ?
+			 WHERE c.refresh_hash = ? OR r.refresh_hash IS NOT NULL`, hash, hash).
+			Scan(&id, &username, &credential, &client, &expires, &retired)
 		if errors.Is(err, sql.ErrNoRows) {
 			refused = true
 			return nil
@@ -87,22 +88,24 @@ func (s *Server) rotateConnection(ctx context.Context, refresh, clientID string)
 		if err != nil {
 			return err
 		}
-		rotated := time.Unix(accessExpires, 0).Add(-accessTTL)
 		_, live := s.admins.Current(username, credential)
 		refused = true
 		switch {
-		case client != clientID, !current && now.Before(rotated.Add(refreshLeeway)):
+		case client != clientID, retired.Valid && now.Before(time.Unix(retired.Int64, 0).Add(refreshLeeway)):
 			return nil
-		case !current, !live, now.Unix() >= expires:
+		case retired.Valid, !live, now.Unix() >= expires:
 			_, err := tx.ExecContext(ctx, `DELETE FROM mcp_connections WHERE id = ?`, id)
 			return err
 		}
 		refused = false
+		if _, err := tx.ExecContext(ctx, `INSERT INTO mcp_retired_tokens (refresh_hash, connection_id, retired_at) VALUES (?, ?, ?)`,
+			hash, id, now.Unix()); err != nil {
+			return err
+		}
 		_, err = tx.ExecContext(ctx,
-			`UPDATE mcp_connections SET access_hash = ?, access_expires_at = ?, refresh_hash = ?,
-			   previous_refresh_hash = ?, expires_at = ?, last_used_at = ? WHERE id = ?`,
+			`UPDATE mcp_connections SET access_hash = ?, access_expires_at = ?, refresh_hash = ?, expires_at = ?, last_used_at = ? WHERE id = ?`,
 			secure.TokenHash(pair.access), now.Add(accessTTL).Unix(), secure.TokenHash(pair.refresh),
-			hash, now.Add(connectionTTL).Unix(), now.Unix(), id)
+			now.Add(connectionTTL).Unix(), now.Unix(), id)
 		return err
 	})
 	if err != nil {

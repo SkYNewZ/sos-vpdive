@@ -53,7 +53,7 @@ const (
 	clientDocTimeout = 5 * time.Second
 	clientNameMax    = 80 // runes
 	tokenBodyLimit   = 16 << 10
-	oauthTokenLimit  = 60 // token calls per hour and client address
+	oauthTokenLimit  = 60 // refused grants per hour and client address
 )
 
 // adminOrigin is the committee site's origin, the issuer of its tokens.
@@ -73,6 +73,7 @@ type oauthRequest struct {
 	state       string
 	challenge   string
 	username    string // the account the consent screen was shown to
+	credential  []byte // its credential hash then: a password change voids the request
 	expires     time.Time
 }
 
@@ -243,7 +244,8 @@ func (s *Server) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 	}
 	req := oauthRequest{
 		clientID: q.Get("client_id"), clientName: client.name, redirectURI: q.Get("redirect_uri"),
-		state: q.Get("state"), challenge: q.Get("code_challenge"), username: sess.account.Username,
+		state: q.Get("state"), challenge: q.Get("code_challenge"),
+		username: sess.account.Username, credential: sess.account.CredentialHash(),
 	}
 	if !redirectAllowed(client.redirects, req.redirectURI) {
 		s.logger.WarnContext(ctx, "oauth redirect uri refused")
@@ -352,22 +354,15 @@ var errInvalidGrant = errors.New("invalid grant")
 // Clients call it from their servers: no session, no Origin.
 func (s *Server) oauthToken(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	ok, err := s.limiter.allow(ctx, "oauth-token:"+s.clientIP(r).String(), oauthTokenLimit, time.Hour)
-	if err != nil {
-		s.oauthTokenError(w, r, err)
-		return
-	}
-	if !ok {
-		w.Header().Set("Retry-After", "3600")
-		s.writeJSON(w, r, http.StatusTooManyRequests, oauthFailure{Error: "rate_limited"})
-		return
-	}
 	r.Body = http.MaxBytesReader(w, r.Body, tokenBodyLimit)
 	if err := r.ParseForm(); err != nil {
 		s.writeJSON(w, r, http.StatusBadRequest, oauthFailure{Error: "invalid_request"})
 		return
 	}
-	var pair tokenPair
+	var (
+		pair tokenPair
+		err  error
+	)
 	switch r.PostForm.Get("grant_type") {
 	case "authorization_code":
 		pair, err = s.exchangeCode(ctx, r.PostForm)
@@ -379,6 +374,18 @@ func (s *Server) oauthToken(w http.ResponseWriter, r *http.Request) {
 	}
 	switch {
 	case errors.Is(err, errInvalidGrant):
+		// Only refusals count: every member of an assistant shares its
+		// servers' addresses, and a sound refresh must always get through.
+		ok, lerr := s.limiter.allow(ctx, "oauth-token:"+s.clientIP(r).String(), oauthTokenLimit, time.Hour)
+		if lerr != nil {
+			s.oauthTokenError(w, r, lerr)
+			return
+		}
+		if !ok {
+			w.Header().Set("Retry-After", "3600")
+			s.writeJSON(w, r, http.StatusTooManyRequests, oauthFailure{Error: "rate_limited"})
+			return
+		}
 		s.logger.WarnContext(ctx, "oauth grant refused")
 		s.writeJSON(w, r, http.StatusBadRequest, oauthFailure{Error: "invalid_grant"})
 	case err != nil:
@@ -408,7 +415,7 @@ func (s *Server) exchangeCode(ctx context.Context, form url.Values) (tokenPair, 
 		(form.Has("resource") && form.Get("resource") != s.mcpURL()) {
 		return tokenPair{}, errInvalidGrant
 	}
-	a, ok := s.admins.Get(req.username)
+	a, ok := s.admins.Current(req.username, req.credential)
 	if !ok || a.MustChangePassword {
 		return tokenPair{}, errInvalidGrant
 	}

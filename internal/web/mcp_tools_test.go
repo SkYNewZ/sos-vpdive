@@ -303,11 +303,11 @@ func TestMCPMasksPhonesAndIBANsKeepsEmails(t *testing.T) {
 	}
 	got, err := maskNumbers(sample{Ref: "lea@example.org", N: 612345678,
 		Note:  "Écris à lea@example.org ou appelle le 06 12 34 56 78.",
-		Liste: []string{"IBAN FR76 3000 6000 0112 3456 7890 189", "0612345678@example.org"}})
+		Liste: []string{"IBAN FR76 3000 6000 0112 3456 7890 189", "jean.dupont2@example.org"}})
 	require.NoError(t, err)
 	assert.Equal(t, sample{Ref: "lea@example.org", N: 612345678,
 		Note:  "Écris à lea@example.org ou appelle le [téléphone].",
-		Liste: []string{"IBAN [iban]", "0612345678@example.org"}}, got)
+		Liste: []string{"IBAN [iban]", "jean.dupont2@example.org"}}, got)
 }
 
 func TestMCPLicenceTools(t *testing.T) {
