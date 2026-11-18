@@ -420,7 +420,7 @@ assistant works on what the tools return.
 
 ![Adding the connector in Claude, the consent screen of the committee site, then an answer with a chart drawn from test data](docs/mcp-connecteur.gif)
 
-To take an application's access away, go back to « Mes connexions » and choose
+To take an application's access away, go back to « Connexions » and choose
 « Retirer l'accès ». Changing your password ends all your connections too.
 
 ![The sign-in, step by step: the application gets a 401, reads the OAuth metadata, sends the member to the consent screen, exchanges its code for tokens, then calls the tools](docs/mcp-flux.svg)
@@ -443,8 +443,10 @@ What a tool returns goes to the provider of the member's assistant, under the
 member's own Claude or ChatGPT account. Names, amounts, the text of requests,
 internal notes and email addresses are sent as they are. Phone numbers and
 bank details (IBAN or French RIB) are masked by pattern. Screenshots, fiches
-and the summaries written by the app's own models are never sent. A name that
-several people bear returns no payments, outings or membership.
+and the summaries written by the app's own models are never sent. Asked about one person, a name that
+several people bear returns no payments, outings or membership. The lists
+(membership follow-up, payments to check, an outing's participants) show that
+person's row with a homonym flag, as the committee pages do.
 
 #### Operation
 

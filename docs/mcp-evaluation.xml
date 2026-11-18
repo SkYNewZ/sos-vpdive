@@ -5,8 +5,8 @@
   Data: the synthetic fixtures of testdata/fixtures/ loaded through the import
   API (members_valid.xlsx, payments_valid.xlsx, vpaydive_valid.xlsx,
   carnets_valid.json, calendar_view.json, campaign_valid.xlsx), no request
-  filed. Every question names its dates: the tools' default periods follow the
-  clock.
+  filed, so no question covers the request tools. Questions on the calendar
+  name their dates: the tools' default periods follow the clock.
 -->
 <evaluation>
   <qa_pair>
